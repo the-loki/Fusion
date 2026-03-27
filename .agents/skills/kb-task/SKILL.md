@@ -16,6 +16,8 @@ kb is an AI-orchestrated task board. Tasks flow through columns:
 kb task create "description of what needs to be done"
 kb task create "button is misaligned" --attach screenshot.png
 kb task create "server crash" --attach error.log --attach trace.txt
+kb task create "implement caching" --depends KB-042
+kb task create "deploy to prod" --depends KB-042 --depends KB-043
 ```
 
 Creates a task in **triage**. The AI triage agent will specify it into a full
@@ -26,6 +28,8 @@ Options:
 - `--attach <file>` — attach files (images, logs, configs). Repeatable.
   Images are sent to the triage agent for visual context.
   Files are stored in `.kb/tasks/KB-XXX/attachments/`.
+- `--depends <id>` — declare a dependency on another task. Repeatable.
+  The scheduler won't start this task until all dependencies are done.
 
 Tips:
 - Be descriptive — the triage agent uses this to write the spec
@@ -118,4 +122,7 @@ kb task create "button is misaligned on mobile" --attach screenshot.png
 
 # Bug report with logs
 kb task create "server crashes on startup" --attach crash.log
+
+# Task with dependencies — won't start until KB-012 and KB-013 are done
+kb task create "integrate search API into frontend" --depends KB-012 --depends KB-013
 ```
