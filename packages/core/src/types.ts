@@ -184,7 +184,7 @@ export const COLUMN_DESCRIPTIONS: Record<Column, string> = {
 export const VALID_TRANSITIONS: Record<Column, Column[]> = {
   triage: ["todo"],
   todo: ["in-progress", "triage"],
-  "in-progress": ["in-review", "todo"],
+  "in-progress": ["in-review", "todo", "triage"],
   "in-review": ["done", "in-progress"],
   done: [],
 };

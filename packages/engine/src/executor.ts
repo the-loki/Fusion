@@ -40,6 +40,12 @@ const taskCreateParams = Type.Object({
   ),
 });
 
+const taskAddDepParams = Type.Object({
+  task_id: Type.String({ description: "The ID of the task to depend on (e.g. \"KB-001\")" }),
+  confirm: Type.Optional(Type.Boolean({ description: "Set to true to confirm adding the dependency. Required because adding a dep to an in-progress task will stop execution and discard current work." })),
+});
+
+
 const reviewStepParams = Type.Object({
   step: Type.Number({ description: "Step number to review" }),
   type: Type.Union(
@@ -82,6 +88,8 @@ You have tools to report progress. The board updates in real-time.
 When creating multiple related tasks, declare dependencies between them:
 \`task_create(description="load door sounds", dependencies=[])\` → returns KB-050
 \`task_create(description="play sound on door open/close", dependencies=["KB-050"])\`
+
+**Discovered a dependency:** \`task_add_dep(task_id="KB-XXX")\` — use when you discover mid-execution that another task must be completed first. This will return a warning first — you must call again with \`confirm=true\` to proceed. Adding a dependency stops execution, discards current work, and moves the task to triage for re-specification.
 
 ## Cross-model review via review_step tool
 
@@ -150,6 +158,8 @@ export class TaskExecutor {
   private activeSessions = new Map<string, { dispose: () => void }>();
   /** Tasks that were paused mid-execution (to avoid marking them as "failed"). */
   private pausedAborted = new Set<string>();
+  /** Tasks that had a dependency added mid-execution (abort + discard worktree). */
+  private depAborted = new Set<string>();
 
   constructor(
     private store: TaskStore,
@@ -255,6 +265,9 @@ export class TaskExecutor {
 
     executorLog.log(`Starting ${task.id}: ${task.title || task.description.slice(0, 60)}`);
 
+    // Hoist worktreePath so it's accessible in the catch block for dep-abort cleanup
+    let worktreePath = task.worktree || join(this.rootDir, ".worktrees", generateWorktreeName(this.rootDir));
+
     try {
       // Check dependencies
       const allTasks = await this.store.listTasks();
@@ -272,7 +285,6 @@ export class TaskExecutor {
       const branchName = `kb/${task.id.toLowerCase()}`;
       // Use generateWorktreeName for human-friendly directory names (adjective-noun pattern)
       // instead of task.id, so worktrees are named like ".worktrees/swift-falcon"
-      let worktreePath = task.worktree || join(this.rootDir, ".worktrees", generateWorktreeName(this.rootDir));
       let isResume = existsSync(worktreePath);
       let acquiredFromPool = false;
       const settings = await this.store.getSettings();
@@ -355,6 +367,7 @@ export class TaskExecutor {
         this.createTaskUpdateTool(task.id, codeReviewVerdicts, sessionRef, stepCheckpoints),
         this.createTaskLogTool(task.id),
         this.createTaskCreateTool(),
+        this.createTaskAddDepTool(task.id),
         this.createTaskDoneTool(task.id, () => { taskDone = true; }),
         this.createReviewStepTool(task.id, worktreePath, detail.prompt, codeReviewVerdicts, sessionRef, stepCheckpoints),
       ];
@@ -392,6 +405,13 @@ export class TaskExecutor {
           const agentPrompt = buildExecutionPrompt(detail, this.rootDir, settings);
           await session.prompt(agentPrompt);
 
+          // If dependency was added during execution, discard worktree and move to triage
+          if (this.depAborted.has(task.id)) {
+            this.depAborted.delete(task.id);
+            await this.handleDepAbortCleanup(task.id, worktreePath);
+            return;
+          }
+
           // If paused during execution, don't move to in-review
           if (this.pausedAborted.has(task.id)) {
             this.pausedAborted.delete(task.id);
@@ -421,7 +441,11 @@ export class TaskExecutor {
         await agentWork();
       }
     } catch (err: any) {
-      if (this.pausedAborted.has(task.id)) {
+      if (this.depAborted.has(task.id)) {
+        // Dependency added mid-execution — discard worktree and move to triage
+        this.depAborted.delete(task.id);
+        await this.handleDepAbortCleanup(task.id, worktreePath);
+      } else if (this.pausedAborted.has(task.id)) {
         // Task was paused mid-execution — move to todo, don't mark as failed
         executorLog.log(`${task.id} paused — moving to todo`);
         this.pausedAborted.delete(task.id);
@@ -536,6 +560,91 @@ export class TaskExecutor {
           content: [{
             type: "text" as const,
             text: `Created ${task.id}: ${params.description}${deps}`,
+          }],
+          details: {},
+        };
+      },
+    };
+  }
+
+  private createTaskAddDepTool(taskId: string): ToolDefinition {
+    const store = this.store;
+    return {
+      name: "task_add_dep",
+      label: "Add Dependency",
+      description:
+        "Declare a dependency on an existing task. Use when you discover " +
+        "mid-execution that another task must be completed first. " +
+        "Adding a dependency to an in-progress task will stop execution " +
+        "and discard current work, so confirm=true is required. " +
+        "Without confirm=true, a warning is returned first.",
+      parameters: taskAddDepParams,
+      execute: async (_id: string, params: Static<typeof taskAddDepParams>) => {
+        const targetId = params.task_id;
+
+        // Prevent self-dependency
+        if (targetId === taskId) {
+          return {
+            content: [{
+              type: "text" as const,
+              text: `Cannot add self-dependency: ${taskId} cannot depend on itself.`,
+            }],
+            details: {},
+          };
+        }
+
+        // Validate target task exists
+        try {
+          await store.getTask(targetId);
+        } catch {
+          return {
+            content: [{
+              type: "text" as const,
+              text: `Task ${targetId} not found. Cannot add dependency on a non-existent task.`,
+            }],
+            details: {},
+          };
+        }
+
+        // Read current task to get existing dependencies
+        const currentTask = await store.getTask(taskId);
+        const existing = currentTask.dependencies;
+
+        // Dedup check
+        if (existing.includes(targetId)) {
+          return {
+            content: [{
+              type: "text" as const,
+              text: `${targetId} is already a dependency of ${taskId}. No changes made.`,
+            }],
+            details: {},
+          };
+        }
+
+        // Confirmation gate — destructive action for in-progress tasks
+        if (!params.confirm) {
+          return {
+            content: [{
+              type: "text" as const,
+              text: `Warning: adding a dependency to an in-progress task will stop execution and discard current work. Call with confirm=true to proceed.`,
+            }],
+            details: {},
+          };
+        }
+
+        // Add the dependency
+        await store.updateTask(taskId, { dependencies: [...existing, targetId] });
+        await store.logEntry(taskId, `Added dependency on ${targetId} — stopping execution for re-specification`);
+
+        // Trigger abort flow (same pattern as pausedAborted)
+        this.depAborted.add(taskId);
+        const session = this.activeSessions.get(taskId);
+        session?.dispose();
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Added dependency on ${targetId}. Stopping execution — task will move to triage for re-specification.`,
           }],
           details: {},
         };
@@ -720,6 +829,37 @@ export class TaskExecutor {
         }
       },
     };
+  }
+
+  /**
+   * Clean up after a dep-abort: remove worktree, delete branch, move task to triage.
+   * Shared between the try-block (graceful return) and catch-block (error) paths.
+   */
+  private async handleDepAbortCleanup(taskId: string, worktreePath: string): Promise<void> {
+    executorLog.log(`${taskId} dependency added — work discarded, moved to triage for re-specification`);
+
+    // Remove worktree
+    try {
+      execSync(`git worktree remove "${worktreePath}" --force`, { cwd: this.rootDir, stdio: "pipe" });
+    } catch {
+      // Worktree may already be gone
+    }
+
+    // Delete the branch
+    const branch = `kb/${taskId.toLowerCase()}`;
+    try {
+      execSync(`git branch -D "${branch}"`, { cwd: this.rootDir, stdio: "pipe" });
+    } catch {
+      // Branch may not exist
+    }
+
+    // Clear worktree tracking
+    this.activeWorktrees.delete(taskId);
+
+    // Update task: clear worktree and status, move to triage
+    await this.store.updateTask(taskId, { worktree: undefined, status: undefined });
+    await this.store.moveTask(taskId, "triage");
+    await this.store.logEntry(taskId, "Execution stopped — work discarded, moved to triage for re-specification");
   }
 
   // ── Worktree management ────────────────────────────────────────────

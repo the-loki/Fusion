@@ -401,6 +401,66 @@ describe("TaskStore", () => {
     });
   });
 
+  describe("updateTask — auto-move todo to triage on new deps", () => {
+    it("moves a todo task to triage when a new dependency is added", async () => {
+      const task = await store.createTask({ description: "Todo task", column: "todo" });
+      expect(task.column).toBe("todo");
+
+      const updated = await store.updateTask(task.id, { dependencies: ["KB-999"] });
+      expect(updated.column).toBe("triage");
+      expect(updated.status).toBeUndefined();
+
+      // Verify log entry
+      expect(updated.log.some((l: any) => l.action.includes("Moved to triage for re-specification"))).toBe(true);
+
+      // Verify persistence
+      const fetched = await store.getTask(task.id);
+      expect(fetched.column).toBe("triage");
+    });
+
+    it("emits task:moved event with { from: 'todo', to: 'triage' }", async () => {
+      const task = await store.createTask({ description: "Todo task", column: "todo" });
+      const events: any[] = [];
+      store.on("task:moved", (data: any) => events.push(data));
+
+      await store.updateTask(task.id, { dependencies: ["KB-999"] });
+
+      expect(events).toHaveLength(1);
+      expect(events[0].from).toBe("todo");
+      expect(events[0].to).toBe("triage");
+    });
+
+    it("does NOT move when dependencies are removed from a todo task", async () => {
+      const task = await store.createTask({ description: "Todo task", column: "todo", dependencies: ["KB-001"] });
+
+      const updated = await store.updateTask(task.id, { dependencies: [] });
+      expect(updated.column).toBe("todo");
+    });
+
+    it("does NOT move when dependencies are replaced with same set", async () => {
+      const task = await store.createTask({ description: "Todo task", column: "todo", dependencies: ["KB-001"] });
+
+      const updated = await store.updateTask(task.id, { dependencies: ["KB-001"] });
+      expect(updated.column).toBe("todo");
+    });
+
+    it("does NOT move a triage task when dependencies are added", async () => {
+      const task = await store.createTask({ description: "Triage task" });
+      expect(task.column).toBe("triage");
+
+      const updated = await store.updateTask(task.id, { dependencies: ["KB-999"] });
+      expect(updated.column).toBe("triage");
+    });
+
+    it("does NOT move an in-progress task when dependencies are added (handled by executor)", async () => {
+      const task = await store.createTask({ description: "IP task", column: "todo" });
+      await store.moveTask(task.id, "in-progress");
+
+      const updated = await store.updateTask(task.id, { dependencies: ["KB-999"] });
+      expect(updated.column).toBe("in-progress");
+    });
+  });
+
   describe("updateTask — blockedBy", () => {
     it("sets blockedBy to a string value", async () => {
       const task = await store.createTask({ title: "Blocked task", description: "A task" });
@@ -863,6 +923,17 @@ describe("TaskStore", () => {
         "packages/cli/src/commands/dashboard.ts",
         "packages/engine/src/**/*.ts",
       ]);
+    });
+  });
+
+  describe("moveTask — in-progress to triage", () => {
+    it("allows moving an in-progress task to triage", async () => {
+      const task = await store.createTask({ description: "test in-progress to triage" });
+      await store.moveTask(task.id, "todo");
+      await store.moveTask(task.id, "in-progress");
+
+      const moved = await store.moveTask(task.id, "triage");
+      expect(moved.column).toBe("triage");
     });
   });
 

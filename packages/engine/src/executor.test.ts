@@ -2017,3 +2017,317 @@ describe("Plan RETHINK verdict handling", () => {
     );
   });
 });
+
+// ── task_add_dep tool tests ──────────────────────────────────────────
+
+describe("task_add_dep tool", () => {
+  /**
+   * Helper: run executor with a customized mock store and capture custom tools.
+   * The mock store's getTask is configured to:
+   * - Return the executing task (KB-TEST) with configurable dependencies
+   * - Return a target task (KB-OTHER) when requested
+   * - Throw for unknown task IDs
+   */
+  async function captureAddDepTools(opts?: { existingDeps?: string[]; targetExists?: boolean }) {
+    const existingDeps = opts?.existingDeps ?? [];
+    const targetExists = opts?.targetExists ?? true;
+
+    const store = createMockStore();
+    store.getTask.mockImplementation(async (id: string) => {
+      if (id === "KB-TEST") {
+        return {
+          id: "KB-TEST",
+          title: "Test",
+          description: "Test task",
+          column: "in-progress",
+          dependencies: existingDeps,
+          steps: [],
+          currentStep: 0,
+          log: [],
+          prompt: "# test\n## Steps\n### Step 0: Preflight\n- [ ] check",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      if (id === "KB-OTHER" && targetExists) {
+        return {
+          id: "KB-OTHER",
+          title: "Other task",
+          description: "Another task",
+          column: "todo",
+          dependencies: [],
+          steps: [],
+          currentStep: 0,
+          log: [],
+          prompt: "",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      throw new Error(`Task ${id} not found`);
+    });
+
+    store.updateStep.mockResolvedValue({
+      steps: [
+        { name: "Preflight", status: "done" },
+        { name: "Implement", status: "in-progress" },
+      ],
+    });
+
+    mockedExistsSync.mockReturnValue(true);
+
+    let capturedTools: any[] = [];
+    mockedCreateHaiAgent.mockImplementation(async (opts: any) => {
+      capturedTools = opts.customTools || [];
+      return {
+        session: {
+          prompt: vi.fn().mockResolvedValue(undefined),
+          dispose: vi.fn(),
+          sessionManager: {
+            getLeafId: vi.fn().mockReturnValue("leaf-id"),
+            branchWithSummary: vi.fn(),
+          },
+          navigateTree: vi.fn().mockResolvedValue({ cancelled: false }),
+        },
+      } as any;
+    });
+
+    const executor = new TaskExecutor(store, "/tmp/test");
+    await executor.execute({
+      id: "KB-TEST",
+      title: "Test",
+      description: "Test",
+      column: "in-progress",
+      dependencies: existingDeps,
+      steps: [],
+      currentStep: 0,
+      log: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const tools: Record<string, any> = {};
+    for (const t of capturedTools) {
+      tools[t.name] = t.execute;
+    }
+    return { tools, store };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedExistsSync.mockReturnValue(true);
+  });
+
+  it("adds a valid dependency via store.updateTask when confirm=true", async () => {
+    const { tools, store } = await captureAddDepTools();
+
+    const result = await tools.task_add_dep("call1", { task_id: "KB-OTHER", confirm: true });
+
+    expect(result.content[0].text).toContain("Added dependency");
+    expect(result.content[0].text).toContain("triage");
+    expect(store.updateTask).toHaveBeenCalledWith("KB-TEST", {
+      dependencies: ["KB-OTHER"],
+    });
+  });
+
+  it("returns error for self-dependency", async () => {
+    const { tools, store } = await captureAddDepTools();
+
+    const result = await tools.task_add_dep("call1", { task_id: "KB-TEST" });
+
+    expect(result.content[0].text).toContain("Cannot add self-dependency");
+    expect(result.content[0].text).toContain("KB-TEST cannot depend on itself");
+    // store.updateTask should NOT have been called for dependency update
+    // (it may be called for worktree path updates, so we check specifically for dependencies)
+    const depUpdateCalls = store.updateTask.mock.calls.filter(
+      (call: any[]) => call[1]?.dependencies !== undefined,
+    );
+    expect(depUpdateCalls).toHaveLength(0);
+  });
+
+  it("returns error for non-existent target task", async () => {
+    const { tools, store } = await captureAddDepTools({ targetExists: false });
+
+    const result = await tools.task_add_dep("call1", { task_id: "KB-OTHER" });
+
+    expect(result.content[0].text).toContain("KB-OTHER not found");
+    expect(result.content[0].text).toContain("Cannot add dependency on a non-existent task");
+    const depUpdateCalls = store.updateTask.mock.calls.filter(
+      (call: any[]) => call[1]?.dependencies !== undefined,
+    );
+    expect(depUpdateCalls).toHaveLength(0);
+  });
+
+  it("returns informational message for duplicate dependency without duplicating", async () => {
+    const { tools, store } = await captureAddDepTools({ existingDeps: ["KB-OTHER"] });
+
+    const result = await tools.task_add_dep("call1", { task_id: "KB-OTHER" });
+
+    expect(result.content[0].text).toContain("already a dependency");
+    expect(result.content[0].text).toContain("No changes made");
+    const depUpdateCalls = store.updateTask.mock.calls.filter(
+      (call: any[]) => call[1]?.dependencies !== undefined,
+    );
+    expect(depUpdateCalls).toHaveLength(0);
+  });
+
+  it("logs the dependency addition via store.logEntry when confirm=true", async () => {
+    const { tools, store } = await captureAddDepTools();
+
+    await tools.task_add_dep("call1", { task_id: "KB-OTHER", confirm: true });
+
+    expect(store.logEntry).toHaveBeenCalledWith("KB-TEST", "Added dependency on KB-OTHER — stopping execution for re-specification");
+  });
+
+  it("appends to existing dependencies without overwriting when confirm=true", async () => {
+    const { tools, store } = await captureAddDepTools({ existingDeps: ["KB-001"] });
+
+    const result = await tools.task_add_dep("call1", { task_id: "KB-OTHER", confirm: true });
+
+    expect(result.content[0].text).toContain("Added dependency");
+    expect(store.updateTask).toHaveBeenCalledWith("KB-TEST", {
+      dependencies: ["KB-001", "KB-OTHER"],
+    });
+  });
+
+  it("is registered in customTools array", async () => {
+    const { tools } = await captureAddDepTools();
+
+    expect(tools.task_add_dep).toBeDefined();
+    expect(typeof tools.task_add_dep).toBe("function");
+  });
+
+  it("returns warning without confirm=true and does NOT add dependency", async () => {
+    const { tools, store } = await captureAddDepTools();
+
+    const result = await tools.task_add_dep("call1", { task_id: "KB-OTHER" });
+
+    expect(result.content[0].text).toContain("stop execution and discard current work");
+    expect(result.content[0].text).toContain("confirm=true");
+    // Should NOT have updated dependencies
+    const depUpdateCalls = store.updateTask.mock.calls.filter(
+      (call: any[]) => call[1]?.dependencies !== undefined,
+    );
+    expect(depUpdateCalls).toHaveLength(0);
+    // Should NOT have logged any dep addition
+    const logCalls = store.logEntry.mock.calls.filter(
+      (call: any[]) => typeof call[1] === "string" && call[1].includes("Added dependency"),
+    );
+    expect(logCalls).toHaveLength(0);
+  });
+
+  it("validation errors (self-dep, not-found, dedup) return immediately without requiring confirm", async () => {
+    // Self-dep — no confirm needed
+    const { tools: tools1 } = await captureAddDepTools();
+    const selfResult = await tools1.task_add_dep("call1", { task_id: "KB-TEST" });
+    expect(selfResult.content[0].text).toContain("Cannot add self-dependency");
+
+    // Not found — no confirm needed
+    const { tools: tools2 } = await captureAddDepTools({ targetExists: false });
+    const notFoundResult = await tools2.task_add_dep("call1", { task_id: "KB-OTHER" });
+    expect(notFoundResult.content[0].text).toContain("not found");
+
+    // Dedup — no confirm needed
+    const { tools: tools3 } = await captureAddDepTools({ existingDeps: ["KB-OTHER"] });
+    const dedupResult = await tools3.task_add_dep("call1", { task_id: "KB-OTHER" });
+    expect(dedupResult.content[0].text).toContain("already a dependency");
+  });
+
+  it("with confirm=true triggers depAborted and disposes session", async () => {
+    const store = createMockStore();
+    store.getTask.mockImplementation(async (id: string) => {
+      if (id === "KB-DEP") {
+        return {
+          id: "KB-DEP",
+          title: "Test",
+          description: "Test task",
+          column: "in-progress",
+          dependencies: [],
+          steps: [],
+          currentStep: 0,
+          log: [],
+          prompt: "# test\n## Steps\n### Step 0: Preflight\n- [ ] check",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      if (id === "KB-TARGET") {
+        return {
+          id: "KB-TARGET",
+          title: "Target",
+          description: "Target task",
+          column: "todo",
+          dependencies: [],
+          steps: [],
+          currentStep: 0,
+          log: [],
+          prompt: "",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      throw new Error(`Task ${id} not found`);
+    });
+
+    mockedExistsSync.mockReturnValue(true);
+
+    const disposeFn = vi.fn();
+    let capturedTools: any[] = [];
+
+    mockedCreateHaiAgent.mockImplementation(async (opts: any) => {
+      capturedTools = opts.customTools || [];
+      return {
+        session: {
+          prompt: vi.fn().mockImplementation(async () => {
+            // The agent calls task_add_dep with confirm=true during execution
+            const addDepTool = capturedTools.find((t: any) => t.name === "task_add_dep");
+            await addDepTool.execute("call1", { task_id: "KB-TARGET", confirm: true });
+            // After dispose is called, session.prompt throws
+            throw new Error("Session terminated");
+          }),
+          dispose: disposeFn,
+          sessionManager: {
+            getLeafId: vi.fn().mockReturnValue("leaf-id"),
+            branchWithSummary: vi.fn(),
+          },
+          navigateTree: vi.fn().mockResolvedValue({ cancelled: false }),
+        },
+      } as any;
+    });
+
+    const executor = new TaskExecutor(store, "/tmp/test");
+    await executor.execute({
+      id: "KB-DEP",
+      title: "Test",
+      description: "Test",
+      column: "in-progress",
+      dependencies: [],
+      steps: [],
+      currentStep: 0,
+      log: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Worktree removal should have been attempted
+    const worktreeRemoveCalls = mockedExecSync.mock.calls.filter(
+      (c) => typeof c[0] === "string" && (c[0] as string).includes("worktree remove"),
+    );
+    expect(worktreeRemoveCalls.length).toBeGreaterThan(0);
+
+    // Branch deletion should have been attempted
+    const branchDeleteCalls = mockedExecSync.mock.calls.filter(
+      (c) => typeof c[0] === "string" && (c[0] as string).includes("branch -D") && (c[0] as string).includes("kb/kb-dep"),
+    );
+    expect(branchDeleteCalls.length).toBeGreaterThan(0);
+
+    // Task should be moved to triage
+    expect(store.moveTask).toHaveBeenCalledWith("KB-DEP", "triage");
+
+    // Worktree and status should be cleared
+    expect(store.updateTask).toHaveBeenCalledWith("KB-DEP", { worktree: undefined, status: undefined });
+
+    // Task should NOT be marked as failed
+    expect(store.updateTask).not.toHaveBeenCalledWith("KB-DEP", { status: "failed" });
+  });
+});

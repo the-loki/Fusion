@@ -296,7 +296,25 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       if (updates.title !== undefined) task.title = updates.title;
       if (updates.description !== undefined) task.description = updates.description;
       if (updates.worktree !== undefined) task.worktree = updates.worktree;
-      if (updates.dependencies !== undefined) task.dependencies = updates.dependencies;
+      // Detect new dependencies being added to a todo task → auto-move to triage
+      let movedToTriage = false;
+      if (updates.dependencies !== undefined) {
+        const oldDeps = new Set(task.dependencies);
+        const hasNewDeps = updates.dependencies.some((d) => !oldDeps.has(d));
+        task.dependencies = updates.dependencies;
+
+        if (hasNewDeps && task.column === "todo") {
+          const fromColumn = task.column;
+          task.column = "triage";
+          task.status = undefined;
+          task.columnMovedAt = new Date().toISOString();
+          task.log.push({
+            timestamp: new Date().toISOString(),
+            action: "Moved to triage for re-specification — new dependency added",
+          });
+          movedToTriage = true;
+        }
+      }
       if (updates.status === null) {
         task.status = undefined;
       } else if (updates.status !== undefined) {
@@ -322,6 +340,9 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         await writeFile(join(dir, "PROMPT.md"), updates.prompt);
       }
 
+      if (movedToTriage) {
+        this.emit("task:moved", { task, from: "todo" as Column, to: "triage" as Column });
+      }
       this.emit("task:updated", task);
       return task;
     });
