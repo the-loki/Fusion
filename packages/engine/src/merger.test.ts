@@ -55,7 +55,8 @@ function createMockStore(taskOverrides: Partial<Task> = {}, allTasks: Task[] = [
 
 /**
  * Set up execSync to handle the standard merge flow:
- * rev-parse, log, diff, merge --squash, diff --cached, branch -d
+ * rev-parse, log, diff, merge --squash, diff --cached --quiet (squash check),
+ * diff --cached (post-agent verify), branch -d
  */
 function setupHappyPathExecSync() {
   mockedExecSync.mockImplementation((cmd: any) => {
@@ -64,6 +65,9 @@ function setupHappyPathExecSync() {
     if (cmdStr.includes("git log")) return "- feat: something" as any;
     if (cmdStr.includes("git diff") && cmdStr.includes("--stat")) return "1 file changed" as any;
     if (cmdStr.includes("merge --squash")) return Buffer.from("");
+    // Post-squash check: --quiet means "did squash stage anything?" → "1" = yes
+    if (cmdStr.includes("diff --cached --quiet")) return "1" as any;
+    // Post-agent check: "did agent commit?" → "0" = yes
     if (cmdStr.includes("diff --cached")) return "0" as any;
     if (cmdStr.includes("branch -d") || cmdStr.includes("branch -D")) return Buffer.from("");
     if (cmdStr.includes("worktree remove")) return Buffer.from("");
@@ -183,6 +187,68 @@ describe("aiMergeTask — conditional worktree cleanup", () => {
     const result = await aiMergeTask(store, "/tmp/root", "KB-050");
     expect(result.worktreeRemoved).toBe(false);
     expect(result.merged).toBe(true);
+  });
+});
+
+describe("aiMergeTask — empty squash merge (branch already merged via dep)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedExistsSync.mockReturnValue(true);
+  });
+
+  it("skips agent and still completes when squash stages nothing", async () => {
+    mockedExecSync.mockImplementation((cmd: any) => {
+      const cmdStr = String(cmd);
+      if (cmdStr.includes("rev-parse --verify")) return Buffer.from("abc123");
+      if (cmdStr.includes("git log")) return "- feat: something" as any;
+      if (cmdStr.includes("git diff") && cmdStr.includes("--stat")) return "1 file changed" as any;
+      if (cmdStr.includes("merge --squash")) return Buffer.from("");
+      // Squash staged nothing → "0"
+      if (cmdStr.includes("diff --cached --quiet")) return "0" as any;
+      if (cmdStr.includes("branch -d") || cmdStr.includes("branch -D")) return Buffer.from("");
+      if (cmdStr.includes("worktree remove")) return Buffer.from("");
+      return Buffer.from("");
+    });
+
+    const store = createMockStore();
+    const result = await aiMergeTask(store, "/tmp/root", "KB-050");
+
+    expect(result.merged).toBe(true);
+    // Agent should NOT have been spawned
+    expect(mockedCreateHaiAgent).not.toHaveBeenCalled();
+    // Task should still be moved to done
+    expect(store.moveTask).toHaveBeenCalledWith("KB-050", "done");
+  });
+
+  it("still cleans up branch and worktree when squash is empty", async () => {
+    mockedExecSync.mockImplementation((cmd: any) => {
+      const cmdStr = String(cmd);
+      if (cmdStr.includes("rev-parse --verify")) return Buffer.from("abc123");
+      if (cmdStr.includes("git log")) return "- feat: something" as any;
+      if (cmdStr.includes("git diff") && cmdStr.includes("--stat")) return "1 file changed" as any;
+      if (cmdStr.includes("merge --squash")) return Buffer.from("");
+      if (cmdStr.includes("diff --cached --quiet")) return "0" as any;
+      if (cmdStr.includes("branch -d") || cmdStr.includes("branch -D")) return Buffer.from("");
+      if (cmdStr.includes("worktree remove")) return Buffer.from("");
+      return Buffer.from("");
+    });
+
+    const store = createMockStore();
+    const result = await aiMergeTask(store, "/tmp/root", "KB-050");
+
+    // Branch should be deleted
+    const branchDeleteCall = mockedExecSync.mock.calls.find(
+      (call) => String(call[0]).includes("branch -d"),
+    );
+    expect(branchDeleteCall).toBeDefined();
+    expect(result.branchDeleted).toBe(true);
+
+    // Worktree should be removed
+    const worktreeRemoveCall = mockedExecSync.mock.calls.find(
+      (call) => String(call[0]).includes("worktree remove"),
+    );
+    expect(worktreeRemoveCall).toBeDefined();
+    expect(result.worktreeRemoved).toBe(true);
   });
 });
 

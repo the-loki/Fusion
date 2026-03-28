@@ -291,10 +291,11 @@ describe("In-review merge handling after restart", () => {
 
     // Branch exists, merge succeeds, no conflicts
     mockedExecSync.mockImplementation((cmd: any) => {
-      // git diff --cached --quiet check: return "0" (clean)
-      if (typeof cmd === "string" && cmd.includes("git diff --cached")) {
-        return "0" as any;
-      }
+      const cmdStr = String(cmd);
+      // Post-squash check: squash staged changes → "1"
+      if (cmdStr.includes("diff --cached --quiet")) return "1" as any;
+      // Post-agent check: agent committed → "0"
+      if (cmdStr.includes("diff --cached")) return "0" as any;
       return Buffer.from("");
     });
 
@@ -317,9 +318,9 @@ describe("In-review merge handling after restart", () => {
       store.moveTask.mockResolvedValue(makeTask(taskId, "done"));
 
       mockedExecSync.mockImplementation((cmd: any) => {
-        if (typeof cmd === "string" && cmd.includes("git diff --cached")) {
-          return "0" as any;
-        }
+        const cmdStr = String(cmd);
+        if (cmdStr.includes("diff --cached --quiet")) return "1" as any;
+        if (cmdStr.includes("diff --cached")) return "0" as any;
         return Buffer.from("");
       });
       mockAgentSuccess();
@@ -336,9 +337,9 @@ describe("In-review merge handling after restart", () => {
 
     // Branch exists, merge starts, agent creates but prompt fails
     mockedExecSync.mockImplementation((cmd: any) => {
-      if (typeof cmd === "string" && cmd.includes("git diff --cached")) {
-        return "0" as any;
-      }
+      const cmdStr = String(cmd);
+      if (cmdStr.includes("diff --cached --quiet")) return "1" as any;
+      if (cmdStr.includes("diff --cached")) return "0" as any;
       return Buffer.from("");
     });
 
@@ -616,7 +617,12 @@ describe("Crash scenario edge cases", () => {
     const store = createMockStore();
     store.getTask.mockResolvedValue(makeTaskDetail("KB-091", "in-review"));
 
-    mockedExecSync.mockReturnValue(Buffer.from(""));
+    mockedExecSync.mockImplementation((cmd: any) => {
+      const cmdStr = String(cmd);
+      // Post-squash check: squash staged changes → "1"
+      if (cmdStr.includes("diff --cached --quiet")) return "1" as any;
+      return Buffer.from("");
+    });
 
     // Agent prompt rejects (simulating kill during merge)
     mockedCreateHaiAgent.mockResolvedValue({

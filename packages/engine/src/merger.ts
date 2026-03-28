@@ -194,6 +194,19 @@ export async function aiMergeTask(
       cwd: rootDir,
       stdio: "pipe",
     });
+
+    // If the squash staged nothing, the branch's changes are already on main
+    // (e.g. branch was based on a dep that has since been merged). Skip the
+    // agent entirely — there is nothing to commit.
+    const squashIsEmpty = execSync(
+      "git diff --cached --quiet 2>&1; echo $?",
+      { cwd: rootDir, encoding: "utf-8" },
+    ).trim() === "0";
+
+    if (squashIsEmpty) {
+      mergerLog.log(`${taskId}: squash merge staged nothing — branch already merged via dependency`);
+      result.merged = true;
+    }
   } catch {
     // Conflicts or other merge issue — check if it's conflicts
     try {
@@ -220,79 +233,82 @@ export async function aiMergeTask(
     }
   }
 
-  // 5. Spawn pi agent to resolve conflicts (if any) and write commit message
-  await store.updateTask(taskId, { status: "merging" });
+  // 5. Spawn pi agent to resolve conflicts (if any) and write commit message.
+  //    Skip entirely when the squash staged nothing (branch already merged via dep).
+  if (!result.merged) {
+    await store.updateTask(taskId, { status: "merging" });
 
-  mergerLog.log(`${taskId}: ${hasConflicts ? "resolving conflicts + " : ""}writing commit message`);
+    mergerLog.log(`${taskId}: ${hasConflicts ? "resolving conflicts + " : ""}writing commit message`);
 
-  const agentLogger = new AgentLogger({
-    store,
-    taskId,
-    agent: "merger",
-    // Merger callbacks don't include taskId — wrap to match AgentLogger signature
-    onAgentText: options.onAgentText
-      ? (_id, delta) => options.onAgentText!(delta)
-      : undefined,
-    onAgentTool: options.onAgentTool
-      ? (_id, name) => options.onAgentTool!(name)
-      : undefined,
-  });
+    const agentLogger = new AgentLogger({
+      store,
+      taskId,
+      agent: "merger",
+      // Merger callbacks don't include taskId — wrap to match AgentLogger signature
+      onAgentText: options.onAgentText
+        ? (_id, delta) => options.onAgentText!(delta)
+        : undefined,
+      onAgentTool: options.onAgentTool
+        ? (_id, name) => options.onAgentTool!(name)
+        : undefined,
+    });
 
-  // Forward model settings from store so the merger honours the user's model choice
-  const { session } = await createKbAgent({
-    cwd: rootDir,
-    systemPrompt: buildMergeSystemPrompt(includeTaskId),
-    tools: "coding",
-    onText: agentLogger.onText,
-    onThinking: agentLogger.onThinking,
-    onToolStart: agentLogger.onToolStart,
-    onToolEnd: agentLogger.onToolEnd,
-    defaultProvider: settings.defaultProvider,
-    defaultModelId: settings.defaultModelId,
-    defaultThinkingLevel: settings.defaultThinkingLevel,
-  });
-
-  // Notify the caller so it can track/dispose the session externally (e.g. on global pause)
-  options.onSession?.(session);
-
-  try {
-    const prompt = buildMergePrompt(taskId, branch, commitLog, diffStat, hasConflicts);
-    await session.prompt(prompt);
-
-    // Re-raise errors that pi-coding-agent swallowed after exhausting retries.
-    checkSessionError(session);
-
-    // 6. Verify the commit happened — if there are still staged changes, agent didn't commit
-    const staged = execSync("git diff --cached --quiet 2>&1; echo $?", {
+    // Forward model settings from store so the merger honours the user's model choice
+    const { session } = await createKbAgent({
       cwd: rootDir,
-      encoding: "utf-8",
-    }).trim();
+      systemPrompt: buildMergeSystemPrompt(includeTaskId),
+      tools: "coding",
+      onText: agentLogger.onText,
+      onThinking: agentLogger.onThinking,
+      onToolStart: agentLogger.onToolStart,
+      onToolEnd: agentLogger.onToolEnd,
+      defaultProvider: settings.defaultProvider,
+      defaultModelId: settings.defaultModelId,
+      defaultThinkingLevel: settings.defaultThinkingLevel,
+    });
 
-    if (staged !== "0") {
-      mergerLog.log("Agent didn't commit — committing with fallback message");
-      const escapedLog = commitLog.replace(/"/g, '\\"');
-      const fallbackPrefix = includeTaskId ? `feat(${taskId})` : "feat";
-      execSync(
-        `git commit -m "${fallbackPrefix}: merge ${branch}" -m "${escapedLog}"`,
-        { cwd: rootDir, stdio: "pipe" },
-      );
-    }
+    // Notify the caller so it can track/dispose the session externally (e.g. on global pause)
+    options.onSession?.(session);
 
-    result.merged = true;
-  } catch (err: any) {
-    // Agent failed — try to abort the merge
-    mergerLog.error(`Agent failed: ${err.message}`);
-    // Check if the error is a usage-limit error and trigger global pause
-    if (options.usageLimitPauser && isUsageLimitError(err.message)) {
-      await options.usageLimitPauser.onUsageLimitHit("merger", taskId, err.message);
-    }
     try {
-      execSync("git reset --merge", { cwd: rootDir, stdio: "pipe" });
-    } catch { /* */ }
-    throw new Error(`AI merge failed for ${taskId}: ${err.message}`);
-  } finally {
-    await agentLogger.flush();
-    session.dispose();
+      const prompt = buildMergePrompt(taskId, branch, commitLog, diffStat, hasConflicts);
+      await session.prompt(prompt);
+
+      // Re-raise errors that pi-coding-agent swallowed after exhausting retries.
+      checkSessionError(session);
+
+      // 6. Verify the commit happened — if there are still staged changes, agent didn't commit
+      const staged = execSync("git diff --cached --quiet 2>&1; echo $?", {
+        cwd: rootDir,
+        encoding: "utf-8",
+      }).trim();
+
+      if (staged !== "0") {
+        mergerLog.log("Agent didn't commit — committing with fallback message");
+        const escapedLog = commitLog.replace(/"/g, '\\"');
+        const fallbackPrefix = includeTaskId ? `feat(${taskId})` : "feat";
+        execSync(
+          `git commit -m "${fallbackPrefix}: merge ${branch}" -m "${escapedLog}"`,
+          { cwd: rootDir, stdio: "pipe" },
+        );
+      }
+
+      result.merged = true;
+    } catch (err: any) {
+      // Agent failed — try to abort the merge
+      mergerLog.error(`Agent failed: ${err.message}`);
+      // Check if the error is a usage-limit error and trigger global pause
+      if (options.usageLimitPauser && isUsageLimitError(err.message)) {
+        await options.usageLimitPauser.onUsageLimitHit("merger", taskId, err.message);
+      }
+      try {
+        execSync("git reset --merge", { cwd: rootDir, stdio: "pipe" });
+      } catch { /* */ }
+      throw new Error(`AI merge failed for ${taskId}: ${err.message}`);
+    } finally {
+      await agentLogger.flush();
+      session.dispose();
+    }
   }
 
   // 7. Delete branch (always per-task, regardless of worktree sharing)
