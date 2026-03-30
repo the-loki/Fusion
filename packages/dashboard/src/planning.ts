@@ -4,9 +4,13 @@
  * Manages AI-guided planning sessions for interactive task creation.
  * Sessions are stored in-memory with TTL cleanup.
  * 
- * NOTE: AI Agent integration is stubbed for now. When integrating with
- * the real AI agent, update createSession and submitResponse to use
- * createKbAgent from "@kb/engine".
+ * Features:
+ * - AI agent integration with real-time streaming via SSE
+ * - Rate limiting per IP
+ * - Session expiration and cleanup
+ * 
+ * NOTE: AI Agent integration uses createKbAgent from "@kb/engine" for
+ * real-time planning conversations with thinking output streaming.
  */
 
 import type {
@@ -15,8 +19,9 @@ import type {
   PlanningResponse,
   TaskStore,
 } from "@kb/core";
-import { createKbAgent } from "@kb/engine";
+import { createKbAgent, type AgentResult } from "@kb/engine";
 import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -50,7 +55,16 @@ When ready to complete, generate:
 - A detailed description with context gathered
 - Size estimate (S/M/L) based on scope
 - Any suggested dependencies on existing tasks
-- Key deliverables as a checklist`;
+- Key deliverables as a checklist
+
+## Response Format
+Always respond with valid JSON in one of these formats:
+
+For questions:
+{\n  "type": "question",\n  "data": {\n    "id": "unique-id",\n    "type": "text|single_select|multi_select|confirm",\n    "question": "The question text",\n    "description": "Helpful context",\n    "options": [{"id": "opt1", "label": "Option 1", "description": "Details"}]\n  }\n}
+
+For completion:
+{\n  "type": "complete",\n  "data": {\n    "title": "Task title",\n    "description": "Detailed description",\n    "suggestedSize": "S|M|L",\n    "suggestedDependencies": [],\n    "keyDeliverables": ["Item 1", "Item 2"]\n  }\n}`;
 
 /** Session TTL in milliseconds (30 minutes) */
 const SESSION_TTL_MS = 30 * 60 * 1000;
@@ -66,6 +80,17 @@ const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
+/** SSE event types for planning session streaming */
+export type PlanningStreamEvent =
+  | { type: "thinking"; data: string }
+  | { type: "question"; data: PlanningQuestion }
+  | { type: "summary"; data: PlanningSummary }
+  | { type: "error"; data: string }
+  | { type: "complete" };
+
+/** Callback function for streaming events */
+export type PlanningStreamCallback = (event: PlanningStreamEvent) => void;
+
 interface Session {
   id: string;
   ip: string;
@@ -73,6 +98,12 @@ interface Session {
   history: Array<{ question: PlanningQuestion; response: unknown }>;
   currentQuestion?: PlanningQuestion;
   summary?: PlanningSummary;
+  /** AI agent session for real-time interaction */
+  agent?: AgentResult;
+  /** Callback for streaming events to SSE clients */
+  streamCallback?: PlanningStreamCallback;
+  /** Accumulated thinking output for display */
+  thinkingOutput: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -131,6 +162,78 @@ const cleanupInterval = setInterval(cleanupExpiredSessions, CLEANUP_INTERVAL_MS)
 process.on("beforeExit", () => {
   clearInterval(cleanupInterval);
 });
+
+// ── Planning Stream Manager ─────────────────────────────────────────────────
+
+/**
+ * Manages SSE connections for active planning sessions.
+ * Each session can have multiple connected clients receiving streaming updates.
+ */
+export class PlanningStreamManager extends EventEmitter {
+  private sessions = new Map<string, Set<PlanningStreamCallback>>();
+
+  /**
+   * Register a client callback for a planning session.
+   * Returns a function to unsubscribe.
+   */
+  subscribe(sessionId: string, callback: PlanningStreamCallback): () => void {
+    if (!this.sessions.has(sessionId)) {
+      this.sessions.set(sessionId, new Set());
+    }
+    
+    const callbacks = this.sessions.get(sessionId)!;
+    callbacks.add(callback);
+
+    // Return unsubscribe function
+    return () => {
+      callbacks.delete(callback);
+      if (callbacks.size === 0) {
+        this.sessions.delete(sessionId);
+      }
+    };
+  }
+
+  /**
+   * Broadcast an event to all clients subscribed to a session.
+   */
+  broadcast(sessionId: string, event: PlanningStreamEvent): void {
+    const callbacks = this.sessions.get(sessionId);
+    if (!callbacks) return;
+
+    for (const callback of callbacks) {
+      try {
+        callback(event);
+      } catch (err) {
+        console.error(`[planning] Error broadcasting to client for session ${sessionId}:`, err);
+      }
+    }
+  }
+
+  /**
+   * Check if a session has active subscribers.
+   */
+  hasSubscribers(sessionId: string): boolean {
+    const callbacks = this.sessions.get(sessionId);
+    return callbacks !== undefined && callbacks.size > 0;
+  }
+
+  /**
+   * Get the number of subscribers for a session.
+   */
+  getSubscriberCount(sessionId: string): number {
+    return this.sessions.get(sessionId)?.size ?? 0;
+  }
+
+  /**
+   * Clean up all subscriptions for a session.
+   */
+  cleanupSession(sessionId: string): void {
+    this.sessions.delete(sessionId);
+  }
+}
+
+/** Singleton instance of the planning stream manager */
+export const planningStreamManager = new PlanningStreamManager();
 
 // ── Rate Limiting ───────────────────────────────────────────────────────────
 
@@ -397,7 +500,8 @@ function generateSummary(session: Session): PlanningSummary {
 
 /**
  * Create a new planning session.
- * Returns session ID and first question (stubbed for now - AI integration in future).
+ * Uses stubbed AI logic for immediate response (no streaming).
+ * For streaming AI responses, use createSessionWithAgent.
  */
 export async function createSession(
   ip: string,
@@ -416,7 +520,7 @@ export async function createSession(
 
   const sessionId = randomUUID();
 
-  // Generate first question based on initial plan (stub - AI will do this in future)
+  // Generate first question based on initial plan (stub - maintains backward compatibility)
   const firstQuestion = generateFirstQuestion(initialPlan);
 
   const session: Session = {
@@ -425,6 +529,7 @@ export async function createSession(
     initialPlan,
     history: [],
     currentQuestion: firstQuestion,
+    thinkingOutput: "",
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -435,8 +540,170 @@ export async function createSession(
 }
 
 /**
+ * Create a new planning session with AI agent streaming.
+ * This initializes an AI agent that will stream thinking output via SSE.
+ * 
+ * @param ip - Client IP for rate limiting
+ * @param initialPlan - The user's initial plan description
+ * @param rootDir - Project root directory for AI agent context
+ * @returns Session ID (use with planningStreamManager to receive events)
+ */
+export async function createSessionWithAgent(
+  ip: string,
+  initialPlan: string,
+  rootDir: string
+): Promise<string> {
+  // Check rate limit
+  if (!checkRateLimit(ip)) {
+    const resetTime = getRateLimitResetTime(ip);
+    throw new RateLimitError(
+      `Rate limit exceeded. Maximum ${MAX_SESSIONS_PER_IP_PER_HOUR} planning sessions per hour. ` +
+        `Reset at ${resetTime?.toISOString() || "unknown"}`
+    );
+  }
+
+  const sessionId = randomUUID();
+
+  const session: Session = {
+    id: sessionId,
+    ip,
+    initialPlan,
+    history: [],
+    thinkingOutput: "",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  sessions.set(sessionId, session);
+
+  // Initialize AI agent in background - it will stream via planningStreamManager
+  initializeAgent(session, rootDir).catch((err) => {
+    console.error(`[planning] Failed to initialize agent for session ${sessionId}:`, err);
+    planningStreamManager.broadcast(sessionId, {
+      type: "error",
+      data: err.message || "Failed to initialize AI agent",
+    });
+  });
+
+  return sessionId;
+}
+
+/**
+ * Initialize the AI agent for a session and start the first turn.
+ */
+async function initializeAgent(session: Session, rootDir: string): Promise<void> {
+  try {
+    const agentResult = await createKbAgent({
+      cwd: rootDir,
+      systemPrompt: PLANNING_SYSTEM_PROMPT,
+      tools: "readonly",
+      onThinking: (delta) => {
+        session.thinkingOutput += delta;
+        planningStreamManager.broadcast(session.id, {
+          type: "thinking",
+          data: delta,
+        });
+      },
+      onText: (delta) => {
+        // Capture AI response text - will be parsed at end of turn
+        session.thinkingOutput += delta;
+      },
+    });
+
+    session.agent = agentResult;
+    session.updatedAt = new Date();
+
+    // Send initial message to get first question
+    await continueAgentConversation(session, session.initialPlan);
+  } catch (err) {
+    console.error(`[planning] Agent initialization error for session ${session.id}:`, err);
+    planningStreamManager.broadcast(session.id, {
+      type: "error",
+      data: err instanceof Error ? err.message : "Failed to initialize AI agent",
+    });
+  }
+}
+
+/**
+ * Continue the AI conversation with a user message.
+ */
+async function continueAgentConversation(session: Session, message: string): Promise<void> {
+  if (!session.agent) {
+    throw new InvalidSessionStateError("AI agent not initialized");
+  }
+
+  try {
+    // Clear thinking output for this turn
+    const previousThinking = session.thinkingOutput;
+    session.thinkingOutput = "";
+
+    // Send message to agent - it will stream thinking via onThinking callback
+    const response = await session.agent.session.send(message);
+
+    // Combine any thinking output with the response text
+    const fullResponse = session.thinkingOutput + (response?.text || "");
+
+    // Parse the JSON response
+    const parsed = parseAgentResponse(fullResponse);
+
+    if (parsed.type === "question") {
+      session.currentQuestion = parsed.data;
+      session.updatedAt = new Date();
+      planningStreamManager.broadcast(session.id, {
+        type: "question",
+        data: parsed.data,
+      });
+    } else if (parsed.type === "complete") {
+      session.summary = parsed.data;
+      session.currentQuestion = undefined;
+      session.updatedAt = new Date();
+      planningStreamManager.broadcast(session.id, {
+        type: "summary",
+        data: parsed.data,
+      });
+      planningStreamManager.broadcast(session.id, { type: "complete" });
+    }
+  } catch (err) {
+    console.error(`[planning] Agent conversation error for session ${session.id}:`, err);
+    planningStreamManager.broadcast(session.id, {
+      type: "error",
+      data: err instanceof Error ? err.message : "AI processing failed",
+    });
+  }
+}
+
+/**
+ * Parse agent response JSON, with error handling.
+ */
+function parseAgentResponse(text: string): PlanningResponse {
+  // Try to extract JSON from the response (AI might wrap in markdown code blocks)
+  const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/) || 
+                    text.match(/\{[\s\S]*\}/);
+  
+  const jsonText = jsonMatch ? jsonMatch[1] || jsonMatch[0] : text;
+  
+  try {
+    const parsed = JSON.parse(jsonText.trim());
+    
+    // Validate structure
+    if (parsed.type === "question" && parsed.data) {
+      return parsed as PlanningResponse;
+    }
+    if (parsed.type === "complete" && parsed.data) {
+      return parsed as PlanningResponse;
+    }
+    
+    // If structure is invalid, treat as error
+    throw new Error("Invalid response structure from AI");
+  } catch (err) {
+    console.error("[planning] Failed to parse agent response:", text);
+    throw new Error(`Failed to parse AI response: ${err instanceof Error ? err.message : "Unknown error"}`);
+  }
+}
+
+/**
  * Submit a response to the current question and get the next question or summary.
- * Stubbed - AI integration will be implemented in future.
+ * Supports both stubbed mode and AI agent mode.
  */
 export async function submitResponse(
   sessionId: string,
@@ -457,7 +724,22 @@ export async function submitResponse(
     response: responses,
   });
 
-  // Generate next question or summary (stub - AI will do this in future)
+  // If AI agent is active, use it for next question
+  if (session.agent) {
+    const message = formatResponseForAgent(session.currentQuestion, responses);
+    await continueAgentConversation(session, message);
+    
+    // Return the current state (will be updated via SSE)
+    if (session.summary) {
+      return { type: "complete", data: session.summary };
+    }
+    if (session.currentQuestion) {
+      return { type: "question", data: session.currentQuestion };
+    }
+    return { type: "question", data: generateFirstQuestion(session.initialPlan) };
+  }
+
+  // Stubbed mode: generate next question or summary
   const result = generateNextQuestionOrSummary(session);
 
   if (result.type === "question") {
@@ -473,6 +755,44 @@ export async function submitResponse(
 }
 
 /**
+ * Format user response as a message for the AI agent.
+ */
+function formatResponseForAgent(
+  question: PlanningQuestion,
+  responses: Record<string, unknown>
+): string {
+  const responseValue = responses[question.id];
+  
+  switch (question.type) {
+    case "text":
+      return `Question: ${question.question}\n\nAnswer: ${responseValue}`;
+    
+    case "single_select":
+      if (typeof responseValue === "string") {
+        const option = question.options?.find((o) => o.id === responseValue);
+        return `Question: ${question.question}\n\nSelected: ${option?.label || responseValue}`;
+      }
+      return `Question: ${question.question}\n\nAnswer: ${responseValue}`;
+    
+    case "multi_select":
+      if (Array.isArray(responseValue)) {
+        const selected = responseValue.map((id) => {
+          const option = question.options?.find((o) => o.id === id);
+          return option?.label || id;
+        });
+        return `Question: ${question.question}\n\nSelected: ${selected.join(", ")}`;
+      }
+      return `Question: ${question.question}\n\nAnswer: ${responseValue}`;
+    
+    case "confirm":
+      return `Question: ${question.question}\n\nAnswer: ${responseValue === true ? "Yes" : "No"}`;
+    
+    default:
+      return `Question: ${question.question}\n\nAnswer: ${JSON.stringify(responseValue)}`;
+  }
+}
+
+/**
  * Cancel and cleanup a planning session.
  */
 export async function cancelSession(sessionId: string): Promise<void> {
@@ -480,6 +800,19 @@ export async function cancelSession(sessionId: string): Promise<void> {
   if (!session) {
     throw new SessionNotFoundError(`Planning session ${sessionId} not found or expired`);
   }
+
+  // Cleanup AI agent if present
+  if (session.agent) {
+    try {
+      session.agent.session.dispose?.();
+    } catch (err) {
+      console.error(`[planning] Error disposing agent for session ${sessionId}:`, err);
+    }
+    session.agent = undefined;
+  }
+
+  // Cleanup SSE subscriptions
+  planningStreamManager.cleanupSession(sessionId);
 
   sessions.delete(sessionId);
 }
@@ -509,6 +842,15 @@ export function getSummary(sessionId: string): PlanningSummary | undefined {
  * Cleanup a session (used after task creation).
  */
 export function cleanupSession(sessionId: string): void {
+  const session = sessions.get(sessionId);
+  if (session?.agent) {
+    try {
+      session.agent.session.dispose?.();
+    } catch {
+      // Ignore errors during cleanup
+    }
+  }
+  planningStreamManager.cleanupSession(sessionId);
   sessions.delete(sessionId);
 }
 
@@ -516,8 +858,19 @@ export function cleanupSession(sessionId: string): void {
  * Reset all planning state. Used for testing only.
  */
 export function __resetPlanningState(): void {
+  // Cleanup all agent sessions
+  for (const [id, session] of sessions) {
+    if (session.agent) {
+      try {
+        session.agent.session.dispose?.();
+      } catch {
+        // Ignore errors during cleanup
+      }
+    }
+  }
   sessions.clear();
   rateLimits.clear();
+  planningStreamManager.removeAllListeners();
 }
 
 // ── Custom Errors ───────────────────────────────────────────────────────────

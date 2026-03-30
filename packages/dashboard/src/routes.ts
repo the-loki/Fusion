@@ -2284,6 +2284,81 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
   });
 
   /**
+   * GET /api/planning/:sessionId/stream
+   * SSE endpoint for real-time planning session updates.
+   * Streams thinking output, questions, summaries, and errors.
+   * 
+   * Event types:
+   * - thinking: AI thinking output chunks
+   * - question: New question to display
+   * - summary: Planning summary when complete
+   * - error: Error message
+   * - complete: Stream completed
+   */
+  router.get("/planning/:sessionId/stream", async (req, res) => {
+    const { sessionId } = req.params;
+
+    // Set SSE headers
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+
+    // Send initial connection confirmation
+    res.write(": connected\n\n");
+
+    try {
+      const { planningStreamManager, getSession, SessionNotFoundError } = await import("./planning.js");
+      
+      // Verify session exists
+      const session = getSession(sessionId);
+      if (!session) {
+        res.write(`event: error\ndata: ${JSON.stringify({ message: "Session not found or expired" })}\n\n`);
+        res.end();
+        return;
+      }
+
+      // Subscribe to session events
+      const unsubscribe = planningStreamManager.subscribe(sessionId, (event) => {
+        try {
+          res.write(`event: ${event.type}\ndata: ${JSON.stringify(event.data ?? {})}\n\n`);
+          
+          // End stream on complete or error
+          if (event.type === "complete" || event.type === "error") {
+            unsubscribe();
+            res.end();
+          }
+        } catch (err) {
+          // Client disconnected
+          unsubscribe();
+        }
+      });
+
+      // Handle client disconnect
+      req.on("close", () => {
+        unsubscribe();
+      });
+
+      // Send heartbeat every 30s to keep connection alive
+      const heartbeat = setInterval(() => {
+        if (res.writableEnded) {
+          clearInterval(heartbeat);
+          return;
+        }
+        res.write(": heartbeat\n\n");
+      }, 30_000);
+
+      req.on("close", () => {
+        clearInterval(heartbeat);
+      });
+    } catch (err: any) {
+      res.write(`event: error\ndata: ${JSON.stringify({ message: err.message || "Stream error" })}\n\n`);
+      res.end();
+    }
+  });
+
+  /**
    * GET /api/usage
    * Fetch AI provider subscription usage (Claude, Codex, Gemini).
    * Returns: { providers: ProviderUsage[] }
