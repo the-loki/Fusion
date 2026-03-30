@@ -285,3 +285,83 @@ export async function runTaskMove(id: string, column: string) {
   console.log(`  ✓ Moved ${task.id} → ${COLUMN_LABELS[task.column as Column]}`);
   console.log();
 }
+
+// ── GitHub Issue Import ───────────────────────────────────────────
+
+export interface GitHubIssue {
+  number: number;
+  title: string;
+  body: string | null;
+  html_url: string;
+  labels: Array<{ name: string }>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FetchGitHubIssuesOptions {
+  limit?: number;
+  labels?: string[];
+  since?: string;
+}
+
+export async function fetchGitHubIssues(
+  owner: string,
+  repo: string,
+  options: FetchGitHubIssuesOptions = {}
+): Promise<GitHubIssue[]> {
+  const { limit = 30, labels, since } = options;
+  const token = process.env.GITHUB_TOKEN;
+
+  // Build query parameters - only open issues, no PRs
+  const params = new URLSearchParams();
+  params.append("state", "open");
+  params.append("per_page", String(Math.min(limit, 100)));
+  if (labels && labels.length > 0) {
+    params.append("labels", labels.join(","));
+  }
+  if (since) {
+    params.append("since", since);
+  }
+
+  const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues?${params}`;
+
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "kb-cli/1.0",
+  };
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const response = await fetch(url, {
+      headers,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error(`Repository not found or not accessible: ${owner}/${repo}`);
+      }
+      if (response.status === 401 || response.status === 403) {
+        throw new Error(
+          `Authentication failed or rate limited. ${
+            token ? "Check your GITHUB_TOKEN." : "Set GITHUB_TOKEN env var."
+          }`
+        );
+      }
+      throw new Error(`GitHub API error: ${response.status} ${response.statusText}`);
+    }
+
+    // Filter out pull requests (they have a pull_request property)
+    const issues = (await response.json()) as GitHubIssue[];
+    return issues.filter((issue) => !("pull_request" in issue && issue.pull_request)).slice(0, limit);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
