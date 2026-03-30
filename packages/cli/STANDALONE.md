@@ -24,6 +24,7 @@ Launch the web UI and AI engine:
 kb dashboard
 kb dashboard --port 8080
 kb dashboard --paused        # Start with automation paused (review before work begins)
+kb dashboard --dev           # Start web UI only (no AI engine)
 ```
 
 ### Create a task

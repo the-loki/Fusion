@@ -729,7 +729,118 @@ describe("runDashboard — --paused flag", () => {
   });
 });
 
-// ── Merge conflict retry logic tests ────────────────────────────────────
+describe("runDashboard — --dev mode", () => {
+  let mockStore: ReturnType<typeof makeMockStore>;
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(async () => {
+    capturedExecutorOpts = undefined;
+    vi.clearAllMocks();
+    mockStore = makeMockStore();
+    const { TaskStore } = await import("@kb/core");
+    (TaskStore as ReturnType<typeof vi.fn>).mockImplementation(() => mockStore);
+    const engine = await import("@kb/engine");
+    (engine.aiMergeTask as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      Promise.resolve({ merged: true }),
+    );
+    (engine.TaskExecutor as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (_store: unknown, _cwd: unknown, opts: unknown) => {
+        capturedExecutorOpts = opts as Record<string, unknown>;
+        return { resumeOrphaned: vi.fn().mockResolvedValue(undefined) };
+      },
+    );
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+  });
+
+  it("does NOT start TriageProcessor in dev mode", async () => {
+    const { TriageProcessor } = await import("@kb/engine");
+    await runDashboard(0, { open: false, dev: true });
+    expect(TriageProcessor).not.toHaveBeenCalled();
+  });
+
+  it("does NOT start TaskExecutor in dev mode", async () => {
+    const { TaskExecutor } = await import("@kb/engine");
+    await runDashboard(0, { open: false, dev: true });
+    expect(TaskExecutor).not.toHaveBeenCalled();
+  });
+
+  it("does NOT start Scheduler in dev mode", async () => {
+    const { Scheduler } = await import("@kb/engine");
+    await runDashboard(0, { open: false, dev: true });
+    expect(Scheduler).not.toHaveBeenCalled();
+  });
+
+  it("starts the server correctly in dev mode", async () => {
+    const { createServer } = await import("@kb/dashboard");
+    await runDashboard(4040, { open: false, dev: true });
+
+    // Wait for async 'listening' event
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Server should have been created and listen called
+    expect(createServer).toHaveBeenCalled();
+    expect(mockListen).toHaveBeenCalledWith(4040);
+
+    // Banner should show the port
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("http://localhost:4040"),
+    );
+  });
+
+  it("shows 'AI engine: disabled (dev mode)' in dev mode", async () => {
+    await runDashboard(0, { open: false, dev: true });
+
+    // Wait for async 'listening' event
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Should show disabled message
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("✗ disabled (dev mode)"),
+    );
+  });
+
+  it("does NOT show triage/scheduler details in dev mode", async () => {
+    await runDashboard(0, { open: false, dev: true });
+
+    // Wait for async 'listening' event
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Should NOT show triage/scheduler details
+    const triageCall = consoleSpy.mock.calls.find(
+      (call) => typeof call[0] === "string" && call[0].includes("• triage"),
+    );
+    const schedulerCall = consoleSpy.mock.calls.find(
+      (call) => typeof call[0] === "string" && call[0].includes("• scheduler"),
+    );
+    expect(triageCall).toBeUndefined();
+    expect(schedulerCall).toBeUndefined();
+  });
+
+  it("starts all engine components when dev is false (default)", async () => {
+    const { TriageProcessor, TaskExecutor, Scheduler } = await import("@kb/engine");
+    await runDashboard(0, { open: false });
+
+    expect(TriageProcessor).toHaveBeenCalled();
+    expect(TaskExecutor).toHaveBeenCalled();
+    expect(Scheduler).toHaveBeenCalled();
+  });
+
+  it("shows 'AI engine: ✓ active' when not in dev mode", async () => {
+    await runDashboard(0, { open: false });
+
+    // Wait for async 'listening' event
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Should show active message
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("✓ active"),
+    );
+  });
+});
 
 describe("runDashboard — merge conflict retry logic", () => {
   let mockStore: ReturnType<typeof makeMockStore>;

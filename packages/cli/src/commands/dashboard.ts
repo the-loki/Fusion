@@ -13,7 +13,7 @@ function openBrowser(url: string): void {
   exec(cmd, () => {});
 }
 
-export async function runDashboard(port: number, opts: { open?: boolean; paused?: boolean } = {}) {
+export async function runDashboard(port: number, opts: { open?: boolean; paused?: boolean; dev?: boolean } = {}) {
   const cwd = process.cwd();
   const store = new TaskStore(cwd);
   await store.init();
@@ -244,8 +244,8 @@ export async function runDashboard(port: number, opts: { open?: boolean; paused?
   // Start the web server with AI merge, auth, and model registry wired in
   const app = createServer(store, { onMerge, authStorage, modelRegistry });
 
-  // Start the AI engine
-  {
+  // Start the AI engine (unless in dev mode)
+  if (!opts.dev) {
     const triage = new TriageProcessor(store, cwd, {
       semaphore,
       usageLimitPauser,
@@ -381,6 +381,14 @@ export async function runDashboard(port: number, opts: { open?: boolean; paused?
     });
   }
 
+  // Dev mode: simplified SIGINT handler (no engine components)
+  if (opts.dev) {
+    process.on("SIGINT", () => {
+      store.stopWatching();
+      process.exit(0);
+    });
+  }
+
   const server = app.listen(port);
 
   server.on("error", (err: NodeJS.ErrnoException) => {
@@ -406,9 +414,13 @@ export async function runDashboard(port: number, opts: { open?: boolean; paused?
     console.log();
     console.log(`  Tasks stored in .kb/tasks/`);
     console.log(`  Merge:      AI-assisted (conflict resolution + commit messages)`);
-    console.log(`  AI engine:  ✓ active`);
-    console.log(`    • triage: auto-specifying tasks`);
-    console.log(`    • scheduler: dependency-aware execution`);
+    if (opts.dev) {
+      console.log(`  AI engine:  ✗ disabled (dev mode)`);
+    } else {
+      console.log(`  AI engine:  ✓ active`);
+      console.log(`    • triage: auto-specifying tasks`);
+      console.log(`    • scheduler: dependency-aware execution`);
+    }
     console.log(`  File watcher: ✓ active`);
     console.log(`  Press Ctrl+C to stop`);
     console.log();
