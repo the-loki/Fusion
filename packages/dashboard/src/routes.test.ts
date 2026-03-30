@@ -763,6 +763,343 @@ describe("Pause/Unpause endpoints", () => {
       expect(res.body.error).toBe("Database error");
     });
   });
+
+  // --- PR Management route tests ---
+
+  describe("POST /tasks/:id/pr/create", () => {
+    let store: TaskStore;
+
+    beforeEach(() => {
+      store = createMockStore({
+        getTask: vi.fn(),
+        updatePrInfo: vi.fn(),
+        logEntry: vi.fn().mockResolvedValue(undefined),
+        getRootDir: vi.fn().mockReturnValue("/fake/root"),
+      });
+    });
+
+    function buildApp() {
+      const app = express();
+      app.use(express.json());
+      app.use("/api", createApiRoutes(store));
+      return app;
+    }
+
+    const mockPrInfo = {
+      url: "https://github.com/owner/repo/pull/42",
+      number: 42,
+      status: "open" as const,
+      title: "Test PR",
+      headBranch: "kb/kb-001",
+      baseBranch: "main",
+      commentCount: 0,
+    };
+
+    const mockInReviewTask = {
+      ...FAKE_TASK_DETAIL,
+      column: "in-review" as const,
+      prInfo: undefined,
+    };
+
+    it("returns 400 if task is not in in-review column", async () => {
+      (store.getTask as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ...FAKE_TASK_DETAIL,
+        column: "in-progress",
+      });
+
+      const res = await REQUEST(
+        buildApp(),
+        "POST",
+        "/api/tasks/KB-001/pr/create",
+        JSON.stringify({ title: "Test PR" }),
+        { "Content-Type": "application/json" }
+      );
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain("in-review");
+    });
+
+    it("returns 409 if task already has a PR", async () => {
+      (store.getTask as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ...FAKE_TASK_DETAIL,
+        column: "in-review",
+        prInfo: mockPrInfo,
+      });
+
+      const res = await REQUEST(
+        buildApp(),
+        "POST",
+        "/api/tasks/KB-001/pr/create",
+        JSON.stringify({ title: "Test PR" }),
+        { "Content-Type": "application/json" }
+      );
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toContain("already has PR");
+    });
+
+    it("returns 400 if title is missing", async () => {
+      (store.getTask as ReturnType<typeof vi.fn>).mockResolvedValue(mockInReviewTask);
+
+      const res = await REQUEST(
+        buildApp(),
+        "POST",
+        "/api/tasks/KB-001/pr/create",
+        JSON.stringify({}),
+        { "Content-Type": "application/json" }
+      );
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain("title is required");
+    });
+
+    it("returns 429 when rate limit exceeded", { timeout: 15000 }, async () => {
+      // Set up GITHUB_REPOSITORY env to bypass git lookup
+      const originalEnv = process.env.GITHUB_REPOSITORY;
+      process.env.GITHUB_REPOSITORY = "owner/rate-test";
+
+      // Create a fresh store mock for this test to isolate rate limit state
+      const freshStore = createMockStore({
+        getTask: vi.fn(),
+        updatePrInfo: vi.fn(),
+        logEntry: vi.fn().mockResolvedValue(undefined),
+        getRootDir: vi.fn().mockReturnValue("/fake/root"),
+      });
+
+      function buildFreshApp() {
+        const app = express();
+        app.use(express.json());
+        app.use("/api", createApiRoutes(freshStore));
+        return app;
+      }
+
+      // Make 60 requests to hit the rate limit
+      const app = buildFreshApp();
+      for (let i = 0; i < 60; i++) {
+        (freshStore.getTask as ReturnType<typeof vi.fn>).mockResolvedValue({
+          ...mockInReviewTask,
+          id: `KB-RATE-${i}`,
+        });
+        await REQUEST(
+          app,
+          "POST",
+          `/api/tasks/KB-RATE-${i}/pr/create`,
+          JSON.stringify({ title: `Test PR ${i}` }),
+          { "Content-Type": "application/json" }
+        );
+      }
+
+      // 61st request should be rate limited
+      (freshStore.getTask as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ...mockInReviewTask,
+        id: "KB-RATE-61",
+      });
+
+      const res = await REQUEST(
+        app,
+        "POST",
+        "/api/tasks/KB-RATE-61/pr/create",
+        JSON.stringify({ title: "Test PR 61" }),
+        { "Content-Type": "application/json" }
+      );
+
+      expect(res.status).toBe(429);
+      expect(res.body.error).toContain("rate limit exceeded");
+      expect(res.body.resetAt).toBeDefined();
+
+      // Restore env
+      if (originalEnv) {
+        process.env.GITHUB_REPOSITORY = originalEnv;
+      } else {
+        delete process.env.GITHUB_REPOSITORY;
+      }
+    });
+
+    it("returns 404 for non-existent task", async () => {
+      // Create error with proper ENOENT code
+      const error = new Error("ENOENT: task not found") as NodeJS.ErrnoException;
+      error.code = "ENOENT";
+      error.errno = -2;
+      (store.getTask as ReturnType<typeof vi.fn>).mockRejectedValue(error);
+
+      const res = await REQUEST(
+        buildApp(),
+        "POST",
+        "/api/tasks/KB-999/pr/create",
+        JSON.stringify({ title: "Test PR" }),
+        { "Content-Type": "application/json" }
+      );
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toContain("not found");
+    });
+  });
+
+  describe("GET /tasks/:id/pr/status", () => {
+    let store: TaskStore;
+
+    beforeEach(() => {
+      store = createMockStore({
+        getTask: vi.fn(),
+        getRootDir: vi.fn().mockReturnValue("/fake/root"),
+      });
+    });
+
+    function buildApp() {
+      const app = express();
+      app.use(express.json());
+      app.use("/api", createApiRoutes(store));
+      return app;
+    }
+
+    const mockPrInfo = {
+      url: "https://github.com/owner/repo/pull/42",
+      number: 42,
+      status: "open" as const,
+      title: "Test PR",
+      headBranch: "kb/kb-001",
+      baseBranch: "main",
+      commentCount: 3,
+    };
+
+    it("returns cached PR info when available", async () => {
+      (store.getTask as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ...FAKE_TASK_DETAIL,
+        prInfo: mockPrInfo,
+        updatedAt: new Date().toISOString(),
+      });
+
+      const res = await GET(buildApp(), "/api/tasks/KB-001/pr/status");
+
+      expect(res.status).toBe(200);
+      expect(res.body.prInfo).toEqual(mockPrInfo);
+      expect(res.body.stale).toBe(false);
+    });
+
+    it("returns 404 when task has no PR", async () => {
+      (store.getTask as ReturnType<typeof vi.fn>).mockResolvedValue(FAKE_TASK_DETAIL);
+
+      const res = await GET(buildApp(), "/api/tasks/KB-001/pr/status");
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toContain("no associated PR");
+    });
+
+    it("returns 404 for non-existent task", async () => {
+      const error = new Error("Task not found") as Error & { code?: string };
+      error.code = "ENOENT";
+      (store.getTask as ReturnType<typeof vi.fn>).mockRejectedValue(error);
+
+      const res = await GET(buildApp(), "/api/tasks/KB-999/pr/status");
+
+      expect(res.status).toBe(404);
+    });
+
+    it("marks data as stale when older than 5 minutes", async () => {
+      const oldDate = new Date(Date.now() - 6 * 60 * 1000).toISOString(); // 6 minutes ago
+      (store.getTask as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ...FAKE_TASK_DETAIL,
+        prInfo: mockPrInfo,
+        updatedAt: oldDate,
+      });
+
+      const res = await GET(buildApp(), "/api/tasks/KB-001/pr/status");
+
+      expect(res.status).toBe(200);
+      expect(res.body.stale).toBe(true);
+    });
+
+    it("uses lastCheckedAt for staleness check when available", async () => {
+      const recentUpdate = new Date().toISOString();
+      const oldCheck = new Date(Date.now() - 6 * 60 * 1000).toISOString(); // 6 minutes ago
+      (store.getTask as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ...FAKE_TASK_DETAIL,
+        prInfo: { ...mockPrInfo, lastCheckedAt: oldCheck },
+        updatedAt: recentUpdate,
+      });
+
+      const res = await GET(buildApp(), "/api/tasks/KB-001/pr/status");
+
+      expect(res.status).toBe(200);
+      // Should be stale because lastCheckedAt is old, even though updatedAt is recent
+      expect(res.body.stale).toBe(true);
+    });
+
+    it("marks data as fresh when lastCheckedAt is recent", async () => {
+      const recentCheck = new Date(Date.now() - 2 * 60 * 1000).toISOString(); // 2 minutes ago
+      (store.getTask as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ...FAKE_TASK_DETAIL,
+        prInfo: { ...mockPrInfo, lastCheckedAt: recentCheck },
+        updatedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(), // 10 minutes ago
+      });
+
+      const res = await GET(buildApp(), "/api/tasks/KB-001/pr/status");
+
+      expect(res.status).toBe(200);
+      // Should be fresh because lastCheckedAt is recent, even though updatedAt is old
+      expect(res.body.stale).toBe(false);
+    });
+  });
+
+  describe("POST /tasks/:id/pr/refresh", () => {
+    let store: TaskStore;
+
+    beforeEach(() => {
+      store = createMockStore({
+        getTask: vi.fn(),
+        updatePrInfo: vi.fn(),
+        getRootDir: vi.fn().mockReturnValue("/fake/root"),
+      });
+    });
+
+    function buildApp() {
+      const app = express();
+      app.use(express.json());
+      app.use("/api", createApiRoutes(store));
+      return app;
+    }
+
+    const mockPrInfo = {
+      url: "https://github.com/owner/repo/pull/42",
+      number: 42,
+      status: "open" as const,
+      title: "Test PR",
+      headBranch: "kb/kb-001",
+      baseBranch: "main",
+      commentCount: 3,
+    };
+
+    it("returns 404 when task has no PR", async () => {
+      (store.getTask as ReturnType<typeof vi.fn>).mockResolvedValue(FAKE_TASK_DETAIL);
+
+      const res = await REQUEST(
+        buildApp(),
+        "POST",
+        "/api/tasks/KB-001/pr/refresh",
+        JSON.stringify({}),
+        { "Content-Type": "application/json" }
+      );
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toContain("no associated PR");
+    });
+
+    it("returns 404 for non-existent task", async () => {
+      const error = new Error("Task not found") as Error & { code?: string };
+      error.code = "ENOENT";
+      (store.getTask as ReturnType<typeof vi.fn>).mockRejectedValue(error);
+
+      const res = await REQUEST(
+        buildApp(),
+        "POST",
+        "/api/tasks/KB-999/pr/refresh",
+        JSON.stringify({}),
+        { "Content-Type": "application/json" }
+      );
+
+      expect(res.status).toBe(404);
+    });
+  });
 });
 
 // --- GitHub Import route tests ---

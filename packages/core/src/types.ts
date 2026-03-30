@@ -5,6 +5,20 @@ export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 export const COLUMNS = ["triage", "todo", "in-progress", "in-review", "done"] as const;
 export type Column = (typeof COLUMNS)[number];
 
+export type PrStatus = "open" | "closed" | "merged";
+
+export interface PrInfo {
+  url: string;
+  number: number;
+  status: PrStatus;
+  title: string;
+  headBranch: string;
+  baseBranch: string;
+  commentCount: number;
+  lastCommentAt?: string;
+  lastCheckedAt?: string;
+}
+
 export type StepStatus = "pending" | "in-progress" | "done" | "skipped";
 
 export interface TaskStep {
@@ -81,6 +95,8 @@ export interface Task {
   baseBranch?: string;
   attachments?: TaskAttachment[];
   steeringComments?: SteeringComment[];
+  /** PR information for tasks linked to GitHub pull requests */
+  prInfo?: PrInfo;
   log: TaskLogEntry[];
   size?: "S" | "M" | "L";
   reviewLevel?: number;
@@ -141,6 +157,9 @@ export interface Settings {
    *  Defaults to `"KB"`. Only affects new tasks — existing tasks retain
    *  their original IDs. */
   taskPrefix?: string;
+  /** Whether GitHub token is configured for PR operations (read-only, set by server).
+   *  When false, PR creation features are disabled in the UI. */
+  githubTokenConfigured?: boolean;
   /** When true, merge commit messages include the task ID as the conventional
    *  commit scope (e.g. `feat(KB-001): ...`). When false, the scope is
    *  omitted (e.g. `feat: ...`). Default: true. */

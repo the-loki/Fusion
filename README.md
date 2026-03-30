@@ -210,6 +210,31 @@ KB_CLIENT_DIR=/path/to/client ./kb dashboard
 
 **Prerequisites:** Bun ≥ 1.0 (`bun --version`)
 
+## GitHub Integration
+
+### PR Creation from Dashboard
+
+kb can create GitHub Pull Requests directly from the dashboard for tasks in the **In Review** column:
+
+1. Set the `GITHUB_TOKEN` environment variable with a personal access token (requires `repo` scope)
+2. Open a task in the **In Review** column
+3. Click **"Create PR"** in the Pull Request section
+4. Enter a title and optional description
+5. The PR is created and linked to the task automatically
+
+The dashboard shows real-time PR status (open, closed, merged) with a refresh button to fetch the latest state from GitHub.
+
+### PR Comment Monitoring
+
+When a task has a linked PR, kb automatically monitors it for new review comments:
+
+- **Adaptive polling**: Checks every 30 seconds when active, 5 minutes when idle
+- **Actionable feedback detection**: Filters out "LGTM" and "Thanks" comments, detects requests like "fix", "change", "update"
+- **Steering comments**: Automatically adds actionable review feedback as steering comments on the task
+- **Follow-up tasks**: When a PR is closed with unaddressed feedback, a follow-up task is created
+
+Configure via the same `GITHUB_TOKEN` environment variable.
+
 ## Releases
 
 Packages are published to npm automatically via GitHub Actions and [changesets](https://github.com/changesets/changesets).

@@ -1024,6 +1024,57 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   }
 
   /**
+   * Update or clear PR information for a task.
+   * Updates task.json atomically and emits `task:updated` event.
+   *
+   * @param id - The task ID
+   * @param prInfo - The PR info to set, or null to clear
+   * @returns The updated task
+   */
+  async updatePrInfo(
+    id: string,
+    prInfo: import("./types.js").PrInfo | null,
+  ): Promise<Task> {
+    return this.withTaskLock(id, async () => {
+      const dir = this.taskDir(id);
+      const task = await this.readTaskJson(dir);
+
+      const prevPrNumber = task.prInfo?.number;
+      const prevPrStatus = task.prInfo?.status;
+
+      if (prInfo) {
+        task.prInfo = prInfo;
+        task.log.push({
+          timestamp: new Date().toISOString(),
+          action: "PR linked",
+          outcome: `PR #${prInfo.number}: ${prInfo.url}`,
+        });
+      } else {
+        task.prInfo = undefined;
+        if (prevPrNumber) {
+          task.log.push({
+            timestamp: new Date().toISOString(),
+            action: "PR unlinked",
+            outcome: `PR #${prevPrNumber} removed`,
+          });
+        }
+      }
+
+      task.updatedAt = new Date().toISOString();
+
+      await this.atomicWriteTaskJson(dir, task);
+      if (this.watcher) this.taskCache.set(id, { ...task });
+
+      // Only emit if PR info actually changed
+      if (prevPrNumber !== prInfo?.number || prevPrStatus !== prInfo?.status) {
+        this.emit("task:updated", task);
+      }
+
+      return task;
+    });
+  }
+
+  /**
    * Read all historical agent log entries for a task from its agent log file.
    * Returns entries in chronological order (oldest first).
    *

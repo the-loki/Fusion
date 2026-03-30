@@ -32,6 +32,7 @@ function AppInner() {
     }
     return "board";
   });
+  const [githubTokenConfigured, setGithubTokenConfigured] = useState(false);
   const { tasks, createTask, moveTask, deleteTask, mergeTask, retryTask } = useTasks();
 
   useEffect(() => {
@@ -43,6 +44,7 @@ function AppInner() {
         setAutoMerge(!!s.autoMerge);
         setGlobalPaused(!!s.globalPause);
         setEnginePaused(!!s.enginePaused);
+        setGithubTokenConfigured(!!s.githubTokenConfigured);
       })
       .catch(() => {/* keep default */});
     fetchAuthStatus()
@@ -167,6 +169,7 @@ function AppInner() {
           onMergeTask={mergeTask}
           onRetryTask={retryTask}
           addToast={addToast}
+          githubTokenConfigured={githubTokenConfigured}
         />
       )}
       {settingsOpen && (

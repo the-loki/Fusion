@@ -205,3 +205,41 @@ export interface GitRemote {
 export function fetchGitRemotes(): Promise<GitRemote[]> {
   return api<GitRemote[]>("/git/remotes");
 }
+
+// --- PR Management API ---
+
+/** PR info returned by PR endpoints */
+export interface PrInfo {
+  url: string;
+  number: number;
+  status: "open" | "closed" | "merged";
+  title: string;
+  headBranch: string;
+  baseBranch: string;
+  commentCount: number;
+  lastCommentAt?: string;
+  lastCheckedAt?: string;
+}
+
+/** Create a GitHub PR for a task */
+export function createPr(
+  id: string,
+  params: { title: string; body?: string; base?: string }
+): Promise<PrInfo> {
+  return api<PrInfo>(`/tasks/${id}/pr/create`, {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+/** Fetch cached PR status for a task */
+export function fetchPrStatus(id: string): Promise<{ prInfo: PrInfo; stale: boolean }> {
+  return api<{ prInfo: PrInfo; stale: boolean }>(`/tasks/${id}/pr/status`);
+}
+
+/** Force refresh PR status from GitHub */
+export function refreshPrStatus(id: string): Promise<PrInfo> {
+  return api<PrInfo>(`/tasks/${id}/pr/refresh`, {
+    method: "POST",
+  });
+}

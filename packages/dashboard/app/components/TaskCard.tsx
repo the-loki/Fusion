@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Link, Clock, Layers } from "lucide-react";
+import { Link, Clock, Layers, GitPullRequest } from "lucide-react";
 import type { Task, TaskDetail, Column } from "@kb/core";
 import { fetchTaskDetail, uploadAttachment } from "../api";
 import type { ToastType } from "../hooks/useToast";
@@ -126,6 +126,34 @@ export function TaskCard({ task, queued, onOpenDetail, addToast, globalPaused }:
             }
           >
             {task.status}
+          </span>
+        )}
+        {/* PR Status Indicator for in-review tasks */}
+        {task.column === "in-review" && task.prInfo && (
+          <span
+            className="card-pr-badge"
+            title={`PR #${task.prInfo.number}: ${task.prInfo.status}`}
+            style={{
+              background: task.prInfo.status === "merged"
+                ? "rgba(188,140,255,0.2)"
+                : task.prInfo.status === "closed"
+                  ? "rgba(139,148,158,0.2)"
+                  : "rgba(63,185,80,0.2)",
+              color: task.prInfo.status === "merged"
+                ? "#bc8cff"
+                : task.prInfo.status === "closed"
+                  ? "#8b949e"
+                  : "#3fb950",
+              fontSize: "11px",
+              padding: "2px 6px",
+              borderRadius: "10px",
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+            }}
+          >
+            <GitPullRequest size={12} />
+            #{task.prInfo.number}
           </span>
         )}
       </div>

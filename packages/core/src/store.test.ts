@@ -810,6 +810,189 @@ describe("TaskStore", () => {
     });
   });
 
+  describe("updatePrInfo", () => {
+    it("adds PR info to a task without existing PR", async () => {
+      const task = await createTestTask();
+      const prInfo = {
+        url: "https://github.com/owner/repo/pull/42",
+        number: 42,
+        status: "open" as const,
+        title: "Fix the bug",
+        headBranch: "kb-001-fix-bug",
+        baseBranch: "main",
+        commentCount: 0,
+      };
+
+      const updated = await store.updatePrInfo(task.id, prInfo);
+
+      expect(updated.prInfo).toEqual(prInfo);
+      expect(updated.log.some((l) => l.action === "PR linked" && l.outcome?.includes("#42"))).toBe(true);
+    });
+
+    it("updates existing PR info with new values", async () => {
+      const task = await createTestTask();
+      const prInfo1 = {
+        url: "https://github.com/owner/repo/pull/1",
+        number: 1,
+        status: "open" as const,
+        title: "Initial PR",
+        headBranch: "branch-1",
+        baseBranch: "main",
+        commentCount: 0,
+      };
+      await store.updatePrInfo(task.id, prInfo1);
+
+      const prInfo2 = {
+        url: "https://github.com/owner/repo/pull/1",
+        number: 1,
+        status: "merged" as const,
+        title: "Initial PR (updated)",
+        headBranch: "branch-1",
+        baseBranch: "main",
+        commentCount: 3,
+        lastCommentAt: "2026-01-01T00:00:00.000Z",
+      };
+      const updated = await store.updatePrInfo(task.id, prInfo2);
+
+      expect(updated.prInfo?.status).toBe("merged");
+      expect(updated.prInfo?.commentCount).toBe(3);
+      expect(updated.prInfo?.lastCommentAt).toBe("2026-01-01T00:00:00.000Z");
+    });
+
+    it("clears PR info when passed null", async () => {
+      const task = await createTestTask();
+      const prInfo = {
+        url: "https://github.com/owner/repo/pull/42",
+        number: 42,
+        status: "open" as const,
+        title: "Fix the bug",
+        headBranch: "kb-001-fix-bug",
+        baseBranch: "main",
+        commentCount: 0,
+      };
+      await store.updatePrInfo(task.id, prInfo);
+
+      const updated = await store.updatePrInfo(task.id, null);
+
+      expect(updated.prInfo).toBeUndefined();
+      expect(updated.log.some((l) => l.action === "PR unlinked")).toBe(true);
+    });
+
+    it("emits task:updated event when PR info changes", async () => {
+      const task = await createTestTask();
+      const events: any[] = [];
+      store.on("task:updated", (t) => events.push(t));
+
+      const prInfo = {
+        url: "https://github.com/owner/repo/pull/42",
+        number: 42,
+        status: "open" as const,
+        title: "Fix the bug",
+        headBranch: "kb-001-fix-bug",
+        baseBranch: "main",
+        commentCount: 0,
+      };
+      await store.updatePrInfo(task.id, prInfo);
+
+      expect(events).toHaveLength(1);
+      expect(events[0].prInfo?.number).toBe(42);
+    });
+
+    it("does NOT emit task:updated when PR info is unchanged", async () => {
+      const task = await createTestTask();
+      const prInfo = {
+        url: "https://github.com/owner/repo/pull/42",
+        number: 42,
+        status: "open" as const,
+        title: "Fix the bug",
+        headBranch: "kb-001-fix-bug",
+        baseBranch: "main",
+        commentCount: 0,
+      };
+      await store.updatePrInfo(task.id, prInfo);
+
+      const events: any[] = [];
+      store.on("task:updated", (t) => events.push(t));
+
+      // Update with same values (status and number unchanged)
+      await store.updatePrInfo(task.id, { ...prInfo });
+
+      // Should not emit because number and status are the same
+      expect(events).toHaveLength(0);
+    });
+
+    it("persists to disk and round-trips correctly", async () => {
+      const task = await createTestTask();
+      const prInfo = {
+        url: "https://github.com/owner/repo/pull/42",
+        number: 42,
+        status: "open" as const,
+        title: "Fix the bug",
+        headBranch: "kb-001-fix-bug",
+        baseBranch: "main",
+        commentCount: 5,
+        lastCommentAt: "2026-03-30T12:00:00.000Z",
+      };
+
+      await store.updatePrInfo(task.id, prInfo);
+      const fetched = await store.getTask(task.id);
+
+      expect(fetched.prInfo).toEqual(prInfo);
+    });
+
+    it("updates updatedAt timestamp", async () => {
+      const task = await createTestTask();
+      const before = task.updatedAt;
+      await new Promise((r) => setTimeout(r, 10)); // Ensure time passes
+
+      const prInfo = {
+        url: "https://github.com/owner/repo/pull/42",
+        number: 42,
+        status: "open" as const,
+        title: "Fix the bug",
+        headBranch: "kb-001-fix-bug",
+        baseBranch: "main",
+        commentCount: 0,
+      };
+      const updated = await store.updatePrInfo(task.id, prInfo);
+
+      expect(updated.updatedAt).not.toBe(before);
+    });
+
+    it("serializes concurrent updates correctly", async () => {
+      const task = await createTestTask();
+
+      // Fire 5 concurrent updates
+      const promises = Array.from({ length: 5 }, (_, i) =>
+        store.updatePrInfo(task.id, {
+          url: `https://github.com/owner/repo/pull/${i + 1}`,
+          number: i + 1,
+          status: "open" as const,
+          title: `PR ${i + 1}`,
+          headBranch: `branch-${i + 1}`,
+          baseBranch: "main",
+          commentCount: i,
+        }),
+      );
+
+      await Promise.all(promises);
+
+      // Read back and verify valid JSON
+      const taskJsonPath = join(rootDir, ".kb", "tasks", task.id, "task.json");
+      const raw = await readFile(taskJsonPath, "utf-8");
+      const result = JSON.parse(raw) as Task;
+
+      // Should have exactly one of the PRs set (last one wins)
+      expect(result.prInfo).toBeDefined();
+      expect(result.prInfo!.number).toBeGreaterThanOrEqual(1);
+      expect(result.prInfo!.number).toBeLessThanOrEqual(5);
+
+      // Should have all the PR linked log entries
+      const prLogs = result.log.filter((l) => l.action === "PR linked");
+      expect(prLogs).toHaveLength(5);
+    });
+  });
+
   describe("parseDependenciesFromPrompt", () => {
     it("returns single dependency from PROMPT.md", async () => {
       const task = await store.createTask({ description: "Task with dep" });

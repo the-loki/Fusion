@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { Task, TaskDetail, TaskAttachment, Column, MergeResult } from "@kb/core";
+import type { Task, TaskDetail, TaskAttachment, Column, MergeResult, PrInfo } from "@kb/core";
 import { COLUMN_LABELS, VALID_TRANSITIONS } from "@kb/core";
 import { uploadAttachment, deleteAttachment, updateTask, pauseTask, unpauseTask } from "../api";
 import type { ToastType } from "../hooks/useToast";
 import { useAgentLogs } from "../hooks/useAgentLogs";
 import { AgentLogViewer } from "./AgentLogViewer";
 import { SteeringTab } from "./SteeringTab";
+import { PrSection } from "./PrSection";
 
 function getStepStatusColor(status: string): string {
   switch (status) {
@@ -53,6 +54,7 @@ interface TaskDetailModalProps {
   onMergeTask: (id: string) => Promise<MergeResult>;
   onRetryTask?: (id: string) => Promise<Task>;
   addToast: (message: string, type?: ToastType) => void;
+  githubTokenConfigured?: boolean;
 }
 
 function truncate(s: string, max: number): string {
@@ -68,6 +70,7 @@ export function TaskDetailModal({
   onMergeTask,
   onRetryTask,
   addToast,
+  githubTokenConfigured,
 }: TaskDetailModalProps) {
   const [activeTab, setActiveTab] = useState<"definition" | "agent-log" | "steering">("definition");
   const [attachments, setAttachments] = useState<TaskAttachment[]>(task.attachments || []);
@@ -517,6 +520,23 @@ export function TaskDetailModal({
               <div className="detail-log-empty">(no activity)</div>
             )}
           </div>
+          {/* PR Section - only for in-review tasks */}
+          {task.column === "in-review" && (
+            <PrSection
+              taskId={task.id}
+              prInfo={task.prInfo}
+              hasGitHubToken={githubTokenConfigured}
+              onPrCreated={(prInfo) => {
+                // Update task locally to show new PR
+                (task as TaskDetail).prInfo = prInfo;
+                addToast(`PR #${prInfo.number} created`, "success");
+              }}
+              onPrUpdated={(prInfo) => {
+                (task as TaskDetail).prInfo = prInfo;
+              }}
+              addToast={addToast}
+            />
+          )}
           </>
           )}
         </div>
