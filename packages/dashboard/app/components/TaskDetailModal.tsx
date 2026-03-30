@@ -9,6 +9,20 @@ import { useAgentLogs } from "../hooks/useAgentLogs";
 import { AgentLogViewer } from "./AgentLogViewer";
 import { SteeringTab } from "./SteeringTab";
 
+function getStepStatusColor(status: string): string {
+  switch (status) {
+    case "done":
+      return "var(--color-success, #3fb950)";
+    case "in-progress":
+      return "var(--todo, #58a6ff)";
+    case "skipped":
+      return "var(--text-dim, #484f58)";
+    case "pending":
+    default:
+      return "var(--border, #30363d)";
+  }
+}
+
 function formatTimestamp(iso: string): string {
   const date = new Date(iso);
   const now = new Date();
@@ -458,6 +472,28 @@ export function TaskDetailModal({
                 );
               })()}
             </div>
+          </div>
+          <div className="detail-section detail-step-progress">
+            <h4>Progress</h4>
+            {task.steps && task.steps.length > 0 ? (
+              <div className="step-progress-wrapper">
+                <div className="step-progress-bar">
+                  {task.steps.map((step, index) => (
+                    <div
+                      key={index}
+                      className={`step-progress-segment step-progress-segment--${step.status}`}
+                      data-tooltip={`${step.name} (${step.status})`}
+                      style={{ backgroundColor: getStepStatusColor(step.status) }}
+                    />
+                  ))}
+                </div>
+                <span className="step-progress-label">
+                  {task.steps.filter(s => s.status === "done").length}/{task.steps.length} steps
+                </span>
+              </div>
+            ) : (
+              <div className="step-progress-empty">(no steps defined)</div>
+            )}
           </div>
           <div className="detail-section detail-activity">
             <h4>Activity</h4>
