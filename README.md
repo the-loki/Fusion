@@ -224,6 +224,26 @@ kb can create GitHub Pull Requests directly from the dashboard for tasks in the 
 
 The dashboard shows real-time PR status (open, closed, merged) with a refresh button to fetch the latest state from GitHub.
 
+### Spec Editing & AI Revision
+
+The dashboard includes a **Spec** tab for managing task specifications directly in the UI:
+
+**Manual Edit:**
+1. Open any task and click the **Spec** tab
+2. Click **Edit** to modify the PROMPT.md content directly
+3. Save changes with the **Save** button (or Ctrl/Cmd+Enter)
+
+**Request AI Revision:**
+1. In the Spec tab, use the **"Ask AI to Revise"** section
+2. Enter feedback describing what needs to change (e.g., "Add more details about error handling", "Split this into smaller steps")
+3. Click **"Request AI Revision"**
+4. The task moves to **Triage** for re-specification by the AI
+
+**Limitations:**
+- AI revision is only available for tasks in **Todo** or **In Progress** columns
+- Tasks in **In Review** or **Done** must be moved back to Todo/In Progress first
+- Maximum feedback length is 2000 characters
+
 ### PR Comment Monitoring
 
 When a task has a linked PR, kb automatically monitors it for new review comments:

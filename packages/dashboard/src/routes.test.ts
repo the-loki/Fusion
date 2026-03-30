@@ -1451,3 +1451,210 @@ describe("POST /github/issues/import", () => {
     });
   });
 });
+
+// --- Spec Revision route tests ---
+
+describe("POST /tasks/:id/spec/revise", () => {
+  let store: TaskStore;
+
+  beforeEach(() => {
+    store = createMockStore({
+      getTask: vi.fn(),
+      moveTask: vi.fn(),
+      updateTask: vi.fn(),
+      logEntry: vi.fn().mockResolvedValue(undefined),
+    });
+  });
+
+  function buildApp() {
+    const app = express();
+    app.use(express.json());
+    app.use("/api", createApiRoutes(store));
+    return app;
+  }
+
+  it("requests spec revision and moves task from todo to triage", async () => {
+    const todoTask = { ...FAKE_TASK_DETAIL, column: "todo" as const };
+    const movedTask = { ...FAKE_TASK_DETAIL, column: "triage" as const };
+
+    (store.getTask as ReturnType<typeof vi.fn>).mockResolvedValue(todoTask);
+    (store.moveTask as ReturnType<typeof vi.fn>).mockResolvedValue(movedTask);
+    (store.updateTask as ReturnType<typeof vi.fn>).mockResolvedValue(movedTask);
+
+    const res = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/tasks/KB-001/spec/revise",
+      JSON.stringify({ feedback: "Please add more details about error handling" }),
+      { "Content-Type": "application/json" }
+    );
+
+    expect(res.status).toBe(200);
+    expect(store.logEntry).toHaveBeenCalledWith(
+      "KB-001",
+      "AI spec revision requested",
+      "Please add more details about error handling"
+    );
+    expect(store.moveTask).toHaveBeenCalledWith("KB-001", "triage");
+    expect(store.updateTask).toHaveBeenCalledWith("KB-001", { status: "needs-respecify" });
+  });
+
+  it("requests spec revision and moves task from in-progress to triage", async () => {
+    const inProgressTask = { ...FAKE_TASK_DETAIL, column: "in-progress" as const };
+    const movedTask = { ...FAKE_TASK_DETAIL, column: "triage" as const };
+
+    (store.getTask as ReturnType<typeof vi.fn>).mockResolvedValue(inProgressTask);
+    (store.moveTask as ReturnType<typeof vi.fn>).mockResolvedValue(movedTask);
+    (store.updateTask as ReturnType<typeof vi.fn>).mockResolvedValue(movedTask);
+
+    const res = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/tasks/KB-001/spec/revise",
+      JSON.stringify({ feedback: "Split this into smaller steps" }),
+      { "Content-Type": "application/json" }
+    );
+
+    expect(res.status).toBe(200);
+    expect(store.moveTask).toHaveBeenCalledWith("KB-001", "triage");
+  });
+
+  it("returns 400 when task is already in triage", async () => {
+    const triageTask = { ...FAKE_TASK_DETAIL, column: "triage" as const };
+    (store.getTask as ReturnType<typeof vi.fn>).mockResolvedValue(triageTask);
+
+    const res = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/tasks/KB-001/spec/revise",
+      JSON.stringify({ feedback: "Some feedback" }),
+      { "Content-Type": "application/json" }
+    );
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("Cannot request spec revision");
+    expect(store.moveTask).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when task is in in-review", async () => {
+    const inReviewTask = { ...FAKE_TASK_DETAIL, column: "in-review" as const };
+    (store.getTask as ReturnType<typeof vi.fn>).mockResolvedValue(inReviewTask);
+
+    const res = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/tasks/KB-001/spec/revise",
+      JSON.stringify({ feedback: "Some feedback" }),
+      { "Content-Type": "application/json" }
+    );
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("in-review");
+    expect(res.body.error).toContain("Move task to 'todo' or 'in-progress' first");
+    expect(store.moveTask).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when task is in done", async () => {
+    const doneTask = { ...FAKE_TASK_DETAIL, column: "done" as const };
+    (store.getTask as ReturnType<typeof vi.fn>).mockResolvedValue(doneTask);
+
+    const res = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/tasks/KB-001/spec/revise",
+      JSON.stringify({ feedback: "Some feedback" }),
+      { "Content-Type": "application/json" }
+    );
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("done");
+    expect(store.moveTask).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when feedback is missing", async () => {
+    const res = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/tasks/KB-001/spec/revise",
+      JSON.stringify({}),
+      { "Content-Type": "application/json" }
+    );
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("feedback is required");
+  });
+
+  it("returns 400 when feedback is empty string", async () => {
+    const res = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/tasks/KB-001/spec/revise",
+      JSON.stringify({ feedback: "" }),
+      { "Content-Type": "application/json" }
+    );
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("feedback is required");
+  });
+
+  it("returns 400 when feedback exceeds 2000 characters", async () => {
+    const longFeedback = "a".repeat(2001);
+    const res = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/tasks/KB-001/spec/revise",
+      JSON.stringify({ feedback: longFeedback }),
+      { "Content-Type": "application/json" }
+    );
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("feedback must be between 1 and 2000");
+  });
+
+  it("returns 404 when task not found", async () => {
+    const error = new Error("Task not found") as Error & { code?: string };
+    error.code = "ENOENT";
+    (store.getTask as ReturnType<typeof vi.fn>).mockRejectedValue(error);
+
+    const res = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/tasks/KB-999/spec/revise",
+      JSON.stringify({ feedback: "Some feedback" }),
+      { "Content-Type": "application/json" }
+    );
+
+    expect(res.status).toBe(404);
+  });
+
+  it("queues multiple revision requests as multiple log entries", async () => {
+    const todoTask = { ...FAKE_TASK_DETAIL, column: "todo" as const };
+    const movedTask = { ...FAKE_TASK_DETAIL, column: "triage" as const };
+
+    (store.getTask as ReturnType<typeof vi.fn>).mockResolvedValue(todoTask);
+    (store.moveTask as ReturnType<typeof vi.fn>).mockResolvedValue(movedTask);
+    (store.updateTask as ReturnType<typeof vi.fn>).mockResolvedValue(movedTask);
+
+    // First request
+    await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/tasks/KB-001/spec/revise",
+      JSON.stringify({ feedback: "First feedback" }),
+      { "Content-Type": "application/json" }
+    );
+
+    // Second request
+    await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/tasks/KB-001/spec/revise",
+      JSON.stringify({ feedback: "Second feedback" }),
+      { "Content-Type": "application/json" }
+    );
+
+    expect(store.logEntry).toHaveBeenCalledTimes(2);
+    expect(store.logEntry).toHaveBeenNthCalledWith(1, "KB-001", "AI spec revision requested", "First feedback");
+    expect(store.logEntry).toHaveBeenNthCalledWith(2, "KB-001", "AI spec revision requested", "Second feedback");
+  });
+});

@@ -3,12 +3,13 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Task, TaskDetail, TaskAttachment, Column, MergeResult, PrInfo } from "@kb/core";
 import { COLUMN_LABELS, VALID_TRANSITIONS } from "@kb/core";
-import { uploadAttachment, deleteAttachment, updateTask, pauseTask, unpauseTask, fetchTaskDetail } from "../api";
+import { uploadAttachment, deleteAttachment, updateTask, pauseTask, unpauseTask, fetchTaskDetail, requestSpecRevision } from "../api";
 import type { ToastType } from "../hooks/useToast";
 import { useAgentLogs } from "../hooks/useAgentLogs";
 import { AgentLogViewer } from "./AgentLogViewer";
 import { SteeringTab } from "./SteeringTab";
 import { PrSection } from "./PrSection";
+import { SpecEditor } from "./SpecEditor";
 
 function getStepStatusColor(status: string): string {
   switch (status) {
@@ -74,12 +75,14 @@ export function TaskDetailModal({
   addToast,
   githubTokenConfigured,
 }: TaskDetailModalProps) {
-  const [activeTab, setActiveTab] = useState<"definition" | "activity" | "agent-log" | "steering">("definition");
+  const [activeTab, setActiveTab] = useState<"definition" | "activity" | "agent-log" | "steering" | "spec">("definition");
   const [attachments, setAttachments] = useState<TaskAttachment[]>(task.attachments || []);
   const [uploading, setUploading] = useState(false);
   const [dependencies, setDependencies] = useState<string[]>(task.dependencies || []);
   const [showDepDropdown, setShowDepDropdown] = useState(false);
   const [depSearch, setDepSearch] = useState("");
+  const [isSavingSpec, setIsSavingSpec] = useState(false);
+  const [isRequestingRevision, setIsRequestingRevision] = useState(false);
   useEffect(() => {
     if (!showDepDropdown) setDepSearch("");
   }, [showDepDropdown]);
@@ -267,6 +270,39 @@ export function TaskDetailModal({
     }
   }, [onOpenDetail, addToast]);
 
+  const handleSaveSpec = useCallback(async (newContent: string) => {
+    setIsSavingSpec(true);
+    try {
+      await updateTask(task.id, { prompt: newContent });
+      addToast("Spec updated", "success");
+      // Update local task data
+      task.prompt = newContent;
+    } catch (err: any) {
+      addToast(err.message, "error");
+      throw err;
+    } finally {
+      setIsSavingSpec(false);
+    }
+  }, [task, addToast]);
+
+  const handleRequestSpecRevision = useCallback(async (feedback: string) => {
+    setIsRequestingRevision(true);
+    try {
+      await requestSpecRevision(task.id, feedback);
+      addToast("AI revision requested. Task moved to triage.", "success");
+      // Task has been moved to triage, close modal
+      onClose();
+    } catch (err: any) {
+      if (err.message?.includes("in-review") || err.message?.includes("done")) {
+        addToast("Cannot request revision: Task must be in 'todo' or 'in-progress' column.", "error");
+      } else {
+        addToast(err.message, "error");
+      }
+    } finally {
+      setIsRequestingRevision(false);
+    }
+  }, [task.id, addToast, onClose]);
+
   const availableTasks = tasks
     .filter((t) => t.id !== task.id && !dependencies.includes(t.id))
     .sort((a, b) => {
@@ -324,8 +360,24 @@ export function TaskDetailModal({
             >
               Steering
             </button>
+            <button
+              className={`detail-tab${activeTab === "spec" ? " detail-tab-active" : ""}`}
+              onClick={() => setActiveTab("spec")}
+            >
+              Spec
+            </button>
           </div>
-          {activeTab === "agent-log" ? (
+          {activeTab === "spec" ? (
+            <div className="detail-section">
+              <SpecEditor
+                content={task.prompt || ""}
+                onSave={handleSaveSpec}
+                onRequestRevision={handleRequestSpecRevision}
+                isSaving={isSavingSpec}
+                isRequesting={isRequestingRevision}
+              />
+            </div>
+          ) : activeTab === "agent-log" ? (
             <div className="detail-section">
               <AgentLogViewer entries={agentLogEntries} loading={agentLogLoading} />
             </div>
@@ -558,7 +610,7 @@ export function TaskDetailModal({
             <PrSection
               taskId={task.id}
               prInfo={task.prInfo}
-              hasGitHubToken={githubTokenConfigured}
+              hasGitHubToken={githubTokenConfigured ?? false}
               onPrCreated={(prInfo) => {
                 // Update task locally to show new PR
                 (task as TaskDetail).prInfo = prInfo;

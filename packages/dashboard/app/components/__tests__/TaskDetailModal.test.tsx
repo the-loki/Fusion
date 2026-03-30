@@ -9,6 +9,7 @@ vi.mock("../../api", () => ({
   updateTask: vi.fn().mockResolvedValue({}),
   fetchTaskDetail: vi.fn(),
   fetchAgentLogs: vi.fn().mockResolvedValue([]),
+  requestSpecRevision: vi.fn().mockResolvedValue({}),
 }));
 
 vi.mock("../../hooks/useAgentLogs", () => ({
@@ -36,6 +37,7 @@ const noopMove = vi.fn(async () => ({}) as Task);
 const noopDelete = vi.fn(async () => ({}) as Task);
 const noopMerge = vi.fn(async () => ({ merged: false }) as MergeResult);
 const noopRetry = vi.fn(async () => ({}) as Task);
+const noopOpenDetail = vi.fn();
 
 describe("TaskDetailModal", () => {
   it("renders markdown-body without detail-prompt class when prompt exists", () => {
@@ -46,6 +48,7 @@ describe("TaskDetailModal", () => {
         onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
         addToast={noop}
       />,
     );
@@ -63,6 +66,7 @@ describe("TaskDetailModal", () => {
         onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
         addToast={noop}
       />,
     );
@@ -80,6 +84,7 @@ describe("TaskDetailModal", () => {
         onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
         addToast={noop}
       />,
     );
@@ -98,6 +103,7 @@ describe("TaskDetailModal", () => {
         onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
         addToast={noop}
       />,
     );
@@ -113,6 +119,7 @@ describe("TaskDetailModal", () => {
         onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
         onRetryTask={noopRetry}
         addToast={noop}
       />,
@@ -129,6 +136,7 @@ describe("TaskDetailModal", () => {
         onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
         onRetryTask={noopRetry}
         addToast={noop}
       />,
@@ -145,6 +153,7 @@ describe("TaskDetailModal", () => {
         onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
         addToast={noop}
       />,
     );
@@ -164,6 +173,7 @@ describe("TaskDetailModal", () => {
         onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
         addToast={noop}
       />,
     );
@@ -191,6 +201,7 @@ describe("TaskDetailModal", () => {
         onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
         addToast={noop}
       />,
     );
@@ -208,6 +219,7 @@ describe("TaskDetailModal", () => {
         onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
         addToast={noop}
       />,
     );
@@ -221,6 +233,7 @@ describe("TaskDetailModal", () => {
         onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
         addToast={noop}
       />,
     );
@@ -248,6 +261,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={addToast}
         />,
       );
@@ -285,6 +299,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -323,6 +338,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -379,6 +395,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={addToast}
         />,
       );
@@ -409,6 +426,7 @@ describe("TaskDetailModal", () => {
         onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
         addToast={noop}
       />,
     );
@@ -424,6 +442,7 @@ describe("TaskDetailModal", () => {
         onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
         addToast={noop}
       />,
     );
@@ -448,6 +467,7 @@ describe("TaskDetailModal", () => {
         onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
         addToast={noop}
       />,
     );
@@ -476,6 +496,7 @@ describe("TaskDetailModal", () => {
         onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
         addToast={noop}
       />,
     );
@@ -502,6 +523,7 @@ describe("TaskDetailModal", () => {
         onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
         addToast={noop}
       />,
     );
@@ -532,6 +554,7 @@ describe("TaskDetailModal", () => {
         onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
         addToast={noop}
       />,
     );
@@ -560,6 +583,7 @@ describe("TaskDetailModal", () => {
         onMoveTask={noopMove}
         onDeleteTask={noopDelete}
         onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
         addToast={noop}
       />,
     );
@@ -581,6 +605,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -609,6 +634,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -638,6 +664,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -667,6 +694,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -694,6 +722,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -735,6 +764,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -767,6 +797,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -790,6 +821,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -812,6 +844,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -839,6 +872,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -855,6 +889,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -877,6 +912,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -900,6 +936,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -926,6 +963,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -952,6 +990,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -972,6 +1011,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -994,6 +1034,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -1021,6 +1062,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -1042,6 +1084,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -1058,6 +1101,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -1074,6 +1118,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -1094,18 +1139,20 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
 
       const tabs = container.querySelectorAll(".detail-tab");
-      expect(tabs.length).toBe(4);
+      expect(tabs.length).toBe(5); // Definition, Activity, Agent Log, Steering, Spec
       // Tabs should use class-based styling, not inline styles
       expect(tabs[0].classList.contains("detail-tab")).toBe(true);
       expect(tabs[0].classList.contains("detail-tab-active")).toBe(true); // Definition is default active
       expect(tabs[1].classList.contains("detail-tab-active")).toBe(false);
       expect(tabs[2].classList.contains("detail-tab-active")).toBe(false);
       expect(tabs[3].classList.contains("detail-tab-active")).toBe(false);
+      expect(tabs[4].classList.contains("detail-tab-active")).toBe(false);
       // Verify no inline padding/fontSize (responsive CSS controls this)
       expect((tabs[0] as HTMLElement).style.padding).toBe("");
       expect((tabs[0] as HTMLElement).style.fontSize).toBe("");
@@ -1119,6 +1166,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -1138,6 +1186,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -1154,6 +1203,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -1170,6 +1220,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -1196,6 +1247,7 @@ describe("TaskDetailModal", () => {
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -1278,11 +1330,11 @@ describe("TaskDetailModal", () => {
       const { container } = render(
         <TaskDetailModal
           task={makeTask({ dependencies: ["KB-001", "KB-002"] })}
-          onOpenDetail={noop}
           onClose={noop}
           onMoveTask={noopMove}
           onDeleteTask={noopDelete}
           onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
           addToast={noop}
         />,
       );
@@ -1381,6 +1433,107 @@ describe("TaskDetailModal", () => {
       await waitFor(() => {
         expect(updateTask).toHaveBeenCalledWith("KB-099", { dependencies: [] });
       });
+    });
+  });
+
+  describe("Spec tab", () => {
+    it("shows Spec tab alongside other tabs", () => {
+      render(
+        <TaskDetailModal
+          task={makeTask()}
+          onClose={noop}
+          onMoveTask={noopMove}
+          onDeleteTask={noopDelete}
+          onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
+          addToast={noop}
+        />,
+      );
+
+      expect(screen.getByText("Spec")).toBeTruthy();
+    });
+
+    it("switches to Spec tab when clicked", () => {
+      const { container } = render(
+        <TaskDetailModal
+          task={makeTask({ prompt: "# Test\n\nSpec content." })}
+          onClose={noop}
+          onMoveTask={noopMove}
+          onDeleteTask={noopDelete}
+          onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
+          addToast={noop}
+        />,
+      );
+
+      // Initially not showing Spec content
+      expect(container.querySelector(".spec-editor")).toBeNull();
+
+      // Click Spec tab
+      fireEvent.click(screen.getByText("Spec"));
+
+      // Should show SpecEditor
+      expect(container.querySelector(".spec-editor")).toBeTruthy();
+    });
+
+    it("Spec tab shows SpecEditor with task prompt", () => {
+      const { container } = render(
+        <TaskDetailModal
+          task={makeTask({ prompt: "# Test Task\n\nTest specification." })}
+          onClose={noop}
+          onMoveTask={noopMove}
+          onDeleteTask={noopDelete}
+          onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
+          addToast={noop}
+        />,
+      );
+
+      fireEvent.click(screen.getByText("Spec"));
+
+      // Should show the spec content (without leading heading)
+      expect(container.querySelector(".spec-editor")).toBeTruthy();
+    });
+
+    it("shows all 5 tabs in correct order", () => {
+      const { container } = render(
+        <TaskDetailModal
+          task={makeTask()}
+          onClose={noop}
+          onMoveTask={noopMove}
+          onDeleteTask={noopDelete}
+          onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
+          addToast={noop}
+        />,
+      );
+
+      const tabs = container.querySelectorAll(".detail-tab");
+      expect(tabs.length).toBe(5);
+      expect(tabs[0].textContent).toBe("Definition");
+      expect(tabs[1].textContent).toBe("Activity");
+      expect(tabs[2].textContent).toBe("Agent Log");
+      expect(tabs[3].textContent).toBe("Steering");
+      expect(tabs[4].textContent).toBe("Spec");
+    });
+
+    it("shows empty state in Spec tab when no prompt", () => {
+      const { container } = render(
+        <TaskDetailModal
+          task={makeTask({ prompt: "" })}
+          onClose={noop}
+          onMoveTask={noopMove}
+          onDeleteTask={noopDelete}
+          onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
+          addToast={noop}
+        />,
+      );
+
+      fireEvent.click(screen.getByText("Spec"));
+
+      // Should show spec editor (view mode with empty state)
+      expect(container.querySelector(".spec-editor")).toBeTruthy();
     });
   });
 });

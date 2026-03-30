@@ -3,7 +3,7 @@ import multer from "multer";
 import { createReadStream } from "node:fs";
 import { execSync } from "node:child_process";
 import type { TaskStore, Column, MergeResult } from "@kb/core";
-import { COLUMNS, type PrInfo } from "@kb/core";
+import { COLUMNS, VALID_TRANSITIONS, type PrInfo } from "@kb/core";
 import type { ServerOptions } from "./server.js";
 import { GitHubClient, getCurrentGitHubRepo } from "./github.js";
 
@@ -403,6 +403,50 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       res.json(task);
     } catch (err: any) {
       const status = err.code === "ENOENT" ? 404 : 500;
+      res.status(status).json({ error: err.message });
+    }
+  });
+
+  // Request AI revision of task spec
+  router.post("/tasks/:id/spec/revise", async (req, res) => {
+    try {
+      const { feedback } = req.body;
+      if (!feedback || typeof feedback !== "string") {
+        res.status(400).json({ error: "feedback is required and must be a string" });
+        return;
+      }
+      if (feedback.length === 0 || feedback.length > 2000) {
+        res.status(400).json({ error: "feedback must be between 1 and 2000 characters" });
+        return;
+      }
+
+      // Get current task state
+      const task = await store.getTask(req.params.id);
+
+      // Check if task can transition to triage
+      const canTransition = VALID_TRANSITIONS[task.column]?.includes("triage");
+      if (!canTransition) {
+        res.status(400).json({
+          error: `Cannot request spec revision for tasks in '${task.column}' column. ` +
+                 `Move task to 'todo' or 'in-progress' first.`,
+        });
+        return;
+      }
+
+      // Log the revision request
+      await store.logEntry(task.id, "AI spec revision requested", feedback);
+
+      // Move to triage for re-specification (only valid for todo/in-progress)
+      const updated = await store.moveTask(task.id, "triage");
+
+      // Update status to indicate needs re-specification
+      await store.updateTask(task.id, { status: "needs-respecify" });
+
+      res.json(updated);
+    } catch (err: any) {
+      const status = err.code === "ENOENT" ? 404
+        : err.message?.includes("Invalid transition") ? 400
+        : 500;
       res.status(status).json({ error: err.message });
     }
   });
