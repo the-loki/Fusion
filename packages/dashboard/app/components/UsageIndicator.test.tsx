@@ -586,6 +586,11 @@ describe("UsageIndicator", () => {
               resetText: "resets in 3d",
               resetMs: 259200000, // 3 days remaining
               windowDurationMs: 604800000, // 7 days total
+              pace: {
+                status: "behind",
+                percentElapsed: 57,
+                message: "Using 27% under pace",
+              },
             },
           ],
         },
@@ -641,7 +646,7 @@ describe("UsageIndicator", () => {
     expect(paceMarkers.length).toBe(0);
   });
 
-  it("does not render pace marker when resetMs or windowDurationMs is undefined", () => {
+  it("does not render pace marker when pace is undefined", () => {
     mockUseUsageData.mockReturnValue({
       providers: [
         {
@@ -654,7 +659,7 @@ describe("UsageIndicator", () => {
               percentUsed: 30, 
               percentLeft: 70, 
               resetText: "resets in 3d",
-              // No resetMs or windowDurationMs
+              // No pace field
             },
           ],
         },
@@ -686,6 +691,11 @@ describe("UsageIndicator", () => {
               resetText: "resets in 3.5d",
               resetMs: 302400000, // 3.5 days remaining out of 7
               windowDurationMs: 604800000, // 7 days total
+              pace: {
+                status: "ahead",
+                percentElapsed: 50,
+                message: "Using 20% over pace",
+              },
             },
           ],
         },
@@ -698,10 +708,8 @@ describe("UsageIndicator", () => {
 
     render(<UsageIndicator isOpen={true} onClose={mockOnClose} />);
 
-    // percentElapsed = 100 - (302400 / 604800 * 100) = 100 - 50 = 50%
-    // paceDelta = 70 - 50 = 20% (ahead)
     const paceRow = screen.getByTestId("pace-row");
-    expect(paceRow).toHaveTextContent(/ahead of pace/);
+    expect(paceRow).toHaveTextContent(/over pace/);
     expect(paceRow).toHaveTextContent("20%");
   });
 
@@ -720,6 +728,11 @@ describe("UsageIndicator", () => {
               resetText: "resets in 3.5d",
               resetMs: 302400000, // 3.5 days remaining out of 7
               windowDurationMs: 604800000, // 7 days total
+              pace: {
+                status: "behind",
+                percentElapsed: 50,
+                message: "Using 30% under pace",
+              },
             },
           ],
         },
@@ -732,10 +745,8 @@ describe("UsageIndicator", () => {
 
     render(<UsageIndicator isOpen={true} onClose={mockOnClose} />);
 
-    // percentElapsed = 100 - (302400 / 604800 * 100) = 100 - 50 = 50%
-    // paceDelta = 20 - 50 = -30% (behind)
     const paceRow = screen.getByTestId("pace-row");
-    expect(paceRow).toHaveTextContent(/behind pace/);
+    expect(paceRow).toHaveTextContent(/under pace/);
     expect(paceRow).toHaveTextContent("30%");
   });
 
@@ -754,6 +765,11 @@ describe("UsageIndicator", () => {
               resetText: "resets in 3.5d",
               resetMs: 302400000, // 3.5 days remaining out of 7
               windowDurationMs: 604800000, // 7 days total
+              pace: {
+                status: "on-track",
+                percentElapsed: 50,
+                message: "On pace with time elapsed",
+              },
             },
           ],
         },
@@ -766,8 +782,6 @@ describe("UsageIndicator", () => {
 
     render(<UsageIndicator isOpen={true} onClose={mockOnClose} />);
 
-    // percentElapsed = 100 - (302400 / 604800 * 100) = 100 - 50 = 50%
-    // paceDelta = 52 - 50 = 2% (within 5% threshold, on pace)
     const paceRow = screen.getByTestId("pace-row");
     expect(paceRow).toHaveTextContent(/On pace/);
   });
@@ -788,6 +802,11 @@ describe("UsageIndicator", () => {
               resetText: "resets in 3.5d",
               resetMs: 302400000, // 50% elapsed
               windowDurationMs: 604800000,
+              pace: {
+                status: "behind",
+                percentElapsed: 50,
+                message: "Using 20% under pace",
+              },
             },
           ],
         },
@@ -814,7 +833,7 @@ describe("UsageIndicator", () => {
     expect(paceMarker.style.left).toBe("50%");
   });
 
-  it("pace percentage text inverts correctly when switching to remaining mode", () => {
+  it("pace percentage text uses backend message directly", () => {
     // Clear localStorage to ensure fresh 'used' mode
     localStorage.removeItem("kb-usage-view-mode");
     
@@ -833,6 +852,11 @@ describe("UsageIndicator", () => {
               resetText: "resets in 3.5d",
               resetMs: 302400000, // 50% elapsed
               windowDurationMs: 604800000,
+              pace: {
+                status: "ahead",
+                percentElapsed: 50,
+                message: "Using 20% over pace",
+              },
             },
           ],
         },
@@ -847,16 +871,14 @@ describe("UsageIndicator", () => {
 
     // In used mode: ahead of pace (70% used vs 50% elapsed)
     let paceRow = screen.getByTestId("pace-row");
-    expect(paceRow).toHaveTextContent(/ahead of pace/);
-    expect(paceRow).toHaveTextContent("⚡");
+    expect(paceRow).toHaveTextContent(/over pace/);
 
-    // Switch to remaining mode
+    // Switch to remaining mode - message stays the same (from backend)
     const remainingBtn = screen.getByTestId("usage-view-toggle-remaining");
     fireEvent.click(remainingBtn);
 
-    // In remaining mode: message should invert (behind on remaining)
-    // When ahead on usage (using more than expected), you're behind on remaining
+    // The message comes from backend, so it doesn't change based on view mode
     paceRow = screen.getByTestId("pace-row");
-    expect(paceRow).toHaveTextContent(/behind on remaining/);
+    expect(paceRow).toHaveTextContent("Using 20% over pace");
   });
 });

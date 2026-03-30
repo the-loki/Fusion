@@ -388,7 +388,10 @@ export function ListView({
           )}
         </div>
         <div className="list-quick-entry">
-          <QuickEntryBox onCreate={onQuickCreate} addToast={addToast} />
+          <QuickEntryBox 
+            onCreate={onQuickCreate ?? (async () => addToast("Task creation not available", "error"))} 
+            addToast={addToast} 
+          />
         </div>
         <div className="list-column-toggle" ref={columnDropdownRef}>
           <button

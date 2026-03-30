@@ -192,6 +192,13 @@ export function fetchModels(): Promise<ModelInfo[]> {
 
 // --- Usage API ---
 
+/** Pace information for weekly usage windows */
+export interface UsagePace {
+  status: "ahead" | "on-track" | "behind";
+  percentElapsed: number; // 0-100, how much of the window time has passed
+  message: string; // e.g., "Using 15% over your limit pace"
+}
+
 /** Usage window for a provider (e.g., "Session (5h)", "Weekly") */
 export interface UsageWindow {
   label: string;
@@ -200,6 +207,7 @@ export interface UsageWindow {
   resetText: string | null; // e.g., "resets in 2h"
   resetMs?: number; // ms until reset
   windowDurationMs?: number; // total window length
+  pace?: UsagePace; // pace indicator for weekly windows
 }
 
 /** Provider usage data */

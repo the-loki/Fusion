@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { X, RefreshCw, Activity } from "lucide-react";
+import { X, RefreshCw, Activity, TrendingUp, CheckCircle, Info } from "lucide-react";
 import type { ProviderUsage, UsageWindow } from "../api";
 import { useUsageData } from "../hooks/useUsageData";
 import { ProviderIcon } from "./ProviderIcon";
@@ -38,31 +38,20 @@ function UsageWindowRow({ window, viewMode }: UsageWindowRowProps) {
   const headerText = isRemainingMode ? `${window.percentLeft}% remaining` : `${window.percentUsed}% used`;
   const footerText = isRemainingMode ? `${window.percentUsed}% used` : `${window.percentLeft}% left`;
 
-  // Pace calculation for weekly windows
-  const shouldShowPace = window.label.toLowerCase().includes('weekly') && 
-                         window.resetMs !== undefined && 
-                         window.windowDurationMs !== undefined;
+  // Use pace from backend if available (for weekly windows)
+  const pace = window.pace;
+  const shouldShowPace = pace !== undefined;
 
-  let percentElapsed = 0;
-  let paceDelta = 0;
+  // Marker position for pace indicator (shows elapsed time position on progress bar)
   let markerPosition = 0;
-
   if (shouldShowPace) {
-    percentElapsed = 100 - (window.resetMs! / window.windowDurationMs! * 100);
-    paceDelta = window.percentUsed - percentElapsed; // positive = ahead of pace
-    
-    // Marker position adjusts for view mode
-    markerPosition = isRemainingMode ? (100 - percentElapsed) : percentElapsed;
+    markerPosition = isRemainingMode ? (100 - pace.percentElapsed) : pace.percentElapsed;
   }
 
-  // Pace status thresholds
-  const PACE_THRESHOLD = 5; // 5% threshold for "on pace"
-  const isAhead = paceDelta > PACE_THRESHOLD;
-  const isBehind = paceDelta < -PACE_THRESHOLD;
-  const isOnTrack = !isAhead && !isBehind;
-
-  // Format pace delta for display (absolute value, rounded)
-  const paceDeltaFormatted = Math.abs(Math.round(paceDelta));
+  // Determine pace display status
+  const isAhead = pace?.status === "ahead";
+  const isBehind = pace?.status === "behind";
+  const isOnTrack = pace?.status === "on-track";
 
   return (
     <div className="usage-window">
@@ -101,28 +90,20 @@ function UsageWindowRow({ window, viewMode }: UsageWindowRowProps) {
         <div className="usage-pace-row" data-testid="pace-row">
           {isAhead && (
             <>
-              <span className="pace-icon pace-icon-ahead">⚡</span>
-              <span className="pace-text pace-ahead">
-                {isRemainingMode 
-                  ? `${paceDeltaFormatted}% behind on remaining` 
-                  : `${paceDeltaFormatted}% ahead of pace`}
-              </span>
+              <TrendingUp size={14} className="pace-icon pace-ahead" />
+              <span className="pace-text pace-ahead">{pace.message}</span>
             </>
           )}
           {isBehind && (
             <>
-              <span className="pace-icon pace-icon-behind">🐢</span>
-              <span className="pace-text pace-behind">
-                {isRemainingMode 
-                  ? `${paceDeltaFormatted}% ahead on remaining` 
-                  : `${paceDeltaFormatted}% behind pace`}
-              </span>
+              <Info size={14} className="pace-icon pace-behind" />
+              <span className="pace-text pace-behind">{pace.message}</span>
             </>
           )}
           {isOnTrack && (
             <>
-              <span className="pace-icon pace-icon-ontrack">✓</span>
-              <span className="pace-text pace-ontrack">On pace</span>
+              <CheckCircle size={14} className="pace-icon pace-ontrack" />
+              <span className="pace-text pace-ontrack">{pace.message}</span>
             </>
           )}
         </div>

@@ -7190,16 +7190,19 @@ html .column.drag-over * {
   font-weight: 500;
 }
 
+/* ahead = using faster than expected (warning - over consuming) */
 .pace-ahead {
+  color: var(--color-error);
+}
+
+/* on-track = good/expected usage */
+.pace-ontrack {
   color: var(--color-success);
 }
 
+/* behind = using slower than expected (info - under consuming) */
 .pace-behind {
-  color: var(--triage);
-}
-
-.pace-ontrack {
-  color: var(--text-muted);
+  color: #3b82f6; /* blue info color */
 }
 
 /* Empty state */

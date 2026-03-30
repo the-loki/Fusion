@@ -3,6 +3,15 @@ import * as path from "node:path";
 import * as https from "node:https";
 
 /**
+ * Pace information for weekly usage windows
+ */
+export interface UsagePace {
+  status: "ahead" | "on-track" | "behind";
+  percentElapsed: number; // 0-100
+  message: string;
+}
+
+/**
  * Usage window for a provider (e.g., "Session (5h)", "Weekly")
  */
 export interface UsageWindow {
@@ -12,6 +21,7 @@ export interface UsageWindow {
   resetText: string | null; // e.g., "resets in 2h"
   resetMs?: number; // ms until reset
   windowDurationMs?: number; // total window length
+  pace?: UsagePace; // pace indicator for weekly windows
 }
 
 /**
@@ -43,6 +53,77 @@ interface CacheEntry {
 
 let usageCache: CacheEntry | null = null;
 const CACHE_TTL_MS = 30_000; // 30 seconds
+
+// Pace threshold - matches frontend UsageIndicator.tsx
+const PACE_THRESHOLD = 5; // 5% threshold for "on pace"
+
+/**
+ * Calculate pace information for a usage window.
+ * Returns undefined if pace cannot be calculated (e.g., missing timing data or window reset).
+ */
+export function calculatePace(
+  percentUsed: number,
+  resetMs: number | undefined,
+  windowDurationMs: number | undefined
+): UsagePace | undefined {
+  // Validate inputs
+  if (resetMs === undefined || windowDurationMs === undefined) {
+    return undefined;
+  }
+
+  // Window already reset or invalid duration
+  if (resetMs <= 0 || windowDurationMs <= 0) {
+    return undefined;
+  }
+
+  // Clamp percentUsed to valid range
+  const clampedPercentUsed = Math.min(100, Math.max(0, percentUsed));
+
+  // Calculate percent of time elapsed in the window
+  // percentElapsed = 100 - (remainingTime / totalTime * 100)
+  const percentElapsed = 100 - (resetMs / windowDurationMs * 100);
+
+  // Calculate delta between usage and elapsed time
+  const paceDelta = clampedPercentUsed - percentElapsed;
+
+  // Determine status based on threshold
+  if (paceDelta > PACE_THRESHOLD) {
+    return {
+      status: "ahead",
+      percentElapsed: Math.round(percentElapsed),
+      message: `Using ${Math.abs(Math.round(paceDelta))}% over pace`,
+    };
+  } else if (paceDelta < -PACE_THRESHOLD) {
+    return {
+      status: "behind",
+      percentElapsed: Math.round(percentElapsed),
+      message: `Using ${Math.abs(Math.round(paceDelta))}% under pace`,
+    };
+  } else {
+    return {
+      status: "on-track",
+      percentElapsed: Math.round(percentElapsed),
+      message: "On pace with time elapsed",
+    };
+  }
+}
+
+/**
+ * Apply pace calculation to a usage window if applicable.
+ * Only applies to weekly windows with valid timing data.
+ */
+function applyPaceToWindow(window: UsageWindow): UsageWindow {
+  // Only apply pace to weekly windows
+  if (!window.label.toLowerCase().includes("weekly")) {
+    return window;
+  }
+
+  const pace = calculatePace(window.percentUsed, window.resetMs, window.windowDurationMs);
+  if (pace) {
+    return { ...window, pace };
+  }
+  return window;
+}
 
 /**
  * Format duration in milliseconds to human-readable string
@@ -484,6 +565,203 @@ async function fetchGeminiUsage(): Promise<ProviderUsage> {
   return usage;
 }
 
+// ── Minimax fetcher ─────────────────────────────────────────────────────────
+
+async function fetchMinimaxUsage(): Promise<ProviderUsage> {
+  const usage: ProviderUsage = {
+    name: "Minimax",
+    icon: "🟣",
+    status: "no-auth",
+    windows: [],
+  };
+
+  // Load Minimax credentials
+  const credPath = path.join(process.env.HOME || "~", ".minimax", "credentials.json");
+  let creds: any = null;
+  try {
+    creds = JSON.parse(fs.readFileSync(credPath, "utf-8"));
+  } catch {
+    usage.error = "No Minimax credentials configured";
+    return usage;
+  }
+
+  const accessToken = creds?.access_token;
+  if (!accessToken) {
+    usage.error = "No Minimax access token found";
+    return usage;
+  }
+
+  try {
+    const res = await httpsRequest("https://api.minimaxi.com/user/quota", {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      usage.status = "error";
+      usage.error = "Auth expired";
+      return usage;
+    }
+
+    if (res.status !== 200) {
+      usage.status = "error";
+      usage.error = `HTTP ${res.status}: ${res.body.slice(0, 200)}`;
+      return usage;
+    }
+
+    const data = JSON.parse(res.body);
+    usage.status = "ok";
+
+    const quota = data?.quota;
+    if (quota && typeof quota === "object") {
+      const total: number = quota.total ?? 0;
+      const used: number = quota.used ?? 0;
+      const remaining: number = quota.remaining ?? Math.max(0, total - used);
+
+      const percentUsed = total > 0 ? (used / total) * 100 : 0;
+
+      let resetText: string | null = null;
+      let resetMs: number | undefined;
+      let windowDurationMs: number | undefined;
+
+      const resetAt = data?.reset_at;
+      if (resetAt) {
+        const msLeft = new Date(resetAt).getTime() - Date.now();
+        resetMs = msLeft > 0 ? msLeft : 0;
+        resetText = msLeft > 0 ? `resets in ${formatDuration(msLeft)}` : "resetting now";
+        // Weekly window duration (7 days)
+        windowDurationMs = 7 * 24 * 60 * 60 * 1000;
+      }
+
+      usage.windows.push({
+        label: "Weekly",
+        percentUsed: Math.min(100, Math.max(0, percentUsed)),
+        percentLeft: Math.min(100, Math.max(0, 100 - percentUsed)),
+        resetText,
+        resetMs,
+        windowDurationMs,
+      });
+    }
+  } catch (e: any) {
+    usage.status = "error";
+    usage.error = e.message || "Failed to fetch";
+  }
+
+  return usage;
+}
+
+// ── Zai (Zhipu AI) fetcher ──────────────────────────────────────────────────
+
+async function fetchZaiUsage(): Promise<ProviderUsage> {
+  const usage: ProviderUsage = {
+    name: "Zai",
+    icon: "🟡",
+    status: "no-auth",
+    windows: [],
+  };
+
+  // Load Zai credentials
+  const authPath = path.join(process.env.HOME || "~", ".zai", "auth.json");
+  let auth: any = null;
+  try {
+    auth = JSON.parse(fs.readFileSync(authPath, "utf-8"));
+  } catch {
+    usage.error = "No Zai credentials configured";
+    return usage;
+  }
+
+  const accessToken = auth?.access_token;
+  if (!accessToken) {
+    usage.error = "No Zai access token found";
+    return usage;
+  }
+
+  try {
+    const res = await httpsRequest("https://api.zhipuai.com/v1/user/usage", {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      usage.status = "error";
+      usage.error = "Auth expired";
+      return usage;
+    }
+
+    if (res.status !== 200) {
+      usage.status = "error";
+      usage.error = `HTTP ${res.status}: ${res.body.slice(0, 200)}`;
+      return usage;
+    }
+
+    const data = JSON.parse(res.body);
+    usage.status = "ok";
+
+    const usageData = data?.data;
+    if (usageData && typeof usageData === "object") {
+      const totalCredits: number = usageData.total_credits ?? 0;
+      const usedCredits: number = usageData.used_credits ?? 0;
+
+      const percentUsed = totalCredits > 0 ? (usedCredits / totalCredits) * 100 : 0;
+
+      let dailyResetText: string | null = null;
+      let dailyResetMs: number | undefined;
+      let monthlyResetText: string | null = null;
+      let monthlyResetMs: number | undefined;
+
+      const resetDate = usageData.reset_date;
+      if (resetDate) {
+        const resetTime = new Date(resetDate).getTime();
+        const msLeft = resetTime - Date.now();
+        
+        // Determine if this is daily or monthly based on time until reset
+        const hoursLeft = msLeft / (1000 * 60 * 60);
+        
+        if (hoursLeft <= 24) {
+          // Daily window
+          dailyResetMs = msLeft > 0 ? msLeft : 0;
+          dailyResetText = msLeft > 0 ? `resets in ${formatDuration(msLeft)}` : "resetting now";
+        } else {
+          // Monthly window
+          monthlyResetMs = msLeft > 0 ? msLeft : 0;
+          monthlyResetText = msLeft > 0 ? `resets in ${formatDuration(msLeft)}` : "resetting now";
+        }
+      }
+
+      // Add Daily window
+      usage.windows.push({
+        label: "Daily",
+        percentUsed: Math.min(100, Math.max(0, percentUsed)),
+        percentLeft: Math.min(100, Math.max(0, 100 - percentUsed)),
+        resetText: dailyResetText,
+        resetMs: dailyResetMs,
+        windowDurationMs: dailyResetMs ? 24 * 60 * 60 * 1000 : undefined,
+      });
+
+      // Add Monthly window if applicable
+      if (monthlyResetMs) {
+        usage.windows.push({
+          label: "Monthly",
+          percentUsed: Math.min(100, Math.max(0, percentUsed)),
+          percentLeft: Math.min(100, Math.max(0, 100 - percentUsed)),
+          resetText: monthlyResetText,
+          resetMs: monthlyResetMs,
+          windowDurationMs: 30 * 24 * 60 * 60 * 1000, // Approximate 30 days
+        });
+      }
+    }
+  } catch (e: any) {
+    usage.status = "error";
+    usage.error = e.message || "Failed to fetch";
+  }
+
+  return usage;
+}
+
 // ── Main export ────────────────────────────────────────────────────────────
 
 /**
@@ -501,12 +779,17 @@ export async function fetchAllProviderUsage(_authStorage?: AuthStorageLike): Pro
     fetchClaudeUsage(),
     fetchCodexUsage(),
     fetchGeminiUsage(),
+    fetchMinimaxUsage(),
+    fetchZaiUsage(),
   ]);
 
   const providers: ProviderUsage[] = [];
   for (const r of results) {
     if (r.status === "fulfilled") {
-      providers.push(r.value);
+      // Apply pace calculation to all windows
+      const provider = r.value;
+      provider.windows = provider.windows.map(applyPaceToWindow);
+      providers.push(provider);
     }
   }
 

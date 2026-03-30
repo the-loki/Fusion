@@ -3,6 +3,7 @@ import {
   fetchAllProviderUsage,
   clearUsageCache,
   ProviderUsage,
+  calculatePace,
 } from "./usage.js";
 
 // Mock the https module
@@ -38,10 +39,12 @@ describe("usage", () => {
 
       const providers = await fetchAllProviderUsage();
 
-      expect(providers).toHaveLength(3);
+      expect(providers).toHaveLength(5);
       expect(providers.map((p) => p.name)).toContain("Claude");
       expect(providers.map((p) => p.name)).toContain("Codex");
       expect(providers.map((p) => p.name)).toContain("Gemini");
+      expect(providers.map((p) => p.name)).toContain("Minimax");
+      expect(providers.map((p) => p.name)).toContain("Zai");
 
       // All should be no-auth status
       for (const p of providers) {
@@ -76,7 +79,7 @@ describe("usage", () => {
 
       // Should be different array reference
       expect(second).not.toBe(first);
-      expect(second).toHaveLength(3);
+      expect(second).toHaveLength(5);
     });
   });
 
@@ -403,6 +406,463 @@ describe("usage", () => {
 
       expect(gemini.status).toBe("error");
       expect(gemini.error).toContain("Unsupported auth type");
+    });
+  });
+
+  describe("Minimax provider", () => {
+    it("detects no auth when credentials file doesn't exist", async () => {
+      mockReadFileSync.mockImplementation(() => {
+        throw new Error("File not found");
+      });
+
+      const providers = await fetchAllProviderUsage();
+      const minimax = providers.find((p) => p.name === "Minimax");
+
+      expect(minimax).toBeDefined();
+      expect(minimax!.status).toBe("no-auth");
+      expect(minimax!.error).toContain("No Minimax credentials");
+    });
+
+    it("detects no auth when access_token is missing", async () => {
+      mockReadFileSync.mockImplementation((path: string) => {
+        if (path.includes("minimax")) {
+          return JSON.stringify({
+            // missing access_token
+            refresh_token: "test-refresh",
+          });
+        }
+        throw new Error("File not found");
+      });
+
+      const providers = await fetchAllProviderUsage();
+      const minimax = providers.find((p) => p.name === "Minimax");
+
+      expect(minimax!.status).toBe("no-auth");
+      expect(minimax!.error).toContain("No Minimax access token");
+    });
+
+    it("parses usage data from API response", async () => {
+      const mockResponse = {
+        quota: {
+          total: 1000,
+          used: 350,
+          remaining: 650,
+        },
+        reset_at: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days
+      };
+
+      mockReadFileSync.mockImplementation((path: string) => {
+        if (path.includes("minimax")) {
+          return JSON.stringify({
+            access_token: "test-token",
+          });
+        }
+        throw new Error("File not found");
+      });
+
+      const mockReq = {
+        on: vi.fn(),
+        write: vi.fn(),
+        end: vi.fn(),
+      };
+
+      mockRequest.mockImplementation((options: any, callback: any) => {
+        const mockRes = {
+          statusCode: 200,
+          headers: {},
+          on: vi.fn((event: string, handler: any) => {
+            if (event === "data") {
+              handler(Buffer.from(JSON.stringify(mockResponse)));
+            }
+            if (event === "end") {
+              handler();
+            }
+          }),
+        };
+        callback(mockRes);
+        return mockReq;
+      });
+
+      const providers = await fetchAllProviderUsage();
+      const minimax = providers.find((p) => p.name === "Minimax")!;
+
+      expect(minimax.status).toBe("ok");
+      expect(minimax.windows).toHaveLength(1);
+
+      const weeklyWindow = minimax.windows[0];
+      expect(weeklyWindow.label).toBe("Weekly");
+      expect(weeklyWindow.percentUsed).toBe(35); // 350/1000 * 100
+      expect(weeklyWindow.percentLeft).toBe(65);
+      expect(weeklyWindow.resetText).toContain("resets in");
+      expect(weeklyWindow.resetMs).toBeDefined();
+      expect(weeklyWindow.windowDurationMs).toBe(7 * 24 * 60 * 60 * 1000);
+    });
+
+    it("handles 401 auth error", async () => {
+      mockReadFileSync.mockImplementation((path: string) => {
+        if (path.includes("minimax")) {
+          return JSON.stringify({
+            access_token: "expired-token",
+          });
+        }
+        throw new Error("File not found");
+      });
+
+      const mockReq = {
+        on: vi.fn(),
+        write: vi.fn(),
+        end: vi.fn(),
+      };
+
+      mockRequest.mockImplementation((options: any, callback: any) => {
+        const mockRes = {
+          statusCode: 401,
+          headers: {},
+          on: vi.fn((event: string, handler: any) => {
+            if (event === "data") {
+              handler(Buffer.from('{"error": "unauthorized"}'));
+            }
+            if (event === "end") {
+              handler();
+            }
+          }),
+        };
+        callback(mockRes);
+        return mockReq;
+      });
+
+      const providers = await fetchAllProviderUsage();
+      const minimax = providers.find((p) => p.name === "Minimax")!;
+
+      expect(minimax.status).toBe("error");
+      expect(minimax.error).toContain("Auth expired");
+    });
+
+    it("handles 403 auth error", async () => {
+      mockReadFileSync.mockImplementation((path: string) => {
+        if (path.includes("minimax")) {
+          return JSON.stringify({
+            access_token: "forbidden-token",
+          });
+        }
+        throw new Error("File not found");
+      });
+
+      const mockReq = {
+        on: vi.fn(),
+        write: vi.fn(),
+        end: vi.fn(),
+      };
+
+      mockRequest.mockImplementation((options: any, callback: any) => {
+        const mockRes = {
+          statusCode: 403,
+          headers: {},
+          on: vi.fn((event: string, handler: any) => {
+            if (event === "data") {
+              handler(Buffer.from('{"error": "forbidden"}'));
+            }
+            if (event === "end") {
+              handler();
+            }
+          }),
+        };
+        callback(mockRes);
+        return mockReq;
+      });
+
+      const providers = await fetchAllProviderUsage();
+      const minimax = providers.find((p) => p.name === "Minimax")!;
+
+      expect(minimax.status).toBe("error");
+      expect(minimax.error).toContain("Auth expired");
+    });
+  });
+
+  describe("Zai provider", () => {
+    it("detects no auth when credentials file doesn't exist", async () => {
+      mockReadFileSync.mockImplementation(() => {
+        throw new Error("File not found");
+      });
+
+      const providers = await fetchAllProviderUsage();
+      const zai = providers.find((p) => p.name === "Zai");
+
+      expect(zai).toBeDefined();
+      expect(zai!.status).toBe("no-auth");
+      expect(zai!.error).toContain("No Zai credentials");
+    });
+
+    it("detects no auth when access_token is missing", async () => {
+      mockReadFileSync.mockImplementation((path: string) => {
+        if (path.includes("zai")) {
+          return JSON.stringify({
+            // missing access_token
+            refresh_token: "test-refresh",
+          });
+        }
+        throw new Error("File not found");
+      });
+
+      const providers = await fetchAllProviderUsage();
+      const zai = providers.find((p) => p.name === "Zai");
+
+      expect(zai!.status).toBe("no-auth");
+      expect(zai!.error).toContain("No Zai access token");
+    });
+
+    it("parses daily usage data from API response", async () => {
+      const mockResponse = {
+        data: {
+          total_credits: 10000,
+          used_credits: 2500,
+          reset_date: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(), // 8 hours (daily)
+        },
+      };
+
+      mockReadFileSync.mockImplementation((path: string) => {
+        if (path.includes("zai")) {
+          return JSON.stringify({
+            access_token: "test-token",
+          });
+        }
+        throw new Error("File not found");
+      });
+
+      const mockReq = {
+        on: vi.fn(),
+        write: vi.fn(),
+        end: vi.fn(),
+      };
+
+      mockRequest.mockImplementation((options: any, callback: any) => {
+        const mockRes = {
+          statusCode: 200,
+          headers: {},
+          on: vi.fn((event: string, handler: any) => {
+            if (event === "data") {
+              handler(Buffer.from(JSON.stringify(mockResponse)));
+            }
+            if (event === "end") {
+              handler();
+            }
+          }),
+        };
+        callback(mockRes);
+        return mockReq;
+      });
+
+      const providers = await fetchAllProviderUsage();
+      const zai = providers.find((p) => p.name === "Zai")!;
+
+      expect(zai.status).toBe("ok");
+      expect(zai.windows).toHaveLength(1);
+
+      const dailyWindow = zai.windows[0];
+      expect(dailyWindow.label).toBe("Daily");
+      expect(dailyWindow.percentUsed).toBe(25); // 2500/10000 * 100
+      expect(dailyWindow.percentLeft).toBe(75);
+      expect(dailyWindow.resetText).toContain("resets in");
+      expect(dailyWindow.resetMs).toBeDefined();
+      expect(dailyWindow.windowDurationMs).toBe(24 * 60 * 60 * 1000);
+    });
+
+    it("parses monthly usage data from API response", async () => {
+      const mockResponse = {
+        data: {
+          total_credits: 10000,
+          used_credits: 5000,
+          reset_date: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString(), // 15 days (monthly)
+        },
+      };
+
+      mockReadFileSync.mockImplementation((path: string) => {
+        if (path.includes("zai")) {
+          return JSON.stringify({
+            access_token: "test-token",
+          });
+        }
+        throw new Error("File not found");
+      });
+
+      const mockReq = {
+        on: vi.fn(),
+        write: vi.fn(),
+        end: vi.fn(),
+      };
+
+      mockRequest.mockImplementation((options: any, callback: any) => {
+        const mockRes = {
+          statusCode: 200,
+          headers: {},
+          on: vi.fn((event: string, handler: any) => {
+            if (event === "data") {
+              handler(Buffer.from(JSON.stringify(mockResponse)));
+            }
+            if (event === "end") {
+              handler();
+            }
+          }),
+        };
+        callback(mockRes);
+        return mockReq;
+      });
+
+      const providers = await fetchAllProviderUsage();
+      const zai = providers.find((p) => p.name === "Zai")!;
+
+      expect(zai.status).toBe("ok");
+      expect(zai.windows).toHaveLength(2);
+
+      const monthlyWindow = zai.windows[1];
+      expect(monthlyWindow.label).toBe("Monthly");
+      expect(monthlyWindow.percentUsed).toBe(50); // 5000/10000 * 100
+      expect(monthlyWindow.percentLeft).toBe(50);
+      expect(monthlyWindow.resetText).toContain("resets in");
+      expect(monthlyWindow.resetMs).toBeDefined();
+      expect(monthlyWindow.windowDurationMs).toBe(30 * 24 * 60 * 60 * 1000);
+    });
+
+    it("handles 401 auth error", async () => {
+      mockReadFileSync.mockImplementation((path: string) => {
+        if (path.includes("zai")) {
+          return JSON.stringify({
+            access_token: "expired-token",
+          });
+        }
+        throw new Error("File not found");
+      });
+
+      const mockReq = {
+        on: vi.fn(),
+        write: vi.fn(),
+        end: vi.fn(),
+      };
+
+      mockRequest.mockImplementation((options: any, callback: any) => {
+        const mockRes = {
+          statusCode: 401,
+          headers: {},
+          on: vi.fn((event: string, handler: any) => {
+            if (event === "data") {
+              handler(Buffer.from('{"error": "unauthorized"}'));
+            }
+            if (event === "end") {
+              handler();
+            }
+          }),
+        };
+        callback(mockRes);
+        return mockReq;
+      });
+
+      const providers = await fetchAllProviderUsage();
+      const zai = providers.find((p) => p.name === "Zai")!;
+
+      expect(zai.status).toBe("error");
+      expect(zai.error).toContain("Auth expired");
+    });
+
+    it("handles 403 auth error", async () => {
+      mockReadFileSync.mockImplementation((path: string) => {
+        if (path.includes("zai")) {
+          return JSON.stringify({
+            access_token: "forbidden-token",
+          });
+        }
+        throw new Error("File not found");
+      });
+
+      const mockReq = {
+        on: vi.fn(),
+        write: vi.fn(),
+        end: vi.fn(),
+      };
+
+      mockRequest.mockImplementation((options: any, callback: any) => {
+        const mockRes = {
+          statusCode: 403,
+          headers: {},
+          on: vi.fn((event: string, handler: any) => {
+            if (event === "data") {
+              handler(Buffer.from('{"error": "forbidden"}'));
+            }
+            if (event === "end") {
+              handler();
+            }
+          }),
+        };
+        callback(mockRes);
+        return mockReq;
+      });
+
+      const providers = await fetchAllProviderUsage();
+      const zai = providers.find((p) => p.name === "Zai")!;
+
+      expect(zai.status).toBe("error");
+      expect(zai.error).toContain("Auth expired");
+    });
+  });
+
+  describe("calculatePace helper", () => {
+    it("returns ahead status when usage exceeds elapsed time by >5%", () => {
+      // 70% used, 50% elapsed = 20% ahead (3 days remaining out of 7 = 57% elapsed, 70 - 57 = 13 > 5)
+      // Actually: 100 - (3/7 * 100) = 57.14% elapsed
+      // 70 - 57.14 = 12.86% > 5% → ahead
+      const pace = calculatePace(70, 3 * 24 * 60 * 60 * 1000, 7 * 24 * 60 * 60 * 1000);
+      expect(pace).toBeDefined();
+      expect(pace!.status).toBe("ahead");
+      expect(pace!.percentElapsed).toBe(57);
+      expect(pace!.message).toContain("over pace");
+    });
+
+    it("returns behind status when usage is under elapsed time by >5%", () => {
+      // 20% used, 57% elapsed = 37% behind
+      const pace = calculatePace(20, 3 * 24 * 60 * 60 * 1000, 7 * 24 * 60 * 60 * 1000);
+      expect(pace).toBeDefined();
+      expect(pace!.status).toBe("behind");
+      expect(pace!.percentElapsed).toBe(57);
+      expect(pace!.message).toContain("under pace");
+    });
+
+    it("returns on-track status when within 5% of elapsed time", () => {
+      // 52% used, 57% elapsed = 5% difference (within threshold)
+      const pace = calculatePace(52, 3.5 * 24 * 60 * 60 * 1000, 7 * 24 * 60 * 60 * 1000);
+      expect(pace).toBeDefined();
+      expect(pace!.status).toBe("on-track");
+      expect(pace!.message).toBe("On pace with time elapsed");
+    });
+
+    it("returns undefined when resetMs is undefined", () => {
+      const pace = calculatePace(50, undefined, 7 * 24 * 60 * 60 * 1000);
+      expect(pace).toBeUndefined();
+    });
+
+    it("returns undefined when windowDurationMs is undefined", () => {
+      const pace = calculatePace(50, 3 * 24 * 60 * 60 * 1000, undefined);
+      expect(pace).toBeUndefined();
+    });
+
+    it("returns undefined when resetMs is 0 or negative", () => {
+      expect(calculatePace(50, 0, 7 * 24 * 60 * 60 * 1000)).toBeUndefined();
+      expect(calculatePace(50, -1000, 7 * 24 * 60 * 60 * 1000)).toBeUndefined();
+    });
+
+    it("returns undefined when windowDurationMs is 0 or negative", () => {
+      expect(calculatePace(50, 3 * 24 * 60 * 60 * 1000, 0)).toBeUndefined();
+      expect(calculatePace(50, 3 * 24 * 60 * 60 * 1000, -1000)).toBeUndefined();
+    });
+
+    it("clamps percentUsed to 0-100 range", () => {
+      // Test with negative percentUsed
+      let pace = calculatePace(-10, 3 * 24 * 60 * 60 * 1000, 7 * 24 * 60 * 60 * 1000);
+      expect(pace).toBeDefined();
+      expect(pace!.status).toBe("behind");
+
+      // Test with percentUsed > 100
+      pace = calculatePace(150, 3 * 24 * 60 * 60 * 1000, 7 * 24 * 60 * 60 * 1000);
+      expect(pace).toBeDefined();
+      expect(pace!.status).toBe("ahead");
     });
   });
 
