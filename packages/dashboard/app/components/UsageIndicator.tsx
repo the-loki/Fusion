@@ -319,7 +319,7 @@ export function UsageIndicator({ isOpen, onClose }: UsageIndicatorProps) {
             disabled={loading || isRefreshing}
             data-testid="usage-refresh-btn"
           >
-            <RefreshCw size={14} className={isRefreshing ? "spin" : ""} />
+            <RefreshCw size={14} className={isRefreshing ? "spin" : ""} style={{ marginRight: 6 }} />
             Refresh
           </button>
           <button className="btn btn-primary btn-sm" onClick={onClose}>
