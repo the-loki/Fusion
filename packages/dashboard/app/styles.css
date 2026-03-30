@@ -1121,10 +1121,17 @@ body {
   font-family: "SF Mono", Monaco, Consolas, monospace;
   cursor: pointer;
   transition: text-decoration var(--transition-fast);
+  text-decoration: none;
 }
 
 .detail-dep-link:hover {
   text-decoration: underline;
+}
+
+.detail-dep-link:focus {
+  outline: 1px solid var(--todo);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 /* === Step Progress === */

@@ -448,6 +448,14 @@ export function TaskDetailModal({
                     <span
                       className="detail-dep-link"
                       onClick={() => handleDepClick(dep)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          handleDepClick(dep);
+                        }
+                      }}
+                      role="link"
+                      tabIndex={0}
                       title={`Click to view ${dep}`}
                     >
                       {dep}
