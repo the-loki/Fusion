@@ -1,386 +1,283 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { execTerminalCommand, killTerminalSession, getTerminalStreamUrl } from "../api";
 
-/**
- * Represents a single command execution entry in terminal history.
- */
-export interface TerminalHistoryEntry {
-  id: string;
-  command: string;
-  output: string;
-  exitCode: number | null;
-  timestamp: Date;
-  isRunning: boolean;
+export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "reconnecting";
+
+export interface UseTerminalReturn {
+  /** Current WebSocket connection status */
+  connectionStatus: ConnectionStatus;
+  /** Send input data to the terminal */
+  sendInput: (data: string) => void;
+  /** Resize the terminal */
+  resize: (cols: number, rows: number) => void;
+  /** Register a callback for data from the terminal */
+  onData: (callback: (data: string) => void) => () => void;
+  /** Register a callback for terminal exit */
+  onExit: (callback: (exitCode: number) => void) => () => void;
+  /** Register a callback for connection events */
+  onConnect: (callback: (info: { shell: string; cwd: string }) => void) => () => void;
+  /** Register a callback for scrollback data */
+  onScrollback: (callback: (data: string) => void) => () => void;
+  /** Manually reconnect */
+  reconnect: () => void;
 }
 
-/**
- * State of the current terminal session.
- */
-export interface TerminalState {
-  /** Command history entries */
-  history: TerminalHistoryEntry[];
-  /** Currently active session ID (null if no running command) */
-  currentSessionId: string | null;
-  /** Whether a command is currently executing */
-  isRunning: boolean;
-  /** Current input value in the terminal */
-  inputValue: string;
-  /** Index for navigating command history with up/down arrows (-1 means not navigating) */
-  historyIndex: number;
-  /** Error message if something went wrong */
-  error: string | null;
+interface WebSocketMessage {
+  type: string;
+  data?: string;
+  exitCode?: number;
+  shell?: string;
+  cwd?: string;
+  cols?: number;
+  rows?: number;
 }
 
-/**
- * Actions available from the useTerminal hook.
- */
-export interface TerminalActions {
-  /** Execute a command in the terminal */
-  executeCommand: (command: string) => Promise<void>;
-  /** Clear the terminal history */
-  clearHistory: () => void;
-  /** Kill the currently running command */
-  killCurrentCommand: () => Promise<void>;
-  /** Set the input value */
-  setInputValue: (value: string) => void;
-  /** Navigate to previous command in history (for up arrow) */
-  navigateHistoryUp: () => string | null;
-  /** Navigate to next command in history (for down arrow) */
-  navigateHistoryDown: () => string | null;
-  /** Reset history navigation */
-  resetHistoryNavigation: () => void;
-  /** Clear the error message */
-  clearError: () => void;
-}
+const MAX_RECONNECT_ATTEMPTS = 5;
+const INITIAL_RECONNECT_DELAY = 1000;
+const HEARTBEAT_INTERVAL = 30000;
 
 /**
- * Hook for managing an interactive terminal session.
+ * React hook for managing terminal WebSocket connection.
  * 
  * Features:
- * - Execute shell commands with real-time output streaming via SSE
- * - Command history with Up/Down arrow navigation
- * - Kill running processes
- * - Clear history
- * - Automatic cleanup on unmount
+ * - WebSocket connection with exponential backoff reconnect
+ * - Input/output handling
+ * - Resize support
+ * - Heartbeat ping/pong
+ * - Scrollback buffer replay on connect
  * 
  * @example
  * ```tsx
- * const { history, isRunning, inputValue, setInputValue, executeCommand, clearHistory } = useTerminal();
+ * const { connectionStatus, sendInput, resize, onData } = useTerminal(sessionId);
  * 
- * // In your component:
- * <input 
- *   value={inputValue} 
- *   onChange={(e) => setInputValue(e.target.value)}
- *   onKeyDown={(e) => {
- *     if (e.key === 'Enter') executeCommand(inputValue);
- *     if (e.key === 'ArrowUp') navigateHistoryUp();
- *     if (e.key === 'ArrowDown') navigateHistoryDown();
- *   }}
- * />
+ * useEffect(() => {
+ *   const unsub = onData((data) => {
+ *     terminal.write(data);
+ *   });
+ *   return unsub;
+ * }, [onData]);
  * ```
  */
-export function useTerminal(): TerminalState & TerminalActions {
-  // History of executed commands
-  const [history, setHistory] = useState<TerminalHistoryEntry[]>([]);
+export function useTerminal(sessionId: string | null): UseTerminalReturn {
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("disconnected");
   
-  // Current session tracking
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [isRunning, setIsRunning] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isManualCloseRef = useRef(false);
   
-  // Input state
-  const [inputValue, setInputValue] = useState("");
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const [error, setError] = useState<string | null>(null);
-  
-  // Refs for managing SSE and abort controllers
-  const eventSourceRef = useRef<EventSource | null>(null);
-  const currentEntryRef = useRef<TerminalHistoryEntry | null>(null);
-  const historyRef = useRef(history);
-  
-  // Keep history ref in sync for access in event handlers
-  useEffect(() => {
-    historyRef.current = history;
-  }, [history]);
+  // Callback refs to avoid re-subscriptions
+  const onDataCallbacksRef = useRef<Set<(data: string) => void>>(new Set());
+  const onExitCallbacksRef = useRef<Set<(exitCode: number) => void>>(new Set());
+  const onConnectCallbacksRef = useRef<Set<(info: { shell: string; cwd: string }) => void>>(new Set());
+  const onScrollbackCallbacksRef = useRef<Set<(data: string) => void>>(new Set());
 
-  /**
-   * Execute a shell command in the terminal.
-   * Creates a new session and streams output via SSE.
-   */
-  const executeCommand = useCallback(async (command: string) => {
-    if (!command.trim() || isRunning) return;
-    
-    setError(null);
-    
-    try {
-      // Create new history entry
-      const entry: TerminalHistoryEntry = {
-        id: crypto.randomUUID(),
-        command: command.trim(),
-        output: "",
-        exitCode: null,
-        timestamp: new Date(),
-        isRunning: true,
-      };
-      
-      currentEntryRef.current = entry;
-      setHistory((prev) => [...prev, entry]);
-      setIsRunning(true);
-      setInputValue("");
-      setHistoryIndex(-1);
-      
-      // Execute command via API
-      const { sessionId } = await execTerminalCommand(command.trim());
-      setCurrentSessionId(sessionId);
-      
-      // Connect to SSE stream
-      const streamUrl = getTerminalStreamUrl(sessionId);
-      const es = new EventSource(streamUrl);
-      eventSourceRef.current = es;
-      
-      es.addEventListener("connected", () => {
-        // Connection established - ready to receive output
-      });
-      
-      es.addEventListener("terminal:output", (e) => {
-        try {
-          const { type, data } = JSON.parse(e.data) as { type: "stdout" | "stderr"; data: string };
-          
-          setHistory((prev) => {
-            const lastEntry = prev[prev.length - 1];
-            if (!lastEntry || !lastEntry.isRunning) return prev;
-            
-            const updatedEntry = {
-              ...lastEntry,
-              output: lastEntry.output + data,
-            };
-            
-            return [...prev.slice(0, -1), updatedEntry];
-          });
-        } catch {
-          // Skip malformed events
-        }
-      });
-      
-      es.addEventListener("terminal:exit", (e) => {
-        try {
-          const { exitCode } = JSON.parse(e.data) as { exitCode: number };
-          
-          setHistory((prev) => {
-            const lastEntry = prev[prev.length - 1];
-            if (!lastEntry || !lastEntry.isRunning) return prev;
-            
-            const updatedEntry = {
-              ...lastEntry,
-              exitCode,
-              isRunning: false,
-            };
-            
-            return [...prev.slice(0, -1), updatedEntry];
-          });
-          
-          setIsRunning(false);
-          setCurrentSessionId(null);
-          currentEntryRef.current = null;
-          
-          // Close the SSE connection
-          es.close();
-          eventSourceRef.current = null;
-        } catch {
-          // Skip malformed events
-        }
-      });
-      
-      es.addEventListener("error", () => {
-        // Connection error - mark command as failed
-        setHistory((prev) => {
-          const lastEntry = prev[prev.length - 1];
-          if (!lastEntry || !lastEntry.isRunning) return prev;
-          
-          const updatedEntry = {
-            ...lastEntry,
-            exitCode: -1,
-            isRunning: false,
-            output: lastEntry.output + "\n[Connection lost]\n",
-          };
-          
-          return [...prev.slice(0, -1), updatedEntry];
-        });
-        
-        setIsRunning(false);
-        setCurrentSessionId(null);
-        currentEntryRef.current = null;
-        eventSourceRef.current = null;
-      });
-      
-    } catch (err: any) {
-      setError(err.message || "Failed to execute command");
-      
-      // Mark entry as failed
-      setHistory((prev) => {
-        const lastEntry = prev[prev.length - 1];
-        if (!lastEntry || !lastEntry.isRunning) return prev;
-        
-        const updatedEntry = {
-          ...lastEntry,
-          exitCode: -1,
-          isRunning: false,
-          output: lastEntry.output + `\n[Error: ${err.message || "Failed to execute command"}]\n`,
-        };
-        
-        return [...prev.slice(0, -1), updatedEntry];
-      });
-      
-      setIsRunning(false);
-      setCurrentSessionId(null);
-      currentEntryRef.current = null;
-    }
-  }, [isRunning]);
-
-  /**
-   * Kill the currently running command.
-   */
-  const killCurrentCommand = useCallback(async () => {
-    if (!currentSessionId || !isRunning) return;
-    
-    try {
-      await killTerminalSession(currentSessionId, "SIGTERM");
-      
-      // Close SSE connection
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
-      
-      // Update history entry
-      setHistory((prev) => {
-        const lastEntry = prev[prev.length - 1];
-        if (!lastEntry || !lastEntry.isRunning) return prev;
-        
-        const updatedEntry = {
-          ...lastEntry,
-          exitCode: 130, // Standard exit code for SIGINT
-          isRunning: false,
-          output: lastEntry.output + "\n[Process terminated]\n",
-        };
-        
-        return [...prev.slice(0, -1), updatedEntry];
-      });
-      
-      setIsRunning(false);
-      setCurrentSessionId(null);
-      currentEntryRef.current = null;
-    } catch (err: any) {
-      setError(err.message || "Failed to kill process");
-    }
-  }, [currentSessionId, isRunning]);
-
-  /**
-   * Clear all command history.
-   */
-  const clearHistory = useCallback(() => {
-    // Kill any running process first
-    if (isRunning && currentSessionId) {
-      killTerminalSession(currentSessionId, "SIGKILL").catch(() => {
-        // Ignore errors during cleanup
-      });
-    }
-    
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
-    
-    setHistory([]);
-    setCurrentSessionId(null);
-    setIsRunning(false);
-    setHistoryIndex(-1);
-    currentEntryRef.current = null;
-  }, [isRunning, currentSessionId]);
-
-  /**
-   * Navigate to previous command in history (Up arrow).
-   * Returns the command string or null if no history.
-   */
-  const navigateHistoryUp = useCallback(() => {
-    if (historyRef.current.length === 0) return null;
-    
-    const newIndex = historyIndex + 1;
-    if (newIndex >= historyRef.current.length) return null;
-    
-    setHistoryIndex(newIndex);
-    const command = historyRef.current[historyRef.current.length - 1 - newIndex]?.command || "";
-    setInputValue(command);
-    return command;
-  }, [historyIndex]);
-
-  /**
-   * Navigate to next command in history (Down arrow).
-   * Returns the command string or null if at end.
-   */
-  const navigateHistoryDown = useCallback(() => {
-    if (historyIndex <= 0) {
-      setHistoryIndex(-1);
-      setInputValue("");
-      return "";
-    }
-    
-    const newIndex = historyIndex - 1;
-    setHistoryIndex(newIndex);
-    const command = historyRef.current[historyRef.current.length - 1 - newIndex]?.command || "";
-    setInputValue(command);
-    return command;
-  }, [historyIndex]);
-
-  /**
-   * Reset history navigation to default state.
-   */
-  const resetHistoryNavigation = useCallback(() => {
-    setHistoryIndex(-1);
+  // Register callbacks
+  const onData = useCallback((callback: (data: string) => void) => {
+    onDataCallbacksRef.current.add(callback);
+    return () => onDataCallbacksRef.current.delete(callback);
   }, []);
 
-  /**
-   * Clear the error message.
-   */
-  const clearError = useCallback(() => {
-    setError(null);
+  const onExit = useCallback((callback: (exitCode: number) => void) => {
+    onExitCallbacksRef.current.add(callback);
+    return () => onExitCallbacksRef.current.delete(callback);
   }, []);
 
-  /**
-   * Cleanup on unmount - kill running process and close SSE.
-   */
-  useEffect(() => {
-    return () => {
-      // Kill any running process
-      if (currentSessionId) {
-        killTerminalSession(currentSessionId, "SIGKILL").catch(() => {
-          // Ignore errors during cleanup
-        });
+  const onConnect = useCallback((callback: (info: { shell: string; cwd: string }) => void) => {
+    onConnectCallbacksRef.current.add(callback);
+    return () => onConnectCallbacksRef.current.delete(callback);
+  }, []);
+
+  const onScrollback = useCallback((callback: (data: string) => void) => {
+    onScrollbackCallbacksRef.current.add(callback);
+    return () => onScrollbackCallbacksRef.current.delete(callback);
+  }, []);
+
+  // Send input to terminal
+  const sendInput = useCallback((data: string) => {
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "input", data }));
+    }
+  }, []);
+
+  // Resize terminal
+  const resize = useCallback((cols: number, rows: number) => {
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "resize", cols, rows }));
+    }
+  }, []);
+
+  // Cleanup function
+  const cleanup = useCallback(() => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+
+    if (wsRef.current) {
+      isManualCloseRef.current = true;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+  }, []);
+
+  // Connect function
+  const connect = useCallback(() => {
+    if (!sessionId) {
+      setConnectionStatus("disconnected");
+      return;
+    }
+
+    // Don't connect if already connected
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      return;
+    }
+
+    // Clean up any existing connection
+    if (wsRef.current) {
+      isManualCloseRef.current = true;
+      wsRef.current.close();
+    }
+
+    isManualCloseRef.current = false;
+    setConnectionStatus("connecting");
+
+    // Build WebSocket URL
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/api/terminal/ws?sessionId=${encodeURIComponent(sessionId)}`;
+
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setConnectionStatus("connected");
+      reconnectAttemptsRef.current = 0;
+
+      // Start heartbeat
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
       }
-      
-      // Close SSE connection
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
+
+      heartbeatIntervalRef.current = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "ping" }));
+        }
+      }, HEARTBEAT_INTERVAL);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const msg: WebSocketMessage = JSON.parse(event.data);
+
+        switch (msg.type) {
+          case "data":
+            if (msg.data) {
+              onDataCallbacksRef.current.forEach((cb) => cb(msg.data!));
+            }
+            break;
+          case "scrollback":
+            if (msg.data) {
+              onScrollbackCallbacksRef.current.forEach((cb) => cb(msg.data!));
+            }
+            break;
+          case "connected":
+            if (msg.shell && msg.cwd) {
+              onConnectCallbacksRef.current.forEach((cb) => 
+                cb({ shell: msg.shell!, cwd: msg.cwd! })
+              );
+            }
+            break;
+          case "exit":
+            if (msg.exitCode !== undefined) {
+              onExitCallbacksRef.current.forEach((cb) => cb(msg.exitCode!));
+            }
+            break;
+          case "pong":
+            // Heartbeat response
+            break;
+        }
+      } catch {
+        // Ignore malformed messages
       }
     };
-  }, [currentSessionId]);
+
+    ws.onclose = (event) => {
+      wsRef.current = null;
+      
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
+
+      // Don't reconnect if manually closed
+      if (isManualCloseRef.current) {
+        setConnectionStatus("disconnected");
+        return;
+      }
+
+      // Don't reconnect for certain close codes
+      if (event.code === 4000 || event.code === 4004) {
+        setConnectionStatus("disconnected");
+        return;
+      }
+
+      // Attempt reconnect with exponential backoff
+      reconnectAttemptsRef.current++;
+      
+      if (reconnectAttemptsRef.current > MAX_RECONNECT_ATTEMPTS) {
+        setConnectionStatus("disconnected");
+        return;
+      }
+
+      const delay = INITIAL_RECONNECT_DELAY * Math.pow(2, reconnectAttemptsRef.current - 1);
+      setConnectionStatus("reconnecting");
+
+      reconnectTimeoutRef.current = setTimeout(() => {
+        if (!isManualCloseRef.current) {
+          connect();
+        }
+      }, Math.min(delay, 16000));
+    };
+
+    ws.onerror = () => {
+      // Errors are handled by onclose
+    };
+  }, [sessionId]);
+
+  // Manual reconnect
+  const reconnect = useCallback(() => {
+    reconnectAttemptsRef.current = 0;
+    cleanup();
+    connect();
+  }, [cleanup, connect]);
+
+  // Connect when sessionId changes
+  useEffect(() => {
+    if (sessionId) {
+      connect();
+    } else {
+      cleanup();
+      setConnectionStatus("disconnected");
+    }
+
+    return cleanup;
+  }, [sessionId, connect, cleanup]);
 
   return {
-    // State
-    history,
-    currentSessionId,
-    isRunning,
-    inputValue,
-    historyIndex,
-    error,
-    
-    // Actions
-    executeCommand,
-    clearHistory,
-    killCurrentCommand,
-    setInputValue,
-    navigateHistoryUp,
-    navigateHistoryDown,
-    resetHistoryNavigation,
-    clearError,
+    connectionStatus,
+    sendInput,
+    resize,
+    onData,
+    onExit,
+    onConnect,
+    onScrollback,
+    reconnect,
   };
 }
