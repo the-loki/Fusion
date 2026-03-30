@@ -5,10 +5,15 @@ import { apiFetchGitHubIssues, apiImportGitHubIssue } from "../../api";
 import type { Task } from "@kb/core";
 
 // Mock the API module
-vi.mock("../../api", () => ({
-  apiFetchGitHubIssues: vi.fn(),
-  apiImportGitHubIssue: vi.fn(),
-}));
+vi.mock("../../api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api")>();
+  return {
+    ...actual,
+    apiFetchGitHubIssues: vi.fn(),
+    apiImportGitHubIssue: vi.fn(),
+    fetchGitRemotes: vi.fn().mockResolvedValue([]),
+  };
+});
 
 const mockTask: Task = {
   id: "KB-001",

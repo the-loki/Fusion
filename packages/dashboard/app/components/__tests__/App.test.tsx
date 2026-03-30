@@ -15,23 +15,28 @@ const defaultSettings: Settings = {
   buildCommand: "",
 };
 
-vi.mock("../../api", () => ({
-  fetchTasks: vi.fn(() => Promise.resolve([])),
-  fetchConfig: vi.fn(() => Promise.resolve({ maxConcurrent: 2 })),
-  fetchSettings: vi.fn(() => Promise.resolve({ ...defaultSettings })),
-  updateSettings: vi.fn(() => Promise.resolve({ ...defaultSettings })),
-  fetchAuthStatus: vi.fn(() =>
-    Promise.resolve({
-      providers: [
-        { id: "anthropic", name: "Anthropic", authenticated: false },
-        { id: "github", name: "GitHub", authenticated: false },
-      ],
-    }),
-  ),
-  loginProvider: vi.fn(() => Promise.resolve({ url: "https://auth.example.com/login" })),
-  logoutProvider: vi.fn(() => Promise.resolve({ success: true })),
-  fetchModels: vi.fn(() => Promise.resolve([])),
-}));
+vi.mock("../../api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api")>();
+  return {
+    ...actual,
+    fetchTasks: vi.fn(() => Promise.resolve([])),
+    fetchConfig: vi.fn(() => Promise.resolve({ maxConcurrent: 2 })),
+    fetchSettings: vi.fn(() => Promise.resolve({ ...defaultSettings })),
+    updateSettings: vi.fn(() => Promise.resolve({ ...defaultSettings })),
+    fetchAuthStatus: vi.fn(() =>
+      Promise.resolve({
+        providers: [
+          { id: "anthropic", name: "Anthropic", authenticated: false },
+          { id: "github", name: "GitHub", authenticated: false },
+        ],
+      }),
+    ),
+    loginProvider: vi.fn(() => Promise.resolve({ url: "https://auth.example.com/login" })),
+    logoutProvider: vi.fn(() => Promise.resolve({ success: true })),
+    fetchModels: vi.fn(() => Promise.resolve([])),
+    fetchGitRemotes: vi.fn(() => Promise.resolve([])),
+  };
+});
 
 vi.mock("../../hooks/useTasks", () => ({
   useTasks: () => ({

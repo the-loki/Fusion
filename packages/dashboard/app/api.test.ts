@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fetchTaskDetail, updateTask, fetchAuthStatus, loginProvider, logoutProvider, fetchModels, addSteeringComment } from "./api";
+import { fetchTaskDetail, updateTask, fetchAuthStatus, loginProvider, logoutProvider, fetchModels, addSteeringComment, fetchGitRemotes } from "./api";
 import type { Task, TaskDetail } from "@kb/core";
 
 const FAKE_DETAIL: TaskDetail = {
@@ -260,5 +260,41 @@ describe("addSteeringComment", () => {
     );
 
     await expect(addSteeringComment("KB-001", "Test comment")).rejects.toThrow("Task not found");
+  });
+});
+
+describe("fetchGitRemotes", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("returns array of GitHub remotes", async () => {
+    const remotes = [
+      { name: "origin", owner: "dustinbyrne", repo: "kb", url: "https://github.com/dustinbyrne/kb.git" },
+    ];
+    globalThis.fetch = vi.fn().mockReturnValue(mockFetchResponse(true, remotes));
+
+    const result = await fetchGitRemotes();
+
+    expect(result).toEqual(remotes);
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/git/remotes", {
+      headers: { "Content-Type": "application/json" },
+    });
+  });
+
+  it("returns empty array when no remotes", async () => {
+    globalThis.fetch = vi.fn().mockReturnValue(mockFetchResponse(true, []));
+
+    const result = await fetchGitRemotes();
+
+    expect(result).toEqual([]);
+  });
+
+  it("throws on error", async () => {
+    globalThis.fetch = vi.fn().mockReturnValue(mockFetchResponse(false, { error: "Failed to execute git command" }));
+
+    await expect(fetchGitRemotes()).rejects.toThrow("Failed to execute git command");
   });
 });

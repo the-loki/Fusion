@@ -1,6 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import { createReadStream } from "node:fs";
+import { execSync } from "node:child_process";
 import type { TaskStore, Column, MergeResult } from "@kb/core";
 import { COLUMNS } from "@kb/core";
 import type { ServerOptions } from "./server.js";
@@ -40,6 +41,79 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
 });
+
+// ── Git Remote Detection ──────────────────────────────────────────
+
+/** Git remote info returned by the remotes endpoint */
+export interface GitRemote {
+  name: string;
+  owner: string;
+  repo: string;
+  url: string;
+}
+
+/**
+ * Parse a GitHub URL to extract owner and repo.
+ * Handles HTTPS (https://github.com/owner/repo.git) and SSH (git@github.com:owner/repo.git) formats.
+ */
+function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
+  // HTTPS format: https://github.com/owner/repo.git or https://github.com/owner/repo
+  const httpsMatch = url.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/i);
+  if (httpsMatch) {
+    return { owner: httpsMatch[1], repo: httpsMatch[2] };
+  }
+
+  // SSH format: git@github.com:owner/repo.git or git@github.com:owner/repo
+  const sshMatch = url.match(/^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/i);
+  if (sshMatch) {
+    return { owner: sshMatch[1], repo: sshMatch[2] };
+  }
+
+  return null;
+}
+
+/**
+ * Get GitHub remotes from the current git repository.
+ * Executes `git remote -v` and parses the output.
+ */
+function getGitHubRemotes(): GitRemote[] {
+  try {
+    // Execute git remote -v to get all remotes with their URLs
+    const output = execSync("git remote -v", { encoding: "utf-8", timeout: 5000 });
+
+    const remotes: GitRemote[] = [];
+    const seen = new Set<string>();
+
+    for (const line of output.split("\n")) {
+      // Parse lines like: "origin  https://github.com/owner/repo.git (fetch)"
+      const match = line.match(/^(\S+)\s+(\S+)\s+\((fetch|push)\)$/);
+      if (!match) continue;
+
+      const [, name, url] = match;
+
+      // Skip duplicates (fetch/push entries for same remote)
+      const key = `${name}-${url}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      // Only include GitHub URLs
+      const parsed = parseGitHubUrl(url);
+      if (parsed) {
+        remotes.push({
+          name,
+          owner: parsed.owner,
+          repo: parsed.repo,
+          url,
+        });
+      }
+    }
+
+    return remotes;
+  } catch {
+    // Return empty array if not a git repo, git not available, or any error
+    return [];
+  }
+}
 
 export function createApiRoutes(store: TaskStore, options?: ServerOptions): Router {
   const router = Router();
@@ -305,7 +379,21 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
     }
   });
 
-  // ── GitHub Import Routes ──────────────────────────────────────────
+  /**
+   * GET /api/git/remotes
+   * Returns GitHub remotes from the current git repository.
+   * Response: Array of GitRemote objects [{ name: string, owner: string, repo: string, url: string }]
+   */
+  router.get("/git/remotes", (_req, res) => {
+    try {
+      const remotes = getGitHubRemotes();
+      res.json(remotes);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+// ── GitHub Import Routes ──────────────────────────────────────────
 
   /**
    * POST /api/github/issues/fetch

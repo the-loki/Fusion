@@ -190,3 +190,18 @@ export function apiImportGitHubIssue(owner: string, repo: string, issueNumber: n
     body: JSON.stringify({ owner, repo, issueNumber }),
   });
 }
+
+// --- Git Remote Detection API ---
+
+/** Git remote info returned by the remotes endpoint */
+export interface GitRemote {
+  name: string;
+  owner: string;
+  repo: string;
+  url: string;
+}
+
+/** Fetch GitHub remotes from the current git repository */
+export function fetchGitRemotes(): Promise<GitRemote[]> {
+  return api<GitRemote[]>("/git/remotes");
+}

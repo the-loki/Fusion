@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { Task } from "@kb/core";
-import { apiFetchGitHubIssues, apiImportGitHubIssue, type GitHubIssue } from "../api";
+import { apiFetchGitHubIssues, apiImportGitHubIssue, fetchGitRemotes, type GitHubIssue, type GitRemote } from "../api";
 import { Loader2 } from "lucide-react";
 
 interface GitHubImportModalProps {
@@ -20,6 +20,12 @@ export function GitHubImportModal({ isOpen, onClose, onImport, tasks }: GitHubIm
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
 
+  // Git remotes state
+  const [remotes, setRemotes] = useState<GitRemote[]>([]);
+  const [loadingRemotes, setLoadingRemotes] = useState(false);
+  const [selectedRemoteName, setSelectedRemoteName] = useState<string>("");
+  const mountedRef = useRef(false);
+
   // Build set of already imported URLs from existing tasks
   const importedUrls = new Set<string>();
   for (const task of tasks) {
@@ -29,7 +35,7 @@ export function GitHubImportModal({ isOpen, onClose, onImport, tasks }: GitHubIm
     }
   }
 
-  // Reset state when modal opens
+  // Reset state when modal opens and fetch remotes
   useEffect(() => {
     if (isOpen) {
       setOwner("");
@@ -39,8 +45,56 @@ export function GitHubImportModal({ isOpen, onClose, onImport, tasks }: GitHubIm
       setSelectedIssueNumber(null);
       setError(null);
       setImporting(false);
+      setRemotes([]);
+      setLoadingRemotes(true);
+      setSelectedRemoteName("");
+
+      mountedRef.current = true;
+
+      // Fetch git remotes
+      fetchGitRemotes()
+        .then((fetchedRemotes) => {
+          if (!mountedRef.current) return;
+
+          setRemotes(fetchedRemotes);
+          setLoadingRemotes(false);
+
+          // Auto-populate if exactly one remote and fields are empty
+          if (fetchedRemotes.length === 1) {
+            const remote = fetchedRemotes[0];
+            setOwner(remote.owner);
+            setRepo(remote.repo);
+            setSelectedRemoteName(remote.name);
+          }
+        })
+        .catch(() => {
+          // Silently fail - manual input remains available
+          if (mountedRef.current) {
+            setLoadingRemotes(false);
+          }
+        });
+
+      return () => {
+        mountedRef.current = false;
+      };
     }
   }, [isOpen]);
+
+  // Handle remote selection change
+  const handleRemoteChange = useCallback((remoteName: string) => {
+    setSelectedRemoteName(remoteName);
+    if (remoteName === "") {
+      // Manual mode - clear fields
+      setOwner("");
+      setRepo("");
+    } else {
+      const remote = remotes.find((r) => r.name === remoteName);
+      if (remote) {
+        setOwner(remote.owner);
+        setRepo(remote.repo);
+      }
+    }
+  }, [remotes]);
 
   // Handle escape key
   useEffect(() => {
@@ -105,6 +159,10 @@ export function GitHubImportModal({ isOpen, onClose, onImport, tasks }: GitHubIm
 
   if (!isOpen) return null;
 
+  // Determine if we should show the remote dropdown
+  const showRemoteDropdown = remotes.length > 1 || (remotes.length === 1 && !loadingRemotes);
+  const hasRemotes = remotes.length > 0;
+
   return (
     <div className="modal-overlay open" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
@@ -116,6 +174,33 @@ export function GitHubImportModal({ isOpen, onClose, onImport, tasks }: GitHubIm
         </div>
 
         <div className="modal-body">
+          {/* Remote Selection Dropdown */}
+          {(showRemoteDropdown || loadingRemotes) && (
+            <div className="form-row">
+              <div className="form-group">
+                <label htmlFor="gh-remote">
+                  Repository
+                  {loadingRemotes && <Loader2 size={12} className="spin" style={{ marginLeft: 8, display: "inline" }} />}
+                </label>
+                <select
+                  id="gh-remote"
+                  value={selectedRemoteName}
+                  onChange={(e) => handleRemoteChange(e.target.value)}
+                  disabled={loadingRemotes || loading || importing}
+                >
+                  {hasRemotes && <option value="">Select a remote...</option>}
+                  {loadingRemotes && <option value="">Loading remotes...</option>}
+                  {!hasRemotes && !loadingRemotes && <option value="">No GitHub remotes detected</option>}
+                  {remotes.map((remote) => (
+                    <option key={remote.name} value={remote.name}>
+                      {remote.name} ({remote.owner}/{remote.repo})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
           {/* Form Row */}
           <div className="form-row">
             <div className="form-group">
