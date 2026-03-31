@@ -53,6 +53,94 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
     if (!existsSync(this.configPath)) {
       await this.writeConfig({ nextId: 1 });
     }
+    this.setupActivityLogListeners();
+  }
+
+  /**
+   * Set up event listeners for activity logging.
+   * Call after init() to record task lifecycle events.
+   */
+  private setupActivityLogListeners(): void {
+    // Task created
+    this.on("task:created", (task) => {
+      this.recordActivity({
+        type: "task:created",
+        taskId: task.id,
+        taskTitle: task.title,
+        details: `Task ${task.id} created${task.title ? `: ${task.title}` : ""}`,
+      }).catch(() => {
+        // Best-effort: ignore recording errors
+      });
+    });
+
+    // Task moved
+    this.on("task:moved", (data) => {
+      this.recordActivity({
+        type: "task:moved",
+        taskId: data.task.id,
+        taskTitle: data.task.title,
+        details: `Task ${data.task.id} moved: ${data.from} → ${data.to}`,
+        metadata: { from: data.from, to: data.to },
+      }).catch(() => {
+        // Best-effort: ignore recording errors
+      });
+    });
+
+    // Task merged
+    this.on("task:merged", (result) => {
+      const status = result.merged ? "successfully merged" : "merge attempted";
+      this.recordActivity({
+        type: "task:merged",
+        taskId: result.task.id,
+        taskTitle: result.task.title,
+        details: `Task ${result.task.id} ${status} to main`,
+        metadata: { merged: result.merged, branch: result.branch },
+      }).catch(() => {
+        // Best-effort: ignore recording errors
+      });
+    });
+
+    // Task updated (check for failures)
+    this.on("task:updated", (task) => {
+      if (task.status === "failed") {
+        this.recordActivity({
+          type: "task:failed",
+          taskId: task.id,
+          taskTitle: task.title,
+          details: `Task ${task.id} failed${task.error ? `: ${task.error}` : ""}`,
+          metadata: task.error ? { error: task.error } : undefined,
+        }).catch(() => {
+          // Best-effort: ignore recording errors
+        });
+      }
+    });
+
+    // Settings updated (log important changes)
+    this.on("settings:updated", (data) => {
+      const importantChanges: string[] = [];
+      if (data.settings.ntfyEnabled !== data.previous.ntfyEnabled) {
+        importantChanges.push(`ntfy ${data.settings.ntfyEnabled ? "enabled" : "disabled"}`);
+      }
+      if (data.settings.ntfyTopic !== data.previous.ntfyTopic) {
+        importantChanges.push(`ntfy topic changed to ${data.settings.ntfyTopic}`);
+      }
+      if (data.settings.globalPause !== data.previous.globalPause) {
+        importantChanges.push(`global pause ${data.settings.globalPause ? "enabled" : "disabled"}`);
+      }
+      if (data.settings.enginePaused !== data.previous.enginePaused) {
+        importantChanges.push(`engine pause ${data.settings.enginePaused ? "enabled" : "disabled"}`);
+      }
+
+      if (importantChanges.length > 0) {
+        this.recordActivity({
+          type: "settings:updated",
+          details: `Settings updated: ${importantChanges.join(", ")}`,
+          metadata: { changes: importantChanges },
+        }).catch(() => {
+          // Best-effort: ignore recording errors
+        });
+      }
+    });
   }
 
   /**

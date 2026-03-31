@@ -2862,4 +2862,53 @@ describe("TaskStore", () => {
       expect(logs[0].taskId).toBe("KB-001");
     });
   });
+
+  // ── Activity Log Event Listener Tests ────────────────────────────
+
+  describe("activity log event listeners", () => {
+    it("records activity on task:created", async () => {
+      const task = await store.createTask({ description: "Test created event" });
+      // Wait for async activity recording
+      await new Promise((r) => setTimeout(r, 10));
+      const logs = await store.getActivityLog({ type: "task:created" });
+      expect(logs.length).toBeGreaterThanOrEqual(1);
+      expect(logs[0].taskId).toBe(task.id);
+      expect(logs[0].type).toBe("task:created");
+    });
+
+    it("records activity on task:moved", async () => {
+      const task = await store.createTask({ description: "Test moved event" });
+      await store.moveTask(task.id, "todo");
+      // Wait for async activity recording
+      await new Promise((r) => setTimeout(r, 10));
+      const logs = await store.getActivityLog({ type: "task:moved" });
+      expect(logs.length).toBeGreaterThanOrEqual(1);
+      expect(logs[0].taskId).toBe(task.id);
+      expect(logs[0].type).toBe("task:moved");
+      expect(logs[0].metadata).toHaveProperty("from");
+      expect(logs[0].metadata).toHaveProperty("to");
+    });
+
+    it("records activity when task status becomes failed", async () => {
+      const task = await store.createTask({ description: "Test failure event" });
+      await store.moveTask(task.id, "todo");
+      await store.moveTask(task.id, "in-progress");
+      await store.updateTask(task.id, { status: "failed", error: "Something went wrong" });
+      // Wait for async activity recording
+      await new Promise((r) => setTimeout(r, 10));
+      const logs = await store.getActivityLog({ type: "task:failed" });
+      expect(logs.length).toBeGreaterThanOrEqual(1);
+      expect(logs[0].taskId).toBe(task.id);
+      expect(logs[0].type).toBe("task:failed");
+    });
+
+    it("records activity on settings:updated for important changes", async () => {
+      await store.updateSettings({ ntfyEnabled: true, ntfyTopic: "test-topic" });
+      // Wait for async activity recording
+      await new Promise((r) => setTimeout(r, 10));
+      const logs = await store.getActivityLog({ type: "settings:updated" });
+      expect(logs.length).toBeGreaterThanOrEqual(1);
+      expect(logs[0].type).toBe("settings:updated");
+    });
+  });
 });
