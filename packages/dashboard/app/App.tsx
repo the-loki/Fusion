@@ -34,6 +34,7 @@ function AppInner() {
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
   const [activityLogOpen, setActivityLogOpen] = useState(false);
+  const [gitManagerOpen, setGitManagerOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] = useState<SectionId | undefined>(undefined);
   const [maxConcurrent, setMaxConcurrent] = useState(2);
   const [rootDir, setRootDir] = useState<string>(".");
@@ -215,6 +216,10 @@ function AppInner() {
   const handleOpenActivityLog = useCallback(() => setActivityLogOpen(true), []);
   const handleCloseActivityLog = useCallback(() => setActivityLogOpen(false), []);
 
+  // Git Manager handlers
+  const handleOpenGitManager = useCallback(() => setGitManagerOpen(true), []);
+  const handleCloseGitManager = useCallback(() => setGitManagerOpen(false), []);
+
   return (
     <>
       <Header
@@ -224,6 +229,7 @@ function AppInner() {
         onOpenUsage={handleOpenUsage}
         onOpenActivityLog={handleOpenActivityLog}
         onOpenSchedules={handleOpenSchedules}
+        onOpenGitManager={handleOpenGitManager}
         onToggleTerminal={handleToggleTerminal}
         onToggleFiles={handleToggleFiles}
         filesOpen={filesOpen}
@@ -353,6 +359,12 @@ function AppInner() {
             handleDetailOpen(task as TaskDetail);
           }
         }}
+      />
+      <GitManagerModal
+        isOpen={gitManagerOpen}
+        onClose={handleCloseGitManager}
+        tasks={tasks}
+        addToast={addToast}
       />
       <ToastContainer toasts={toasts} onRemove={removeToast} />
     </>
