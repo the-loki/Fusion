@@ -1,5 +1,6 @@
 import type { AgentLogEntry } from "@kb/core";
 import { ProviderIcon } from "./ProviderIcon";
+import { useRef, useEffect } from "react";
 
 interface ModelInfo {
   provider?: string;
@@ -16,8 +17,33 @@ interface AgentLogViewerProps {
 /**
  * Renders agent log entries in a scrollable, monospace container.
  * Displays entries in reverse chronological order (newest first).
+ * Auto-scrolls to keep latest entries visible when streaming.
  */
 export function AgentLogViewer({ entries, loading, executorModel, validatorModel }: AgentLogViewerProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const previousEntryCountRef = useRef<number>(0);
+
+  // Auto-scroll to top when new entries arrive (since newest are first)
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const newEntryCount = entries.length;
+    const previousCount = previousEntryCountRef.current;
+
+    // Only scroll if new entries were added and user is near the top
+    if (newEntryCount > previousCount) {
+      // Check if user is already near the top (within 50px)
+      const isNearTop = container.scrollTop <= 50;
+
+      if (isNearTop) {
+        container.scrollTop = 0;
+      }
+    }
+
+    previousEntryCountRef.current = newEntryCount;
+  }, [entries]);
+
   if (loading && entries.length === 0) {
     return (
       <div className="agent-log-viewer" data-testid="agent-log-viewer">
@@ -42,6 +68,7 @@ export function AgentLogViewer({ entries, loading, executorModel, validatorModel
 
   return (
     <div
+      ref={containerRef}
       className="agent-log-viewer"
       data-testid="agent-log-viewer"
       style={{

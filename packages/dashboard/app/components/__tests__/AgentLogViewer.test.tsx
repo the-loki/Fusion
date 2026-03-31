@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { AgentLogViewer } from "../AgentLogViewer";
 import type { AgentLogEntry } from "@kb/core";
@@ -328,6 +328,36 @@ describe("AgentLogViewer", () => {
       expect(header).toBeTruthy();
       expect(header!.textContent).toContain("Executor:");
       expect(header!.textContent).toContain("Using default");
+    });
+  });
+
+  describe("auto-scroll behavior", () => {
+    it("scrolls to top when new entries arrive and user is near the top", () => {
+      const { rerender, container } = render(<AgentLogViewer entries={[makeEntry({ text: "first" })]} loading={false} />);
+      const viewer = container.querySelector("[data-testid='agent-log-viewer']") as HTMLDivElement;
+      
+      // Simulate user being at the top
+      viewer.scrollTop = 0;
+      
+      // Add a new entry
+      rerender(<AgentLogViewer entries={[makeEntry({ text: "second" }), makeEntry({ text: "first" })]} loading={false} />);
+      
+      // Should have scrolled to top (newest first)
+      expect(viewer.scrollTop).toBe(0);
+    });
+
+    it("does not auto-scroll when user has scrolled down", () => {
+      const { rerender, container } = render(<AgentLogViewer entries={[makeEntry({ text: "first" })]} loading={false} />);
+      const viewer = container.querySelector("[data-testid='agent-log-viewer']") as HTMLDivElement;
+      
+      // Simulate user scrolling down past the threshold
+      Object.defineProperty(viewer, 'scrollTop', { value: 100, writable: true });
+      
+      // Add a new entry
+      rerender(<AgentLogViewer entries={[makeEntry({ text: "second" }), makeEntry({ text: "first" })]} loading={false} />);
+      
+      // Should not have scrolled (scrollTop should remain 100)
+      expect(viewer.scrollTop).toBe(100);
     });
   });
 });
