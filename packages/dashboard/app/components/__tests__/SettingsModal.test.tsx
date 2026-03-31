@@ -1044,6 +1044,70 @@ describe("SettingsModal", () => {
     expect(screen.getByLabelText("ntfy Topic")).toBeTruthy();
   });
 
+  it("re-opening modal shows previously saved notification settings", async () => {
+    // First render with ntfy enabled
+    (fetchSettings as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ...defaultSettings,
+      ntfyEnabled: true,
+      ntfyTopic: "saved-topic",
+    });
+
+    const { unmount } = render(<SettingsModal onClose={onClose} addToast={addToast} />);
+    await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByText("Notifications"));
+    const checkbox = screen.getByLabelText("Enable ntfy.sh notifications") as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+    const input = screen.getByLabelText("ntfy Topic") as HTMLInputElement;
+    expect(input.value).toBe("saved-topic");
+
+    unmount();
+    vi.clearAllMocks();
+
+    // Re-open modal - should still show saved settings
+    (fetchSettings as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ...defaultSettings,
+      ntfyEnabled: true,
+      ntfyTopic: "saved-topic",
+    });
+
+    render(<SettingsModal onClose={onClose} addToast={addToast} />);
+    await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByText("Notifications"));
+    const newCheckbox = screen.getByLabelText("Enable ntfy.sh notifications") as HTMLInputElement;
+    expect(newCheckbox.checked).toBe(true);
+    const newInput = screen.getByLabelText("ntfy Topic") as HTMLInputElement;
+    expect(newInput.value).toBe("saved-topic");
+  });
+
+  it("disabling ntfy persists correctly when saving", async () => {
+    // Start with ntfy enabled
+    (fetchSettings as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ...defaultSettings,
+      ntfyEnabled: true,
+      ntfyTopic: "my-topic",
+    });
+
+    render(<SettingsModal onClose={onClose} addToast={addToast} />);
+    await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByText("Notifications"));
+    const checkbox = screen.getByLabelText("Enable ntfy.sh notifications") as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+
+    // Disable ntfy
+    fireEvent.click(checkbox);
+    expect(checkbox.checked).toBe(false);
+
+    fireEvent.click(screen.getByText("Save"));
+    // ntfyEnabled is a global setting
+    await waitFor(() => expect(updateGlobalSettings).toHaveBeenCalledTimes(1));
+
+    const payload = (updateGlobalSettings as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(payload.ntfyEnabled).toBe(false);
+  });
+
   // Model filter tests with CustomModelDropdown
   it("renders filter input in Model section dropdown", async () => {
     const user = userEvent.setup();
