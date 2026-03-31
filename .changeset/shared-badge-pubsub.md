@@ -1,5 +1,5 @@
 ---
-"@dustinbyrne/kb": patch
+"@gsxdsm/fusion": patch
 ---
 
 Add shared badge pub/sub support for multi-instance dashboard deployments

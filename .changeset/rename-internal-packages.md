@@ -1,5 +1,5 @@
 ---
-"@dustinbyrne/kb": patch
+"@gsxdsm/fusion": patch
 "@fusion/core": patch
 "@fusion/dashboard": patch
 "@fusion/engine": patch

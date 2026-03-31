@@ -1,5 +1,5 @@
 ---
-"@dustinbyrne/kb": patch
+"@gsxdsm/fusion": patch
 ---
 
 Add missing autoUpdatePrStatus and autoCreatePr fields to ProjectSettings type

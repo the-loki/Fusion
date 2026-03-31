@@ -1,5 +1,5 @@
 ---
-"@dustinbyrne/kb": patch
+"@gsxdsm/fusion": patch
 ---
 
 Fix standalone CLI native asset packaging for terminal support

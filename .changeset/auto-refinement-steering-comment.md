@@ -1,5 +1,5 @@
 ---
-"@dustinbyrne/kb": minor
+"@gsxdsm/fusion": minor
 ---
 
 Auto-create refinement task when steering comment added to done task

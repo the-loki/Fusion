@@ -1,5 +1,5 @@
 ---
-"@dustinbyrne/kb": patch
+"@gsxdsm/fusion": patch
 ---
 
 Add filesystem cleanup for archived tasks. Archived tasks can now be condensed into a compact archive.jsonl entry and removed from the filesystem to save space. Tasks can be restored from the archive log when unarchived.

@@ -1,5 +1,5 @@
 ---
-"@dustinbyrne/kb": minor
+"@gsxdsm/fusion": minor
 ---
 
 Add separate planning and verification model settings

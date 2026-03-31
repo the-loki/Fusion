@@ -1,5 +1,5 @@
 ---
-"@dustinbyrne/kb": patch
+"@gsxdsm/fusion": patch
 ---
 
 Update subtask button tooltip to reflect feature availability

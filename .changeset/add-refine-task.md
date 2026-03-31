@@ -1,5 +1,5 @@
 ---
-"@dustinbyrne/kb": minor
+"@gsxdsm/fusion": minor
 ---
 
 Add "refine task" feature for creating follow-up tasks from completed or in-review work

@@ -1,5 +1,5 @@
 ---
-"@dustinbyrne/kb": minor
+"@gsxdsm/fusion": minor
 ---
 
 Add comprehensive design theme system with Factory theme

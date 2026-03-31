@@ -1,5 +1,5 @@
 ---
-"@dustinbyrne/kb": minor
+"@gsxdsm/fusion": minor
 ---
 
 Add batch GitHub issue import with intelligent throttling

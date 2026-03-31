@@ -1,5 +1,5 @@
 ---
-"@dustinbyrne/kb": minor
+"@gsxdsm/fusion": minor
 ---
 
 Add `--dev` CLI option to `kb dashboard` for dashboard-only mode

@@ -1,5 +1,5 @@
 ---
-"@dustinbyrne/kb": minor
+"@gsxdsm/fusion": minor
 ---
 
 Migrate storage from file-based JSON to SQLite (hybrid with files for blobs)

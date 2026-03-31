@@ -1,5 +1,5 @@
 ---
-"@dustinbyrne/kb": minor
+"@gsxdsm/fusion": minor
 ---
 
 Add `kb task pr-create` command for creating GitHub PRs from in-review tasks

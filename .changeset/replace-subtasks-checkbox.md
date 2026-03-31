@@ -1,5 +1,5 @@
 ---
-"@dustinbyrne/kb": minor
+"@gsxdsm/fusion": minor
 ---
 
 Replace "break into subtasks" checkbox with explicit "Plan" and "Subtask" buttons

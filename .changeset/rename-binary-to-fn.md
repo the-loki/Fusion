@@ -1,5 +1,5 @@
 ---
-"@dustinbyrne/kb": minor
+"@gsxdsm/fusion": minor
 ---
 
 Rename CLI binary from `kb` to `fn` to align with Fusion branding

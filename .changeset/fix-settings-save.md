@@ -1,5 +1,5 @@
 ---
-"@dustinbyrne/kb": patch
+"@gsxdsm/fusion": patch
 ---
 
 Fix settings save failure by resolving race condition in parallel task creation and ensuring config row exists in SQLite.

@@ -1,5 +1,5 @@
 ---
-"@dustinbyrne/kb": minor
+"@gsxdsm/fusion": minor
 ---
 
 Add smart automatic merge conflict resolution. Lock files, generated files, and trivial whitespace conflicts are now resolved automatically without AI intervention, reducing merge latency and API costs.
