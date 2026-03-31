@@ -6301,6 +6301,7 @@ html .column.drag-over * {
   border: none;
   outline: none;
   resize: none;
+  overflow: auto;
   white-space: pre;
   overflow-wrap: normal;
   tab-size: 2;
