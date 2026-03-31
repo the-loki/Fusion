@@ -1,8 +1,30 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { CronRunner } from "./cron-runner.js";
 import type { TaskStore, AutomationStore, ScheduledTask, AutomationRunResult, AutomationStep, Settings } from "@kb/core";
-import { DEFAULT_SETTINGS } from "@kb/core";
 import { randomUUID } from "node:crypto";
+
+// Default settings inline to avoid @kb/core build dependency during tests
+const DEFAULT_SETTINGS: Settings = {
+  maxConcurrent: 2,
+  maxWorktrees: 4,
+  pollIntervalMs: 30000,
+  autoResolveConflicts: true,
+  requirePlanApproval: false,
+  recycleWorktrees: false,
+  worktreeNaming: "random",
+  globalPause: false,
+  enginePaused: false,
+  ntfyEnabled: false,
+  defaultProvider: "anthropic",
+  defaultModelId: "claude-sonnet-4-5",
+  planningProvider: "anthropic",
+  planningModelId: "claude-sonnet-4-5",
+  validatorProvider: "openai",
+  validatorModelId: "gpt-4o",
+  autoUpdatePrStatus: true,
+  autoCreatePr: false,
+  taskStuckTimeoutMs: undefined,
+};
 
 function createMockSchedule(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
   return {
@@ -74,6 +96,15 @@ describe("CronRunner", () => {
       runner.start(); // should not double-start
       runner.stop();
     });
+
+    it("is safe to stop when not started", () => {
+      const store = createMockStore();
+      const automationStore = createMockAutomationStore();
+      runner = new CronRunner(store, automationStore);
+
+      // Should not throw
+      expect(() => runner.stop()).not.toThrow();
+    });
   });
 
   describe("tick", () => {
@@ -106,6 +137,21 @@ describe("CronRunner", () => {
 
       expect(automationStore.getDueSchedules).toHaveBeenCalledTimes(1);
       expect(automationStore.recordRun).not.toHaveBeenCalled();
+    });
+
+    it("handles errors in tick gracefully", async () => {
+      const store = createMockStore();
+      const automationStore = createMockAutomationStore([createMockSchedule()]);
+      
+      // Make getDueSchedules throw an error
+      (automationStore.getDueSchedules as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error("Database error")
+      );
+      
+      runner = new CronRunner(store, automationStore);
+
+      // Should not throw
+      await expect(runner.tick()).resolves.toBeUndefined();
     });
 
     it("executes due schedules", async () => {
@@ -550,6 +596,25 @@ describe("CronRunner", () => {
 
       expect(result.success).toBe(false);
       expect(result.stepResults![0].error).toContain("no command specified");
+    });
+
+    it("handles unknown step type gracefully", async () => {
+      const store = createMockStore();
+      const schedule = createMockSchedule({
+        command: "",
+        steps: [
+          makeStep({ name: "Unknown step", type: "unknown-type" as any }),
+        ],
+      });
+      const automationStore = createMockAutomationStore([schedule]);
+      runner = new CronRunner(store, automationStore);
+
+      const result = await runner.executeSchedule(schedule);
+
+      expect(result.success).toBe(false);
+      expect(result.stepResults).toHaveLength(1);
+      expect(result.stepResults![0].success).toBe(false);
+      expect(result.stepResults![0].error).toContain("Unknown step type");
     });
 
     it("aggregates output from all steps with headers", async () => {

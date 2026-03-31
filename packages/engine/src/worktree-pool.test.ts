@@ -149,6 +149,16 @@ describe("WorktreePool", () => {
       }
     });
 
+    it("creates branch from custom startPoint when provided", () => {
+      pool.prepareForTask("/tmp/wt", "kb/kb-042", "kb/kb-041");
+
+      const checkoutCall = mockedExecSync.mock.calls.find(
+        (c) => typeof c[0] === "string" && (c[0] as string).includes("checkout -B"),
+      );
+      expect(checkoutCall).toBeDefined();
+      expect(checkoutCall![0]).toBe('git checkout -B "kb/kb-042" kb/kb-041');
+    });
+
     it("tolerates git checkout -- . failure (already clean)", () => {
       mockedExecSync.mockImplementation((cmd: any) => {
         if (cmd === "git checkout -- .") throw new Error("nothing to checkout");
@@ -297,6 +307,16 @@ describe("scanIdleWorktrees", () => {
     expect(idle).toContain("/root/.worktrees/wt-1");
     expect(idle).toContain("/root/.worktrees/wt-2");
   });
+
+  it("returns empty array when readdirSync throws", async () => {
+    mockedReaddirSync.mockImplementation(() => {
+      throw new Error("Permission denied");
+    });
+    const store = createMockStore([]);
+
+    const idle = await scanIdleWorktrees("/root", store);
+    expect(idle).toEqual([]);
+  });
 });
 
 // ── cleanupOrphanedWorktrees tests ────────────────────────────────────
@@ -372,6 +392,22 @@ describe("cleanupOrphanedWorktrees", () => {
   it("no-ops when .worktrees/ doesn't exist", async () => {
     mockedExistsSync.mockReturnValue(false);
     const store = createMockStore([]);
+
+    const cleaned = await cleanupOrphanedWorktrees("/root", store);
+    expect(cleaned).toBe(0);
+    expect(mockedExecSync).not.toHaveBeenCalled();
+  });
+
+  it("returns 0 when all worktrees are assigned to active tasks", async () => {
+    mockedReaddirSync.mockReturnValue([
+      makeDirEntry("active-1"),
+      makeDirEntry("active-2"),
+    ] as any);
+
+    const store = createMockStore([
+      makeTask("KB-001", "in-progress", "/root/.worktrees/active-1"),
+      makeTask("KB-002", "in-review", "/root/.worktrees/active-2"),
+    ]);
 
     const cleaned = await cleanupOrphanedWorktrees("/root", store);
     expect(cleaned).toBe(0);
