@@ -25,6 +25,7 @@ async function api<T = unknown>(path: string, opts: RequestInit = {}): Promise<T
   // Check if response is JSON before attempting to parse
   const contentType = res.headers.get("content-type") ?? "";
   const isJson = contentType.includes("application/json");
+  const isHtml = contentType.includes("text/html");
 
   if (!res.ok) {
     // For error responses, read as text first
@@ -40,6 +41,11 @@ async function api<T = unknown>(path: string, opts: RequestInit = {}): Promise<T
       }
     }
     
+    // HTML error response (SPA fallback case) - show user-friendly message
+    if (isHtml || text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
+      throw new Error("Server returned an unexpected response. Please refresh and try again.");
+    }
+    
     // Non-JSON error response: use status text with truncated body preview
     const textPreview = text.length > 100 ? text.slice(0, 100) + "..." : text;
     const message = textPreview 
@@ -50,8 +56,15 @@ async function api<T = unknown>(path: string, opts: RequestInit = {}): Promise<T
 
   // For successful responses, parse as JSON if content-type indicates JSON
   if (!isJson) {
-    // Unexpected non-JSON success response
+    // Unexpected non-JSON success response (likely HTML from SPA fallback)
     const text = await res.text();
+    
+    // Check if it looks like HTML
+    if (isHtml || text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
+      throw new Error("Server returned an unexpected response. Please refresh and try again.");
+    }
+    
+    // Other non-JSON response
     const textPreview = text.length > 100 ? text.slice(0, 100) + "..." : text;
     throw new Error(`Unexpected response format: expected JSON, got ${contentType || "unknown"}${textPreview ? ` (Response: ${textPreview})` : ""}`);
   }

@@ -169,6 +169,25 @@ export function createServer(store: TaskStore, options?: ServerOptions): ReturnT
   // REST API
   app.use("/api", createApiRoutes(store, options));
 
+  // API 404 Handler - Return JSON for unmatched API routes (instead of falling through to SPA)
+  app.use("/api", (_req: express.Request, res: express.Response) => {
+    res.status(404).json({ error: "Not found" });
+  });
+
+  // API Error Handling Middleware - MUST be after API routes but before SPA fallback
+  // This ensures API errors return JSON instead of falling through to the SPA fallback (which returns HTML)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  app.use("/api", (err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error("[api:error]", err);
+    
+    // Ensure we send a JSON response even if headers already sent (though this is a edge case)
+    if (res.headersSent) {
+      return;
+    }
+    
+    res.status(500).json({ error: "Internal server error" });
+  });
+
   // SPA fallback
   app.get("/{*splat}", (_req, res) => {
     res.sendFile(join(clientDir, "index.html"));
