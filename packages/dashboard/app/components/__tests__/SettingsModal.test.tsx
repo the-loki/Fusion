@@ -17,6 +17,9 @@ const defaultSettings: Settings = {
   buildCommand: "",
   autoResolveConflicts: true,
   smartConflictResolution: true,
+  modelPresets: [],
+  autoSelectModelPreset: false,
+  defaultPresetBySize: {},
   ntfyEnabled: false,
   ntfyTopic: undefined,
   taskStuckTimeoutMs: undefined,
@@ -371,6 +374,55 @@ describe("SettingsModal", () => {
     await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
 
     expect(screen.getAllByText("Model").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("supports creating and saving a model preset", async () => {
+    const user = userEvent.setup();
+    render(<SettingsModal onClose={onClose} addToast={addToast} />);
+    await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByText("Model Presets"));
+    await user.click(screen.getByText("Add Preset"));
+
+    await user.type(screen.getByLabelText("Name"), "Budget");
+    expect((screen.getByLabelText("ID") as HTMLInputElement).value).toBe("budget");
+
+    await user.click(screen.getByText("Save preset"));
+    await user.click(screen.getByText("Save"));
+
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
+    const payload = (updateSettings as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(payload.modelPresets).toEqual([
+      expect.objectContaining({ id: "budget", name: "Budget" }),
+    ]);
+  });
+
+  it("supports auto-select preset mappings by size", async () => {
+    const user = userEvent.setup();
+    (fetchSettings as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ...defaultSettings,
+      modelPresets: [
+        { id: "budget", name: "Budget" },
+        { id: "normal", name: "Normal" },
+        { id: "complex", name: "Complex" },
+      ],
+    });
+
+    render(<SettingsModal onClose={onClose} addToast={addToast} />);
+    await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByText("Model Presets"));
+    await user.click(screen.getByLabelText("Auto-select preset based on task size"));
+    fireEvent.change(screen.getByLabelText("Small tasks (S):"), { target: { value: "budget" } });
+    fireEvent.change(screen.getByLabelText("Medium tasks (M):"), { target: { value: "normal" } });
+    fireEvent.change(screen.getByLabelText("Large tasks (L):"), { target: { value: "complex" } });
+
+    await user.click(screen.getByText("Save"));
+
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
+    const payload = (updateSettings as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(payload.autoSelectModelPreset).toBe(true);
+    expect(payload.defaultPresetBySize).toEqual({ S: "budget", M: "normal", L: "complex" });
   });
 
   it("shows model selector with available models grouped by provider", async () => {

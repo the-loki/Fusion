@@ -29,6 +29,15 @@ export type ColorTheme = (typeof COLOR_THEMES)[number];
 export type PrStatus = "open" | "closed" | "merged";
 export type MergeStrategy = "direct" | "pull-request";
 
+export interface ModelPreset {
+  id: string;
+  name: string;
+  executorProvider?: string;
+  executorModelId?: string;
+  validatorProvider?: string;
+  validatorModelId?: string;
+}
+
 export interface PrInfo {
   url: string;
   number: number;
@@ -166,6 +175,8 @@ export interface Task {
   log: TaskLogEntry[];
   size?: "S" | "M" | "L";
   reviewLevel?: number;
+  /** Model preset selected during task creation. Presets resolve to concrete model overrides at creation time. */
+  modelPresetId?: string;
   /** AI model provider override for the executor agent (e.g., "anthropic").
    *  Must be set together with `modelId`. When both model fields are undefined,
    *  the executor uses global settings defaults. */
@@ -205,6 +216,8 @@ export interface TaskCreateInput {
   column?: Column;
   dependencies?: string[];
   breakIntoSubtasks?: boolean;
+  /** Model preset selected during task creation. Presets resolve to concrete model overrides at creation time. */
+  modelPresetId?: string;
   /** AI model provider override for the executor agent (e.g., "anthropic").
    *  Must be set together with `modelId`. When both model fields are undefined,
    *  the executor uses global settings defaults. */
@@ -306,6 +319,12 @@ export interface Settings {
    *  Must be set together with `validatorProvider`. When both are undefined,
    *  falls back to `defaultProvider`/`defaultModelId`. */
   validatorModelId?: string;
+  /** Reusable model configuration presets for task creation. */
+  modelPresets?: ModelPreset[];
+  /** When true, task creation UIs automatically recommend/apply a preset based on task size. */
+  autoSelectModelPreset?: boolean;
+  /** Mapping of task sizes to preset IDs used for auto-selection during task creation. */
+  defaultPresetBySize?: { S?: string; M?: string; L?: string };
   /** Default thinking effort level for AI agent sessions.
    *  Controls how much reasoning effort the model uses — higher levels
    *  produce better results but cost more. When undefined, the engine
@@ -362,6 +381,9 @@ export const DEFAULT_SETTINGS: Settings = {
   planningModelId: undefined,
   validatorProvider: undefined,
   validatorModelId: undefined,
+  modelPresets: [],
+  autoSelectModelPreset: false,
+  defaultPresetBySize: {},
   defaultThinkingLevel: undefined,
   autoResolveConflicts: true,
   smartConflictResolution: true,
@@ -447,7 +469,8 @@ export interface ArchivedTaskEntry {
   columnMovedAt?: string;
   /** Timestamp when the task was archived to the log */
   archivedAt: string;
-  /** Optional: model override fields for executor and validator */
+  /** Optional: model preset and override fields for executor and validator */
+  modelPresetId?: string;
   modelProvider?: string;
   modelId?: string;
   validatorModelProvider?: string;

@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { THINKING_LEVELS } from "@kb/core";
-import type { Settings, ThemeMode, ColorTheme } from "@kb/core";
+import type { Settings, ThemeMode, ColorTheme, ModelPreset } from "@kb/core";
 import { fetchSettings, updateSettings, fetchAuthStatus, loginProvider, logoutProvider, fetchModels, testNtfyNotification } from "../api";
 import type { AuthProvider, ModelInfo } from "../api";
 import type { ToastType } from "../hooks/useToast";
 import { ThemeSelector } from "./ThemeSelector";
 import { CustomModelDropdown } from "./CustomModelDropdown";
+import { applyPresetToSelection, generatePresetId, validatePresetId } from "../utils/modelPresets";
 
 /**
  * Settings sections configuration.
@@ -29,6 +30,7 @@ import { CustomModelDropdown } from "./CustomModelDropdown";
 const SETTINGS_SECTIONS = [
   { id: "general", label: "General" },
   { id: "model", label: "Model" },
+  { id: "model-presets", label: "Model Presets" },
   { id: "appearance", label: "Appearance" },
   { id: "scheduling", label: "Scheduling" },
   { id: "worktrees", label: "Worktrees" },
@@ -81,6 +83,9 @@ export function SettingsModal({
 
   // Test notification state
   const [testNotificationLoading, setTestNotificationLoading] = useState(false);
+  const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
+  const [presetDraft, setPresetDraft] = useState<ModelPreset | null>(null);
+  const [presetIdTouched, setPresetIdTouched] = useState(false);
 
   useEffect(() => {
     fetchSettings()
@@ -208,7 +213,7 @@ export function SettingsModal({
   );
 
   const handleSave = useCallback(async () => {
-    if (prefixError) return;
+    if (prefixError || presetDraft) return;
     try {
       const payload = {
         ...form,
@@ -222,6 +227,44 @@ export function SettingsModal({
       addToast(err.message, "error");
     }
   }, [form, prefixError, onClose, addToast]);
+
+  const savePresetDraft = () => {
+    if (!presetDraft) return;
+
+    const nextId = presetDraft.id.trim();
+    const nextName = presetDraft.name.trim();
+    if (!nextName || !nextId || !validatePresetId(nextId)) {
+      addToast("Preset name is required and ID must be 1–32 letters, numbers, hyphens, or underscores", "error");
+      return;
+    }
+
+    const presets = form.modelPresets || [];
+    if (presets.some((preset) => preset.id === nextId && preset.id !== editingPresetId)) {
+      addToast("Preset ID must be unique", "error");
+      return;
+    }
+
+    const normalizedDraft: ModelPreset = {
+      id: nextId,
+      name: nextName,
+      executorProvider: presetDraft.executorProvider,
+      executorModelId: presetDraft.executorModelId,
+      validatorProvider: presetDraft.validatorProvider,
+      validatorModelId: presetDraft.validatorModelId,
+    };
+
+    setForm((current) => {
+      const existing = current.modelPresets || [];
+      const nextPresets = editingPresetId
+        ? existing.map((preset) => (preset.id === editingPresetId ? normalizedDraft : preset))
+        : [...existing, normalizedDraft];
+      return { ...current, modelPresets: nextPresets };
+    });
+
+    setEditingPresetId(null);
+    setPresetDraft(null);
+    setPresetIdTouched(false);
+  };
 
   const renderSectionFields = () => {
     switch (activeSection) {
@@ -384,6 +427,223 @@ export function SettingsModal({
                 </div>
               );
             })()}
+          </>
+        );
+      }
+      case "model-presets": {
+        const presets = form.modelPresets || [];
+        const presetOptions = presets.map((preset) => ({ id: preset.id, name: preset.name }));
+        const inUsePresetIds = new Set(Object.values(form.defaultPresetBySize || {}).filter(Boolean));
+
+        return (
+          <>
+            <h4 className="settings-section-heading">Model Presets</h4>
+            <div className="form-group">
+              <label>Configured presets</label>
+              {presets.length === 0 ? (
+                <div className="settings-empty-state settings-muted">No presets configured yet.</div>
+              ) : (
+                <div className="settings-preset-list">
+                  {presets.map((preset) => {
+                    const selection = applyPresetToSelection(preset);
+                    const summary = `${selection.executorValue || "default"} / ${selection.validatorValue || "default"}`;
+                    return (
+                      <div key={preset.id} className="auth-provider-row">
+                        <div className="auth-provider-info">
+                          <strong>{preset.name}</strong>
+                          <span className="settings-muted">{summary}</span>
+                        </div>
+                        <div>
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            onClick={() => {
+                              setEditingPresetId(preset.id);
+                              setPresetDraft({ ...preset });
+                              setPresetIdTouched(true);
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            onClick={() => {
+                              if (inUsePresetIds.has(preset.id) && !confirm(`Preset \"${preset.name}\" is used in auto-selection. Delete it anyway?`)) {
+                                return;
+                              }
+                              setForm((current) => ({
+                                ...current,
+                                modelPresets: (current.modelPresets || []).filter((entry) => entry.id !== preset.id),
+                                defaultPresetBySize: Object.fromEntries(
+                                  Object.entries(current.defaultPresetBySize || {}).filter(([, value]) => value !== preset.id),
+                                ) as Settings["defaultPresetBySize"],
+                              }));
+                              if (editingPresetId === preset.id) {
+                                setEditingPresetId(null);
+                                setPresetDraft(null);
+                                setPresetIdTouched(false);
+                              }
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {!presetDraft ? (
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => {
+                    setEditingPresetId(null);
+                    setPresetDraft({ id: "", name: "", executorProvider: undefined, executorModelId: undefined, validatorProvider: undefined, validatorModelId: undefined });
+                    setPresetIdTouched(false);
+                  }}
+                >
+                  Add Preset
+                </button>
+              ) : null}
+            </div>
+
+            {presetDraft ? (
+              <div className="form-group">
+                <label>Preset editor</label>
+                <div className="form-group">
+                  <label htmlFor="preset-name">Name</label>
+                  <input
+                    id="preset-name"
+                    type="text"
+                    value={presetDraft.name}
+                    onChange={(e) => {
+                      const name = e.target.value;
+                      setPresetDraft((current) => current ? {
+                        ...current,
+                        name,
+                        id: presetIdTouched ? current.id : generatePresetId(name),
+                      } : current);
+                    }}
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="preset-id">ID</label>
+                  <input
+                    id="preset-id"
+                    type="text"
+                    value={presetDraft.id}
+                    onChange={(e) => {
+                      setPresetIdTouched(true);
+                      setPresetDraft((current) => current ? { ...current, id: e.target.value } : current);
+                    }}
+                  />
+                  {presetDraft.id && !validatePresetId(presetDraft.id) ? (
+                    <small className="field-error">ID must be 1–32 letters, numbers, hyphens, or underscores</small>
+                  ) : (
+                    <small>Slug-friendly unique identifier used for preset mappings.</small>
+                  )}
+                </div>
+                {availableModels.length === 0 ? (
+                  <small>No models available. Configure authentication first.</small>
+                ) : (
+                  <>
+                    <div className="form-group">
+                      <label htmlFor="preset-executor-model">Executor model</label>
+                      <CustomModelDropdown
+                        id="preset-executor-model"
+                        label="Preset executor model"
+                        models={availableModels}
+                        value={presetDraft.executorProvider && presetDraft.executorModelId ? `${presetDraft.executorProvider}/${presetDraft.executorModelId}` : ""}
+                        onChange={(val) => {
+                          if (!val) {
+                            setPresetDraft((current) => current ? { ...current, executorProvider: undefined, executorModelId: undefined } : current);
+                            return;
+                          }
+                          const slashIdx = val.indexOf("/");
+                          setPresetDraft((current) => current ? {
+                            ...current,
+                            executorProvider: val.slice(0, slashIdx),
+                            executorModelId: val.slice(slashIdx + 1),
+                          } : current);
+                        }}
+                        placeholder="Use default"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="preset-validator-model">Validator model</label>
+                      <CustomModelDropdown
+                        id="preset-validator-model"
+                        label="Preset validator model"
+                        models={availableModels}
+                        value={presetDraft.validatorProvider && presetDraft.validatorModelId ? `${presetDraft.validatorProvider}/${presetDraft.validatorModelId}` : ""}
+                        onChange={(val) => {
+                          if (!val) {
+                            setPresetDraft((current) => current ? { ...current, validatorProvider: undefined, validatorModelId: undefined } : current);
+                            return;
+                          }
+                          const slashIdx = val.indexOf("/");
+                          setPresetDraft((current) => current ? {
+                            ...current,
+                            validatorProvider: val.slice(0, slashIdx),
+                            validatorModelId: val.slice(slashIdx + 1),
+                          } : current);
+                        }}
+                        placeholder="Use default"
+                      />
+                    </div>
+                  </>
+                )}
+                <div className="modal-actions" style={{ justifyContent: "flex-start" }}>
+                  <button type="button" className="btn btn-primary btn-sm" onClick={savePresetDraft}>Save preset</button>
+                  <button type="button" className="btn btn-sm" onClick={() => { setEditingPresetId(null); setPresetDraft(null); setPresetIdTouched(false); }}>Cancel</button>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="form-group">
+              <label htmlFor="autoSelectModelPreset" className="checkbox-label">
+                <input
+                  id="autoSelectModelPreset"
+                  type="checkbox"
+                  checked={form.autoSelectModelPreset || false}
+                  onChange={(e) => setForm((current) => ({ ...current, autoSelectModelPreset: e.target.checked }))}
+                />
+                Auto-select preset based on task size
+              </label>
+            </div>
+
+            {form.autoSelectModelPreset ? (
+              <>
+                {(["S", "M", "L"] as const).map((sizeKey) => (
+                  <div className="form-group" key={sizeKey}>
+                    <label htmlFor={`preset-size-${sizeKey}`}>
+                      {sizeKey === "S" ? "Small tasks (S):" : sizeKey === "M" ? "Medium tasks (M):" : "Large tasks (L):"}
+                    </label>
+                    <select
+                      id={`preset-size-${sizeKey}`}
+                      value={form.defaultPresetBySize?.[sizeKey] || ""}
+                      onChange={(e) => {
+                        const value = e.target.value || undefined;
+                        setForm((current) => ({
+                          ...current,
+                          defaultPresetBySize: {
+                            ...(current.defaultPresetBySize || {}),
+                            [sizeKey]: value,
+                          },
+                        }));
+                      }}
+                    >
+                      <option value="">No preset</option>
+                      {presetOptions.map((preset) => (
+                        <option key={preset.id} value={preset.id}>{preset.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </>
+            ) : null}
           </>
         );
       }

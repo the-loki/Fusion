@@ -4440,6 +4440,53 @@ describe("PUT /settings", () => {
     expect(store.updateSettings).toHaveBeenCalledWith({ maxWorktrees: 10 });
   });
 
+  it("validates and forwards model presets", async () => {
+    const updatedSettings = {
+      ...DEFAULT_SETTINGS,
+      modelPresets: [{ id: "budget", name: "Budget", executorProvider: "openai", executorModelId: "gpt-4o-mini" }],
+    };
+    (store.updateSettings as ReturnType<typeof vi.fn>).mockResolvedValue(updatedSettings);
+
+    const res = await REQUEST(
+      buildApp(),
+      "PUT",
+      "/api/settings",
+      JSON.stringify({ modelPresets: [{ id: "budget", name: "Budget", executorProvider: "openai", executorModelId: "gpt-4o-mini" }] }),
+      { "Content-Type": "application/json" },
+    );
+
+    expect(res.status).toBe(200);
+    expect(store.updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      modelPresets: [{ id: "budget", name: "Budget", executorProvider: "openai", executorModelId: "gpt-4o-mini", validatorProvider: undefined, validatorModelId: undefined }],
+    }));
+  });
+
+  it("rejects duplicate preset ids", async () => {
+    const res = await REQUEST(
+      buildApp(),
+      "PUT",
+      "/api/settings",
+      JSON.stringify({ modelPresets: [{ id: "budget", name: "Budget" }, { id: "budget", name: "Budget 2" }] }),
+      { "Content-Type": "application/json" },
+    );
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("duplicate id");
+  });
+
+  it("rejects incomplete model provider/modelId pairs", async () => {
+    const res = await REQUEST(
+      buildApp(),
+      "PUT",
+      "/api/settings",
+      JSON.stringify({ modelPresets: [{ id: "budget", name: "Budget", executorProvider: "openai" }] }),
+      { "Content-Type": "application/json" },
+    );
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("must include both provider and modelId or neither");
+  });
+
   it("returns 500 on store update error", async () => {
     (store.updateSettings as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("Write failed"));
 

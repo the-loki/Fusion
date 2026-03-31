@@ -245,6 +245,37 @@ Controls how worktree directory names are generated when `recycleWorktrees` is N
 - Task branches are always named `kb/{task-id}` regardless of this setting
 - When using `"task-title"` mode, special characters are replaced with hyphens and the result is lowercased
 
+## Model Presets
+
+The kb dashboard supports reusable model presets so teams can standardize AI model choices without manually selecting executor and validator models for every task.
+
+### How It Works
+
+Each preset contains:
+- **ID** — stable slug used for storage and size mappings (for example `budget`, `normal`, `complex`)
+- **Name** — human-friendly label shown in the UI
+- **Executor model** — optional provider/model pair for task execution
+- **Validator model** — optional provider/model pair for code and spec review
+
+Task creation surfaces can apply a preset, which immediately resolves to concrete per-task model overrides. The selected preset ID is also stored on the task as `modelPresetId` for reference and future auditing.
+
+### Auto-Selection by Task Size
+
+Settings can optionally enable automatic preset recommendation by task size:
+- **Small (`S`)** → mapped preset ID
+- **Medium (`M`)** → mapped preset ID
+- **Large (`L`)** → mapped preset ID
+
+When enabled, task creation UIs can preselect the configured preset for the detected task size. If no mapping exists for a given size, kb falls back to normal default-model behavior.
+
+### Interaction with Per-Task Overrides
+
+Presets are an alternative to manual per-task model selection, not a replacement:
+- Selecting a preset fills in the task's executor and validator model overrides
+- Choosing **Custom** or manually overriding models breaks out of preset mode for that task creation flow
+- Existing per-task overrides on saved tasks continue to work as before
+- If a preset is later edited or deleted, already-created tasks keep their resolved model settings
+
 ## Per-Task Model Overrides
 
 The kb dashboard allows overriding the global AI model selection on a per-task basis. This enables using different models for different types of work without changing global settings.

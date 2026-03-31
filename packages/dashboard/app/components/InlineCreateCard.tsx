@@ -1,10 +1,11 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Brain, Link, Lightbulb, ListTree } from "lucide-react";
-import type { Task, TaskCreateInput } from "@kb/core";
+import { Brain, Link, Lightbulb, ListTree, Zap } from "lucide-react";
+import type { Task, TaskCreateInput, Settings } from "@kb/core";
 import type { ToastType } from "../hooks/useToast";
-import { fetchModels, uploadAttachment } from "../api";
+import { fetchModels, uploadAttachment, fetchSettings } from "../api";
 import type { ModelInfo } from "../api";
 import { CustomModelDropdown } from "./CustomModelDropdown";
+import { applyPresetToSelection } from "../utils/modelPresets";
 
 const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
@@ -68,6 +69,9 @@ export function InlineCreateCard({
   const [showDeps, setShowDeps] = useState(false);
   const [depSearch, setDepSearch] = useState("");
   const [showModels, setShowModels] = useState(false);
+  const [showPresets, setShowPresets] = useState(false);
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [selectedPresetId, setSelectedPresetId] = useState<string | undefined>(undefined);
   const [executorProvider, setExecutorProvider] = useState<string | undefined>(undefined);
   const [executorModelId, setExecutorModelId] = useState<string | undefined>(undefined);
   const [validatorProvider, setValidatorProvider] = useState<string | undefined>(undefined);
@@ -136,6 +140,18 @@ export function InlineCreateCard({
         }
       });
 
+    fetchSettings()
+      .then((nextSettings) => {
+        if (!cancelled) {
+          setSettings(nextSettings);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSettings(null);
+        }
+      });
+
     return () => {
       cancelled = true;
     };
@@ -143,6 +159,8 @@ export function InlineCreateCard({
 
   const executorSelectionValue = getModelSelectionValue(executorProvider, executorModelId);
   const validatorSelectionValue = getModelSelectionValue(validatorProvider, validatorModelId);
+  const availablePresets = settings?.modelPresets || [];
+  const selectedPreset = availablePresets.find((preset) => preset.id === selectedPresetId);
 
   const hasExecutorOverride = Boolean(executorProvider && executorModelId);
   const hasValidatorOverride = Boolean(validatorProvider && validatorModelId);
@@ -172,7 +190,8 @@ export function InlineCreateCard({
         !hasExecutorOverride &&
         !hasValidatorOverride &&
         !showDeps &&
-        !showModels
+        !showModels &&
+        !showPresets
       ) {
         onCancel();
       }
@@ -187,6 +206,7 @@ export function InlineCreateCard({
     hasValidatorOverride,
     showDeps,
     showModels,
+    showPresets,
     onCancel,
   ]);
 
@@ -239,6 +259,7 @@ export function InlineCreateCard({
         description: description.trim(),
         column: "triage",
         dependencies: dependencies.length ? dependencies : undefined,
+        modelPresetId: selectedPresetId,
         modelProvider: hasExecutorOverride ? executorProvider : undefined,
         modelId: hasExecutorOverride ? executorModelId : undefined,
         validatorModelProvider: hasValidatorOverride ? validatorProvider : undefined,
@@ -264,6 +285,7 @@ export function InlineCreateCard({
       pendingImages.forEach((img) => URL.revokeObjectURL(img.previewUrl));
       setPendingImages([]);
 
+      setSelectedPresetId(undefined);
       addToast(`Created ${task.id}`, "success");
     } catch (err: any) {
       addToast(err.message, "error");
@@ -359,8 +381,10 @@ export function InlineCreateCard({
     setExecutorModelId(undefined);
     setValidatorProvider(undefined);
     setValidatorModelId(undefined);
+    setSelectedPresetId(undefined);
     setShowDeps(false);
     setShowModels(false);
+    setShowPresets(false);
   }, [description, onPlanningMode, addToast]);
 
   const handleSubtaskClick = useCallback(() => {
@@ -377,8 +401,10 @@ export function InlineCreateCard({
     setExecutorModelId(undefined);
     setValidatorProvider(undefined);
     setValidatorModelId(undefined);
+    setSelectedPresetId(undefined);
     setShowDeps(false);
     setShowModels(false);
+    setShowPresets(false);
   }, [description, onSubtaskBreakdown, addToast]);
 
   const truncate = (s: string, len: number) =>
@@ -481,14 +507,80 @@ export function InlineCreateCard({
             <button
               type="button"
               className="btn btn-sm inline-create-model-trigger"
+              onClick={() => {
+                setShowPresets((prev) => {
+                  const next = !prev;
+                  if (next) {
+                    setShowDeps(false);
+                    setShowModels(false);
+                  }
+                  return next;
+                });
+              }}
+              aria-expanded={showPresets}
+              aria-haspopup="listbox"
+            >
+              <Zap size={12} style={{ verticalAlign: "middle" }} />
+              {selectedPreset ? ` ${selectedPreset.name}` : " Preset"}
+            </button>
+            {showPresets && (
+              <div className="inline-create-model-dropdown" onMouseDown={handleModelDropdownMouseDown}>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => {
+                    setSelectedPresetId(undefined);
+                    setExecutorProvider(undefined);
+                    setExecutorModelId(undefined);
+                    setValidatorProvider(undefined);
+                    setValidatorModelId(undefined);
+                    setShowPresets(false);
+                  }}
+                >
+                  Use default
+                </button>
+                {availablePresets.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => {
+                      const selection = applyPresetToSelection(preset);
+                      const executor = parseModelSelection(selection.executorValue);
+                      const validator = parseModelSelection(selection.validatorValue);
+                      setSelectedPresetId(preset.id);
+                      setExecutorProvider(executor.provider);
+                      setExecutorModelId(executor.modelId);
+                      setValidatorProvider(validator.provider);
+                      setValidatorModelId(validator.modelId);
+                      setShowPresets(false);
+                    }}
+                  >
+                    {preset.name}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => setShowPresets(false)}
+                >
+                  Custom
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              className="btn btn-sm inline-create-model-trigger"
               onClick={toggleModelsDropdown}
               aria-expanded={showModels}
               aria-haspopup="dialog"
             >
               <Brain size={12} style={{ verticalAlign: "middle" }} />
-              {selectedModelCount > 0
-                ? ` ${selectedModelCount} model${selectedModelCount === 1 ? "" : "s"}`
-                : " Models"}
+              {selectedPreset
+                ? ` ${selectedPreset.name} · ${selectedModelCount} model${selectedModelCount === 1 ? "" : "s"}`
+                : selectedModelCount > 0
+                  ? ` ${selectedModelCount} model${selectedModelCount === 1 ? "" : "s"}`
+                  : " Models"}
             </button>
             {showModels && (
               <div

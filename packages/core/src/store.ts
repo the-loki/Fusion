@@ -301,6 +301,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       column: input.column || "triage",
       dependencies: input.dependencies || [],
       breakIntoSubtasks: input.breakIntoSubtasks === true ? true : undefined,
+      modelPresetId: input.modelPresetId,
       modelProvider: input.modelProvider,
       modelId: input.modelId,
       validatorModelProvider: input.validatorModelProvider,
@@ -349,6 +350,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       title: sourceTask.title,
       description: `${sourceTask.description}\n\n(Duplicated from ${id})`,
       column: "triage",
+      modelPresetId: sourceTask.modelPresetId,
       dependencies: [], // Fresh task should have no dependencies
       steps: [], // Reset execution state
       currentStep: 0,
@@ -1053,6 +1055,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
           updatedAt: task.updatedAt,
           columnMovedAt: task.columnMovedAt,
           archivedAt: task.columnMovedAt,
+          modelPresetId: task.modelPresetId,
           modelProvider: task.modelProvider,
           modelId: task.modelId,
           validatorModelProvider: task.validatorModelProvider,
@@ -1794,6 +1797,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       createdAt: entry.createdAt,
       updatedAt: new Date().toISOString(),
       columnMovedAt: entry.columnMovedAt,
+      modelPresetId: entry.modelPresetId,
       modelProvider: entry.modelProvider,
       modelId: entry.modelId,
       validatorModelProvider: entry.validatorModelProvider,

@@ -1,9 +1,10 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import type { Task, TaskCreateInput } from "@kb/core";
+import type { Task, TaskCreateInput, ModelPreset, Settings } from "@kb/core";
 import type { ToastType } from "../hooks/useToast";
-import { uploadAttachment, fetchModels, updateTask } from "../api";
+import { uploadAttachment, fetchModels, fetchSettings } from "../api";
 import type { ModelInfo } from "../api";
 import { filterModels } from "../utils/modelFilter";
+import { applyPresetToSelection, getRecommendedPresetForSize } from "../utils/modelPresets";
 import { ProviderIcon } from "./ProviderIcon";
 
 const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
@@ -311,6 +312,9 @@ export function NewTaskModal({ isOpen, onClose, tasks, onCreateTask, addToast, o
   const [modelsLoading, setModelsLoading] = useState(false);
   const [executorModel, setExecutorModel] = useState("");
   const [validatorModel, setValidatorModel] = useState("");
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [selectedPresetId, setSelectedPresetId] = useState<string>("");
+  const [presetMode, setPresetMode] = useState<"default" | "preset" | "custom">("default");
   const [enablePlanningMode, setEnablePlanningMode] = useState(false);
   const [hasDirtyState, setHasDirtyState] = useState(false);
 
@@ -326,6 +330,9 @@ export function NewTaskModal({ isOpen, onClose, tasks, onCreateTask, addToast, o
         .then((models) => setAvailableModels(models))
         .catch(() => {/* silently fail - models just won't be available */})
         .finally(() => setModelsLoading(false));
+      fetchSettings()
+        .then((nextSettings) => setSettings(nextSettings))
+        .catch(() => setSettings(null));
     }
   }, [isOpen]);
 
@@ -340,6 +347,21 @@ export function NewTaskModal({ isOpen, onClose, tasks, onCreateTask, addToast, o
       enablePlanningMode;
     setHasDirtyState(isDirty);
   }, [description, dependencies, pendingImages, executorModel, validatorModel, enablePlanningMode]);
+
+  const availablePresets = settings?.modelPresets || [];
+  const selectedPreset = availablePresets.find((preset) => preset.id === selectedPresetId);
+
+  useEffect(() => {
+    if (!isOpen || !settings?.autoSelectModelPreset) return;
+    const recommended = getRecommendedPresetForSize(undefined, settings.defaultPresetBySize || {}, availablePresets);
+    if (recommended) {
+      const selection = applyPresetToSelection(recommended);
+      setSelectedPresetId(recommended.id);
+      setPresetMode("preset");
+      setExecutorModel(selection.executorValue);
+      setValidatorModel(selection.validatorValue);
+    }
+  }, [isOpen, settings, availablePresets]);
 
   // Auto-focus description textarea when modal opens
   useEffect(() => {
@@ -430,6 +452,8 @@ export function NewTaskModal({ isOpen, onClose, tasks, onCreateTask, addToast, o
     setDependencies([]);
     setExecutorModel("");
     setValidatorModel("");
+    setSelectedPresetId("");
+    setPresetMode("default");
     setEnablePlanningMode(false);
     setHasDirtyState(false);
     onClose();
@@ -452,6 +476,8 @@ export function NewTaskModal({ isOpen, onClose, tasks, onCreateTask, addToast, o
         setDependencies([]);
         setExecutorModel("");
         setValidatorModel("");
+        setSelectedPresetId("");
+        setPresetMode("default");
         setEnablePlanningMode(false);
         
         // Close modal and trigger planning mode
@@ -466,11 +492,19 @@ export function NewTaskModal({ isOpen, onClose, tasks, onCreateTask, addToast, o
     setIsSubmitting(true);
     try {
       // Create the base task
+      const executorSlashIdx = executorModel.indexOf("/");
+      const validatorSlashIdx = validatorModel.indexOf("/");
+
       const task = await onCreateTask({
         title: undefined,
         description: trimmedDesc,
         column: "triage",
         dependencies: dependencies.length ? dependencies : undefined,
+        modelPresetId: presetMode === "preset" ? selectedPresetId || undefined : undefined,
+        modelProvider: executorModel && executorSlashIdx !== -1 ? executorModel.slice(0, executorSlashIdx) : undefined,
+        modelId: executorModel && executorSlashIdx !== -1 ? executorModel.slice(executorSlashIdx + 1) : undefined,
+        validatorModelProvider: validatorModel && validatorSlashIdx !== -1 ? validatorModel.slice(0, validatorSlashIdx) : undefined,
+        validatorModelId: validatorModel && validatorSlashIdx !== -1 ? validatorModel.slice(validatorSlashIdx + 1) : undefined,
       });
 
       // Upload pending images as attachments
@@ -488,28 +522,6 @@ export function NewTaskModal({ isOpen, onClose, tasks, onCreateTask, addToast, o
         }
       }
 
-      // Update task with model settings if specified
-      const executorSlashIdx = executorModel.indexOf("/");
-      const validatorSlashIdx = validatorModel.indexOf("/");
-      
-      if (executorModel || validatorModel) {
-        const updates: Parameters<typeof updateTask>[1] = {};
-        
-        if (executorModel && executorSlashIdx !== -1) {
-          updates.modelProvider = executorModel.slice(0, executorSlashIdx);
-          updates.modelId = executorModel.slice(executorSlashIdx + 1);
-        }
-        
-        if (validatorModel && validatorSlashIdx !== -1) {
-          updates.validatorModelProvider = validatorModel.slice(0, validatorSlashIdx);
-          updates.validatorModelId = validatorModel.slice(validatorSlashIdx + 1);
-        }
-        
-        if (Object.keys(updates).length > 0) {
-          await updateTask(task.id, updates);
-        }
-      }
-
       // Clean up
       pendingImages.forEach((img) => URL.revokeObjectURL(img.previewUrl));
       setPendingImages([]);
@@ -517,6 +529,8 @@ export function NewTaskModal({ isOpen, onClose, tasks, onCreateTask, addToast, o
       setDependencies([]);
       setExecutorModel("");
       setValidatorModel("");
+      setSelectedPresetId("");
+      setPresetMode("default");
       setEnablePlanningMode(false);
 
       addToast(`Created ${task.id}`, "success");
@@ -664,14 +678,67 @@ export function NewTaskModal({ isOpen, onClose, tasks, onCreateTask, addToast, o
             ) : (
               <>
                 <div className="model-select-row">
+                  <label htmlFor="model-preset" className="model-select-label">Preset</label>
+                  <select
+                    id="model-preset"
+                    value={presetMode === "preset" ? selectedPresetId : presetMode}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value === "default") {
+                        setPresetMode("default");
+                        setSelectedPresetId("");
+                        setExecutorModel("");
+                        setValidatorModel("");
+                        return;
+                      }
+                      if (value === "custom") {
+                        setPresetMode("custom");
+                        setSelectedPresetId("");
+                        return;
+                      }
+                      const preset = availablePresets.find((entry) => entry.id === value);
+                      const selection = applyPresetToSelection(preset);
+                      setPresetMode("preset");
+                      setSelectedPresetId(value);
+                      setExecutorModel(selection.executorValue);
+                      setValidatorModel(selection.validatorValue);
+                    }}
+                    disabled={isSubmitting}
+                  >
+                    <option value="default">Use default</option>
+                    {availablePresets.length > 0 ? <option disabled>──────────</option> : null}
+                    {availablePresets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>{preset.name}</option>
+                    ))}
+                    <option value="custom">Custom</option>
+                  </select>
+                </div>
+                {presetMode === "preset" && selectedPreset ? (
+                  <small>Using preset: {selectedPreset.name}</small>
+                ) : null}
+                {presetMode === "preset" ? (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => setPresetMode("custom")}
+                    disabled={isSubmitting}
+                  >
+                    Override
+                  </button>
+                ) : null}
+                <div className="model-select-row">
                   <label htmlFor="executor-model" className="model-select-label">Executor</label>
                   <ModelCombobox
                     id="executor-model"
                     label="Executor Model"
                     value={executorModel}
-                    onChange={setExecutorModel}
+                    onChange={(value) => {
+                      setPresetMode("custom");
+                      setSelectedPresetId("");
+                      setExecutorModel(value);
+                    }}
                     models={availableModels}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || presetMode === "preset"}
                   />
                 </div>
                 <div className="model-select-row">
@@ -680,9 +747,13 @@ export function NewTaskModal({ isOpen, onClose, tasks, onCreateTask, addToast, o
                     id="validator-model"
                     label="Validator Model"
                     value={validatorModel}
-                    onChange={setValidatorModel}
+                    onChange={(value) => {
+                      setPresetMode("custom");
+                      setSelectedPresetId("");
+                      setValidatorModel(value);
+                    }}
                     models={availableModels}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || presetMode === "preset"}
                   />
                 </div>
               </>

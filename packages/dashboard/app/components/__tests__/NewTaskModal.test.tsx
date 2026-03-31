@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { NewTaskModal } from "../NewTaskModal";
 import type { Task, Column } from "@kb/core";
+import { fetchSettings } from "../../api";
 
 // Mock the api module
 vi.mock("../../api", () => ({
@@ -10,7 +11,11 @@ vi.mock("../../api", () => ({
     { provider: "anthropic", id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", reasoning: true, contextWindow: 200000 },
     { provider: "openai", id: "gpt-4o", name: "GPT-4o", reasoning: false, contextWindow: 128000 },
   ]),
-  updateTask: vi.fn().mockResolvedValue({}),
+  fetchSettings: vi.fn().mockResolvedValue({
+    modelPresets: [],
+    autoSelectModelPreset: false,
+    defaultPresetBySize: {},
+  }),
 }));
 
 function makeTask(id: string): Task {
@@ -194,6 +199,67 @@ describe("NewTaskModal", () => {
       expect(screen.getByText("Executor")).toBeTruthy();
       expect(screen.getByText("Validator")).toBeTruthy();
     });
+  });
+
+  it("creates task with selected preset id and resolved models", async () => {
+    (fetchSettings as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      modelPresets: [
+        {
+          id: "budget",
+          name: "Budget",
+          executorProvider: "openai",
+          executorModelId: "gpt-4o",
+          validatorProvider: "anthropic",
+          validatorModelId: "claude-sonnet-4-5",
+        },
+      ],
+      autoSelectModelPreset: false,
+      defaultPresetBySize: {},
+    });
+
+    const { props } = renderNewTaskModal();
+    fireEvent.change(screen.getByLabelText(/Description/i), { target: { value: "Preset task" } });
+
+    await waitFor(() => expect(screen.getByLabelText("Preset")).toBeTruthy());
+    fireEvent.change(screen.getByLabelText("Preset"), { target: { value: "budget" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
+
+    await waitFor(() => {
+      expect(props.onCreateTask).toHaveBeenCalledWith(expect.objectContaining({
+        description: "Preset task",
+        modelPresetId: "budget",
+        modelProvider: "openai",
+        modelId: "gpt-4o",
+        validatorModelProvider: "anthropic",
+        validatorModelId: "claude-sonnet-4-5",
+      }));
+    });
+  });
+
+  it("allows overriding a selected preset with custom models", async () => {
+    (fetchSettings as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      modelPresets: [
+        {
+          id: "budget",
+          name: "Budget",
+          executorProvider: "openai",
+          executorModelId: "gpt-4o",
+        },
+      ],
+      autoSelectModelPreset: false,
+      defaultPresetBySize: {},
+    });
+
+    renderNewTaskModal();
+    await waitFor(() => expect(screen.getByLabelText("Preset")).toBeTruthy());
+    fireEvent.change(screen.getByLabelText("Preset"), { target: { value: "budget" } });
+    expect(screen.getByText("Using preset: Budget")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Override" }));
+    expect(screen.queryByText("Using preset: Budget")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Preset"), { target: { value: "custom" } });
+    expect((screen.getByLabelText("Preset") as HTMLSelectElement).value).toBe("custom");
   });
 
   it("toggles planning mode checkbox", () => {

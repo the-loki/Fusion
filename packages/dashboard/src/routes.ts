@@ -2,7 +2,7 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import multer from "multer";
 import { createReadStream, existsSync } from "node:fs";
 import { execSync } from "node:child_process";
-import type { TaskStore, Column, MergeResult, ScheduleType, ActivityEventType } from "@kb/core";
+import type { TaskStore, Column, MergeResult, ScheduleType, ActivityEventType, ModelPreset } from "@kb/core";
 import { COLUMNS, VALID_TRANSITIONS, type BatchStatusEntry, type BatchStatusResponse, type BatchStatusResult, type IssueInfo, type PrInfo, isGhAuthenticated, AUTOMATION_PRESETS, AutomationStore } from "@kb/core";
 import type { ServerOptions } from "./server.js";
 import { GitHubClient, getCurrentGitHubRepo, parseBadgeUrl } from "./github.js";
@@ -72,6 +72,74 @@ function normalizeModelSelectionPair(provider: string | undefined, modelId: stri
   }
 
   return { provider, modelId };
+}
+
+function assertConsistentOptionalPair(
+  provider: unknown,
+  modelId: unknown,
+  pairName: string,
+): { provider?: string; modelId?: string } {
+  const normalizedProvider = validateOptionalModelField(provider, `${pairName} provider`);
+  const normalizedModelId = validateOptionalModelField(modelId, `${pairName} modelId`);
+
+  if ((normalizedProvider && !normalizedModelId) || (!normalizedProvider && normalizedModelId)) {
+    throw new Error(`${pairName} must include both provider and modelId or neither`);
+  }
+
+  return {
+    provider: normalizedProvider,
+    modelId: normalizedModelId,
+  };
+}
+
+function validateModelPresets(value: unknown): ModelPreset[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error("modelPresets must be an array");
+  }
+
+  const seenIds = new Set<string>();
+
+  return value.map((preset, index) => {
+    if (!preset || typeof preset !== "object") {
+      throw new Error(`modelPresets[${index}] must be an object`);
+    }
+
+    const candidate = preset as Record<string, unknown>;
+    const id = validateOptionalModelField(candidate.id, `modelPresets[${index}].id`);
+    const name = validateOptionalModelField(candidate.name, `modelPresets[${index}].name`);
+
+    if (!id) {
+      throw new Error(`modelPresets[${index}].id is required`);
+    }
+    if (!name) {
+      throw new Error(`modelPresets[${index}].name is required`);
+    }
+    if (seenIds.has(id)) {
+      throw new Error(`modelPresets contains duplicate id: ${id}`);
+    }
+    seenIds.add(id);
+
+    const executor = assertConsistentOptionalPair(
+      candidate.executorProvider,
+      candidate.executorModelId,
+      `modelPresets[${index}].executor`,
+    );
+    const validator = assertConsistentOptionalPair(
+      candidate.validatorProvider,
+      candidate.validatorModelId,
+      `modelPresets[${index}].validator`,
+    );
+
+    return {
+      id,
+      name,
+      executorProvider: executor.provider,
+      executorModelId: executor.modelId,
+      validatorProvider: validator.provider,
+      validatorModelId: validator.modelId,
+    };
+  });
 }
 
 // ── Git Remote Detection ──────────────────────────────────────────
@@ -863,10 +931,18 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       // These are computed server-side and injected only on GET /settings.
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { githubTokenConfigured, ...clientSettings } = req.body;
+
+      if (Object.prototype.hasOwnProperty.call(clientSettings, "modelPresets")) {
+        clientSettings.modelPresets = validateModelPresets(clientSettings.modelPresets);
+      }
+
       const settings = await store.updateSettings(clientSettings);
       res.json(settings);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      const status = typeof err?.message === "string" && (
+        err.message.includes("modelPresets") || err.message.includes("must include both provider and modelId")
+      ) ? 400 : 500;
+      res.status(status).json({ error: err.message });
     }
   });
 
@@ -952,6 +1028,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         column,
         dependencies,
         breakIntoSubtasks,
+        modelPresetId,
         modelProvider,
         modelId,
         validatorModelProvider,
@@ -980,6 +1057,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         column,
         dependencies,
         breakIntoSubtasks,
+        modelPresetId: validateOptionalModelField(modelPresetId, "modelPresetId"),
         modelProvider: executorModel.provider,
         modelId: executorModel.modelId,
         validatorModelProvider: validatorModel.provider,

@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { InlineCreateCard } from "../InlineCreateCard";
 import type { Task, Column } from "@kb/core";
-import { fetchModels } from "../../api";
+import { fetchModels, fetchSettings } from "../../api";
 import type { ModelInfo } from "../../api";
 
 // Mock lucide-react
@@ -16,11 +16,17 @@ vi.mock("lucide-react", () => ({
   Terminal: () => null,
   Lightbulb: () => null,
   ListTree: () => null,
+  Zap: () => null,
 }));
 
 // Mock the api module
 vi.mock("../../api", () => ({
   fetchModels: vi.fn().mockResolvedValue([]),
+  fetchSettings: vi.fn().mockResolvedValue({
+    modelPresets: [],
+    autoSelectModelPreset: false,
+    defaultPresetBySize: {},
+  }),
   uploadAttachment: vi.fn(),
 }));
 
@@ -85,6 +91,11 @@ function chooseModel(label: "Executor Model" | "Validator Model", optionText: st
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(fetchModels).mockResolvedValue(MOCK_MODELS);
+  vi.mocked(fetchSettings).mockResolvedValue({
+    modelPresets: [],
+    autoSelectModelPreset: false,
+    defaultPresetBySize: {},
+  });
 });
 
 describe("InlineCreateCard blur-to-cancel", () => {
@@ -264,6 +275,48 @@ describe("InlineCreateCard model selector", () => {
     fireEvent.focusOut(textarea, { relatedTarget: null });
 
     expect(props.onCancel).not.toHaveBeenCalled();
+  });
+
+  it("does NOT call onCancel when focus leaves while the preset dropdown is open", () => {
+    vi.mocked(fetchSettings).mockResolvedValueOnce({
+      modelPresets: [{ id: "budget", name: "Budget", executorProvider: "anthropic", executorModelId: "claude-sonnet-4-5" }],
+      autoSelectModelPreset: false,
+      defaultPresetBySize: {},
+    });
+    const { props } = renderCard();
+    const textarea = screen.getByPlaceholderText("What needs to be done?");
+
+    fireEvent.click(screen.getByRole("button", { name: /Preset/i }));
+    textarea.focus();
+    fireEvent.focusOut(textarea, { relatedTarget: null });
+
+    expect(props.onCancel).not.toHaveBeenCalled();
+  });
+
+  it("includes selected preset id in the submit payload", async () => {
+    vi.mocked(fetchSettings).mockResolvedValueOnce({
+      modelPresets: [{ id: "budget", name: "Budget", executorProvider: "anthropic", executorModelId: "claude-sonnet-4-5", validatorProvider: "openai", validatorModelId: "gpt-4o" }],
+      autoSelectModelPreset: false,
+      defaultPresetBySize: {},
+    });
+    const { props } = renderCard();
+    const textarea = screen.getByPlaceholderText("What needs to be done?");
+
+    fireEvent.change(textarea, { target: { value: "Task with preset" } });
+    fireEvent.click(screen.getByRole("button", { name: /Preset/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Budget" }));
+    fireEvent.click(screen.getByRole("button", { name: /Save/i }));
+
+    await waitFor(() => {
+      expect(props.onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+        description: "Task with preset",
+        modelPresetId: "budget",
+        modelProvider: "anthropic",
+        modelId: "claude-sonnet-4-5",
+        validatorModelProvider: "openai",
+        validatorModelId: "gpt-4o",
+      }));
+    });
   });
 
   it("does NOT call onCancel after a model override is selected and focus leaves the card", () => {

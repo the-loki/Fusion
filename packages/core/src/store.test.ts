@@ -121,6 +121,18 @@ describe("TaskStore", () => {
       expect(detail.breakIntoSubtasks).toBe(true);
     });
 
+    it("persists modelPresetId when provided during task creation", async () => {
+      const task = await store.createTask({
+        description: "Preset task",
+        modelPresetId: "budget",
+      });
+
+      expect(task.modelPresetId).toBe("budget");
+
+      const detail = await store.getTask(task.id);
+      expect(detail.modelPresetId).toBe("budget");
+    });
+
     it("leaves breakIntoSubtasks unset by default", async () => {
       const task = await store.createTask({
         description: "Regular task",
