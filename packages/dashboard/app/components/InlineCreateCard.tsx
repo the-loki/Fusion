@@ -666,7 +666,7 @@ export function InlineCreateCard({
                 onClick={handleSubtaskClick}
                 disabled={!description.trim()}
                 data-testid="subtask-button"
-                title="Break down into subtasks (coming soon)"
+                title="Break down into AI-generated subtasks"
               >
                 <ListTree size={12} style={{ verticalAlign: "middle" }} />
                 Subtask
