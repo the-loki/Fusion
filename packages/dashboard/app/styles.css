@@ -9622,10 +9622,20 @@ html .column.drag-over * {
 
 
 /* === New Task Modal === */
+.new-task-modal {
+  height: 100%;
+  overflow: hidden;
+}
+
 .new-task-modal .modal-body {
   padding: 20px 24px;
   overflow-y: auto;
-  max-height: calc(80vh - 120px);
+  flex: 1;
+  min-height: 0;
+}
+
+.new-task-modal .modal-actions {
+  flex-shrink: 0;
 }
 
 .new-task-modal .form-group {
