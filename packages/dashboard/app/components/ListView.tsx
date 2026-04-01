@@ -159,6 +159,87 @@ export function ListView({
   const [columnDropdownOpen, setColumnDropdownOpen] = useState(false);
   const columnDropdownRef = useRef<HTMLDivElement>(null);
 
+  // Selection state - initialize from localStorage
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("kb-dashboard-selected-tasks");
+        if (saved) {
+          const parsed = JSON.parse(saved) as string[];
+          return new Set(parsed);
+        }
+      } catch {
+        // Invalid localStorage data - fall through to default
+      }
+    }
+    return new Set<string>();
+  });
+
+  // Persist selection to localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("kb-dashboard-selected-tasks", JSON.stringify([...selectedTaskIds]));
+    }
+  }, [selectedTaskIds]);
+
+  // Toggle task selection
+  const toggleTaskSelection = useCallback((taskId: string) => {
+    setSelectedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  }, []);
+
+  // Toggle all visible tasks
+  const toggleSelectAll = useCallback(() => {
+    const visibleTaskIds = Object.values(groupedTasks)
+      .flat()
+      .filter((t) => t.column !== "archived") // Can't bulk edit archived
+      .map((t) => t.id);
+
+    setSelectedTaskIds((prev) => {
+      const allSelected = visibleTaskIds.every((id) => prev.has(id));
+      if (allSelected) {
+        // Deselect all visible
+        const next = new Set(prev);
+        visibleTaskIds.forEach((id) => next.delete(id));
+        return next;
+      } else {
+        // Select all visible
+        return new Set([...prev, ...visibleTaskIds]);
+      }
+    });
+  }, [groupedTasks]);
+
+  // Clear selection
+  const clearSelection = useCallback(() => {
+    setSelectedTaskIds(new Set());
+  }, []);
+
+  // Check if all visible tasks are selected
+  const isSelectAll = useMemo(() => {
+    const visibleTaskIds = Object.values(groupedTasks)
+      .flat()
+      .filter((t) => t.column !== "archived");
+    if (visibleTaskIds.length === 0) return false;
+    return visibleTaskIds.every((t) => selectedTaskIds.has(t.id));
+  }, [groupedTasks, selectedTaskIds]);
+
+  // Check if some (but not all) visible tasks are selected
+  const isSelectIndeterminate = useMemo(() => {
+    const visibleTaskIds = Object.values(groupedTasks)
+      .flat()
+      .filter((t) => t.column !== "archived");
+    if (visibleTaskIds.length === 0) return false;
+    const selectedCount = visibleTaskIds.filter((t) => selectedTaskIds.has(t.id)).length;
+    return selectedCount > 0 && selectedCount < visibleTaskIds.length;
+  }, [groupedTasks, selectedTaskIds]);
+
   // Toggle a column's visibility
   const toggleColumn = useCallback((column: ListColumn) => {
     setVisibleColumns((prev) => {
@@ -462,6 +543,14 @@ export function ListView({
             </button>
           )}
         </div>
+        {selectedTaskIds.size > 0 && (
+          <div className="list-selection-stats">
+            <span className="selection-count">{selectedTaskIds.size} selected</span>
+            <button className="btn btn-sm btn-link" onClick={clearSelection}>
+              Clear
+            </button>
+          </div>
+        )}
         {onNewTask ? (
           <button className="btn btn-primary btn-sm" onClick={onNewTask}>
             + New Task
@@ -515,6 +604,17 @@ export function ListView({
           <table className="list-table">
             <thead>
               <tr>
+                <th className="list-header-cell list-header-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={isSelectAll}
+                    ref={(el) => {
+                      if (el) el.indeterminate = isSelectIndeterminate;
+                    }}
+                    onChange={toggleSelectAll}
+                    aria-label="Select all visible tasks"
+                  />
+                </th>
                 {visibleColumns.has("id") && (
                   <th className="list-header-cell" onClick={() => handleSort("id")}>
                     ID {getSortIcon("id")}
@@ -610,6 +710,19 @@ export function ListView({
                                 onDragEnd={handleDragEnd}
                                 data-id={task.id}
                               >
+                                <td className="list-cell list-cell-checkbox">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedTaskIds.has(task.id)}
+                                    onChange={(e) => {
+                                      e.stopPropagation();
+                                      toggleTaskSelection(task.id);
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    disabled={task.column === "archived"}
+                                    aria-label={`Select ${task.id}`}
+                                  />
+                                </td>
                                 {visibleColumns.has("id") && (
                                   <td className="list-cell list-cell-id">{task.id}</td>
                                 )}
