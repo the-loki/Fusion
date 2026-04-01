@@ -1777,6 +1777,10 @@ describe("ListView - Bulk Selection", () => {
     ];
     render(<ListView tasks={tasks} onMoveTask={vi.fn()} onOpenDetail={vi.fn()} addToast={mockAddToast} />);
 
+    // Click "Show Done" to make archived tasks visible
+    const showDoneButton = screen.getByRole("button", { name: /show done/i });
+    fireEvent.click(showDoneButton);
+
     const checkbox = screen.getByLabelText("Select FN-001");
     expect(checkbox).toBeDisabled();
   });
