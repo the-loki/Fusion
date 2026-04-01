@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { X, History, Trash2, Filter, RefreshCw, CheckCircle, XCircle, ArrowRight, Plus, Settings, AlertCircle, Loader2 } from "lucide-react";
-import { clearActivityLog, type ActivityLogEntry, type ActivityEventType } from "../api";
+import { useState, useEffect, useCallback } from "react";
+import { X, History, Trash2, Filter, RefreshCw, CheckCircle, XCircle, ArrowRight, Plus, Settings, AlertCircle, Loader2, Folder } from "lucide-react";
+import { clearActivityLog, type ActivityLogEntry, type ActivityEventType, type ActivityFeedEntry } from "../api";
 import { useActivityLog } from "../hooks/useActivityLog";
-import type { Task } from "@fusion/core";
+import type { Task, ProjectInfo } from "@fusion/core";
 
 interface ActivityLogModalProps {
   isOpen: boolean;
@@ -11,6 +11,10 @@ interface ActivityLogModalProps {
   onOpenTaskDetail?: (taskId: string) => void;
   /** When provided, shows only activity for this project */
   projectId?: string;
+  /** List of all projects for filter dropdown */
+  projects?: ProjectInfo[];
+  /** Called when project filter changes */
+  onProjectFilterChange?: (projectId: string | undefined) => void;
 }
 
 const EVENT_TYPE_LABELS: Record<ActivityEventType, string> = {
@@ -49,14 +53,38 @@ function formatTimestamp(timestamp: string): string {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-export function ActivityLogModal({ isOpen, onClose, tasks, onOpenTaskDetail, projectId }: ActivityLogModalProps) {
+/**
+ * ActivityLogModal - Activity log with project attribution and filtering
+ * 
+ * Features:
+ * - Project name badge for each activity entry
+ * - Project filter dropdown (when projects list provided)
+ * - Event type filter
+ * - Real-time updates via useActivityLog hook
+ */
+export function ActivityLogModal({ 
+  isOpen, 
+  onClose, 
+  tasks, 
+  onOpenTaskDetail, 
+  projectId,
+  projects = [],
+  onProjectFilterChange,
+}: ActivityLogModalProps) {
   const [filteredType, setFilteredType] = useState<ActivityEventType | "all">("all");
+  const [filteredProjectId, setFilteredProjectId] = useState<string | "all">(projectId || "all");
   const [showConfirmClear, setShowConfirmClear] = useState(false);
   
-  // Convert filteredType to the format expected by useActivityLog
-  const activityType = filteredType === "all" ? undefined : filteredType;
+  // Sync with external projectId prop
+  useEffect(() => {
+    setFilteredProjectId(projectId || "all");
+  }, [projectId]);
   
-  // Use the new hook for data fetching
+  // Convert filters to the format expected by useActivityLog
+  const activityType = filteredType === "all" ? undefined : filteredType;
+  const activeProjectId = filteredProjectId === "all" ? undefined : filteredProjectId;
+  
+  // Use the hook for data fetching
   const { 
     entries, 
     loading: isLoading, 
@@ -64,14 +92,14 @@ export function ActivityLogModal({ isOpen, onClose, tasks, onOpenTaskDetail, pro
     refresh, 
     hasMore 
   } = useActivityLog({ 
-    projectId, 
+    projectId: activeProjectId, 
     type: activityType, 
     limit: 100,
-    autoRefresh: isOpen, // Only poll when modal is open
+    autoRefresh: isOpen,
   });
 
   // Convert entries to ActivityLogEntry format for compatibility
-  const convertedEntries: ActivityLogEntry[] = entries.map(entry => ({
+  const convertedEntries: ActivityLogEntry[] = entries.map((entry: ActivityFeedEntry) => ({
     id: entry.id,
     timestamp: entry.timestamp,
     type: entry.type,
@@ -79,6 +107,8 @@ export function ActivityLogModal({ isOpen, onClose, tasks, onOpenTaskDetail, pro
     taskTitle: entry.taskTitle,
     details: entry.details,
     metadata: entry.metadata,
+    projectId: entry.projectId,
+    projectName: entry.projectName,
   }));
 
   const handleClearLog = async () => {
@@ -97,6 +127,11 @@ export function ActivityLogModal({ isOpen, onClose, tasks, onOpenTaskDetail, pro
     }
   };
 
+  const handleProjectFilterChange = (value: string) => {
+    setFilteredProjectId(value);
+    onProjectFilterChange?.(value === "all" ? undefined : value);
+  };
+
   // Handle escape key to close
   useEffect(() => {
     if (!isOpen) return;
@@ -112,6 +147,9 @@ export function ActivityLogModal({ isOpen, onClose, tasks, onOpenTaskDetail, pro
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
   }, [isOpen, onClose, showConfirmClear]);
+
+  // Determine if any filter is active
+  const isFilterActive = filteredType !== "all" || filteredProjectId !== "all";
 
   if (!isOpen) return null;
 
@@ -131,7 +169,27 @@ export function ActivityLogModal({ isOpen, onClose, tasks, onOpenTaskDetail, pro
             <span>Activity Log</span>
           </div>
           <div className="activity-log-actions">
-            {/* Filter dropdown */}
+            {/* Project filter dropdown (when projects provided) */}
+            {projects.length > 0 && (
+              <div className="activity-log-filter activity-log-filter--project">
+                <Folder size={14} />
+                <select
+                  value={filteredProjectId}
+                  onChange={(e) => handleProjectFilterChange(e.target.value)}
+                  className="activity-log-filter-select"
+                  data-testid="activity-project-filter"
+                >
+                  <option value="all">All Projects</option>
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Event type filter dropdown */}
             <div className="activity-log-filter">
               <Filter size={14} />
               <select
@@ -184,6 +242,33 @@ export function ActivityLogModal({ isOpen, onClose, tasks, onOpenTaskDetail, pro
           </div>
         </div>
 
+        {/* Active filters display */}
+        {isFilterActive && (
+          <div className="activity-log-active-filters">
+            <span className="activity-log-filter-label">Active filters:</span>
+            {filteredProjectId !== "all" && (
+              <span className="activity-log-filter-badge">
+                Project: {projects.find(p => p.id === filteredProjectId)?.name || filteredProjectId}
+              </span>
+            )}
+            {filteredType !== "all" && (
+              <span className="activity-log-filter-badge">
+                Type: {EVENT_TYPE_LABELS[filteredType]}
+              </span>
+            )}
+            <button
+              className="activity-log-clear-filters"
+              onClick={() => {
+                setFilteredType("all");
+                setFilteredProjectId("all");
+                onProjectFilterChange?.(undefined);
+              }}
+            >
+              Clear all
+            </button>
+          </div>
+        )}
+
         {/* Content */}
         <div className="activity-log-content" data-testid="activity-log-content">
           {error && (
@@ -196,7 +281,23 @@ export function ActivityLogModal({ isOpen, onClose, tasks, onOpenTaskDetail, pro
           {convertedEntries.length === 0 && !isLoading && !error && (
             <div className="activity-log-empty" data-testid="activity-empty">
               <History size={48} className="activity-log-empty-icon" />
-              <p>No activity recorded yet</p>
+              <p>
+                {isFilterActive 
+                  ? "No activity matches the current filters" 
+                  : "No activity recorded yet"}
+              </p>
+              {isFilterActive && (
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setFilteredType("all");
+                    setFilteredProjectId("all");
+                    onProjectFilterChange?.(undefined);
+                  }}
+                >
+                  Clear Filters
+                </button>
+              )}
             </div>
           )}
 
@@ -215,6 +316,13 @@ export function ActivityLogModal({ isOpen, onClose, tasks, onOpenTaskDetail, pro
                     <span className="activity-log-entry-type">
                       {EVENT_TYPE_LABELS[entry.type]}
                     </span>
+                    {/* Project name badge */}
+                    {(entry as ActivityFeedEntry).projectName && (
+                      <span className="activity-log-entry-project">
+                        <Folder size={10} />
+                        {(entry as ActivityFeedEntry).projectName}
+                      </span>
+                    )}
                     <span className="activity-log-entry-time">
                       {formatTimestamp(entry.timestamp)}
                     </span>
