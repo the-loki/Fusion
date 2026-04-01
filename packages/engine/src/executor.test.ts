@@ -1631,7 +1631,7 @@ describe("buildExecutionPrompt", () => {
     expect(result).toContain("## Comments");
     expect(result).toContain("**user**");
     expect(result).toContain("> Please handle the edge case");
-    expect(result).toContain("The following comments were added by the user");
+    expect(result).toContain("The following comments were added during execution");
   });
 
   it("formats multiple comments correctly", () => {
@@ -1675,14 +1675,14 @@ describe("buildExecutionPrompt", () => {
   });
 
   it("includes only the 10 most recent comments", () => {
-    const steeringComments = Array.from({ length: 15 }, (_, i) => ({
+    const comments = Array.from({ length: 15 }, (_, i) => ({
       id: `${i}`,
       text: `Comment ${i}`,
       createdAt: new Date().toISOString(),
       author: "user" as const,
     }));
 
-    const task = createMockTaskDetail({ steeringComments });
+    const task = createMockTaskDetail({ comments });
     const result = buildExecutionPrompt(task);
 
     // Should include comments 5-14 (the 10 most recent), not 0-4
@@ -1725,7 +1725,7 @@ describe("buildExecutionPrompt", () => {
     expect(result).toContain("## Comments");
 
     // Verify explanatory header text
-    expect(result).toContain("The following comments were added by the user during execution");
+    expect(result).toContain("The following comments were added during execution");
     expect(result).toContain("Consider adjusting your approach or replanning remaining steps based on this feedback");
 
     // Verify all three comments appear with correct author badges

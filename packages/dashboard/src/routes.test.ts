@@ -71,7 +71,7 @@ function createMockStore(overrides: Partial<TaskStore> = {}): TaskStore {
     getGlobalSettingsStore: vi.fn().mockReturnValue(createMockGlobalSettingsStore()),
     logEntry: vi.fn().mockResolvedValue(undefined),
     getAgentLogs: vi.fn().mockResolvedValue([]),
-    addSteeringComment: vi.fn(),
+    addComment: vi.fn(),
     addTaskComment: vi.fn(),
     updateTaskComment: vi.fn(),
     deleteTaskComment: vi.fn(),
@@ -1850,7 +1850,7 @@ describe("Pause/Unpause endpoints", () => {
           },
         ],
       };
-      (store.addSteeringComment as ReturnType<typeof vi.fn>).mockResolvedValue(mockComment);
+      (store.addComment as ReturnType<typeof vi.fn>).mockResolvedValue(mockComment);
 
       const res = await REQUEST(
         buildApp(),
@@ -1862,7 +1862,7 @@ describe("Pause/Unpause endpoints", () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual(mockComment);
-      expect(store.addSteeringComment).toHaveBeenCalledWith(
+      expect(store.addComment).toHaveBeenCalledWith(
         "KB-001",
         "Please handle the edge case",
         "user"
@@ -1909,7 +1909,7 @@ describe("Pause/Unpause endpoints", () => {
     it("returns 404 when task not found", async () => {
       const error = new Error("Task not found") as Error & { code?: string };
       error.code = "ENOENT";
-      (store.addSteeringComment as ReturnType<typeof vi.fn>).mockRejectedValue(error);
+      (store.addComment as ReturnType<typeof vi.fn>).mockRejectedValue(error);
 
       const res = await REQUEST(
         buildApp(),
@@ -1923,7 +1923,7 @@ describe("Pause/Unpause endpoints", () => {
     });
 
     it("returns 500 on unexpected errors", async () => {
-      (store.addSteeringComment as ReturnType<typeof vi.fn>).mockRejectedValue(
+      (store.addComment as ReturnType<typeof vi.fn>).mockRejectedValue(
         new Error("Database error")
       );
 
