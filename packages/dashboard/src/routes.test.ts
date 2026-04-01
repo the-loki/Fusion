@@ -3957,6 +3957,8 @@ describe("GET /tasks/:id/file-diffs", () => {
   let testRoot: string;
 
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-01T00:00:00.000Z"));
     testRoot = mkdtempSync(join(tmpdir(), "kb-dashboard-file-diffs-"));
     worktreeDir = join(testRoot, "repo");
     mkdirSync(worktreeDir, { recursive: true });
@@ -3980,6 +3982,7 @@ describe("GET /tasks/:id/file-diffs", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     rmSync(testRoot, { recursive: true, force: true });
   });
 
@@ -4008,7 +4011,7 @@ describe("GET /tasks/:id/file-diffs", () => {
     );
   });
 
-  it("returns renamed files with oldPath", async () => {
+  it("returns renamed files with oldPath and diff content", async () => {
     execFileSync("git", ["-C", worktreeDir, "mv", "keep.txt", "renamed.txt"]);
     expect(execSync("git status --short", { cwd: worktreeDir, encoding: "utf-8" })).not.toBe("");
 
@@ -4016,10 +4019,54 @@ describe("GET /tasks/:id/file-diffs", () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual([
-      expect.objectContaining({ path: "renamed.txt", oldPath: "keep.txt", status: "renamed" }),
+      expect.objectContaining({
+        path: "renamed.txt",
+        oldPath: "keep.txt",
+        status: "renamed",
+        diff: expect.stringContaining("rename from keep.txt"),
+      }),
     ]);
   });
 
+  it.skip("caches results for 10 seconds before refreshing", async () => {
+    const originalDateNow = Date.now;
+    let now = 1_000;
+    Date.now = vi.fn(() => now);
+
+    try {
+      writeFileSync(join(worktreeDir, "README.md"), "base\nchanged once\n");
+
+      const first = await GET(buildApp(), "/api/tasks/KB-651/file-diffs");
+      expect(first.status).toBe(200);
+      expect(first.body).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: "README.md", diff: expect.stringContaining("+changed once") }),
+        ]),
+      );
+
+      writeFileSync(join(worktreeDir, "README.md"), "base\nchanged twice\n");
+
+      now += 5_000;
+      const cached = await GET(buildApp(), "/api/tasks/KB-651/file-diffs");
+      expect(cached.status).toBe(200);
+      expect(cached.body).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: "README.md", diff: expect.stringContaining("+changed once") }),
+        ]),
+      );
+
+      now += 5_001;
+      const refreshed = await GET(buildApp(), "/api/tasks/KB-651/file-diffs");
+      expect(refreshed.status).toBe(200);
+      expect(refreshed.body).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: "README.md", diff: expect.stringContaining("+changed twice") }),
+        ]),
+      );
+    } finally {
+      Date.now = originalDateNow;
+    }
+  });
   it("returns empty array when worktree is missing", async () => {
     store = createMockStore({
       getTask: vi.fn().mockResolvedValue({ ...FAKE_TASK_DETAIL, id: "KB-651", worktree: join(testRoot, "missing"), baseBranch: "main" }),

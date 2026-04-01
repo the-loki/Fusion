@@ -1973,8 +1973,9 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         return;
       }
 
+      const now = Date.now();
       const cached = taskFileDiffsCache.get(task.id);
-      if (cached && cached.expiresAt > Date.now()) {
+      if (cached && cached.expiresAt > now) {
         res.json(cached.files);
         return;
       }
@@ -2025,6 +2026,38 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         return entries;
       };
 
+      const loadWorkingTreeFiles = (): TaskFileDiff[] => {
+        const workingTreeFallback = execSync("git status --short", {
+          cwd: task.worktree,
+          encoding: "utf-8",
+          timeout: 5000,
+        }).trim();
+
+        return workingTreeFallback
+          ? workingTreeFallback
+              .split("\n")
+              .map((line) => line.trimEnd())
+              .filter(Boolean)
+              .map((line) => {
+                const indexStatus = line[0] ?? " ";
+                const worktreeStatus = line[1] ?? " ";
+                const statusCode = indexStatus !== " " ? indexStatus : worktreeStatus;
+                const remainder = line.slice(2).trim();
+                const normalizedStatus = statusCode === "?"
+                  ? "A"
+                  : statusCode === "!"
+                    ? "D"
+                    : statusCode || "M";
+                const normalized = normalizedStatus === "R"
+                  ? `R\t${remainder.replace(/\s+->\s+/, "\t")}`
+                  : `${normalizedStatus}\t${remainder}`;
+                return normalized;
+              })
+              .map((line) => parseNameStatus(line)[0])
+              .filter((entry): entry is TaskFileDiff => Boolean(entry))
+          : [];
+      };
+
       try {
         const output = execSync(`git diff --name-status ${baseBranch}...HEAD`, {
           cwd: task.worktree,
@@ -2033,6 +2066,9 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         }).trim();
 
         files = output ? parseNameStatus(output) : [];
+        if (files.length === 0) {
+          files = loadWorkingTreeFiles();
+        }
       } catch {
         try {
           const fallback = execSync("git diff --name-status HEAD", {
@@ -2041,59 +2077,81 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
             timeout: 5000,
           }).trim();
           files = fallback ? parseNameStatus(fallback) : [];
+          if (files.length === 0) {
+            files = loadWorkingTreeFiles();
+          }
         } catch {
-          const workingTreeFallback = execSync("git status --short", {
-            cwd: task.worktree,
-            encoding: "utf-8",
-            timeout: 5000,
-          }).trim();
-
-          files = workingTreeFallback
-            ? workingTreeFallback
-                .split("\n")
-                .map((line) => line.trimEnd())
-                .filter(Boolean)
-                .map((line) => {
-                  const indexStatus = line[0] ?? " ";
-                  const worktreeStatus = line[1] ?? " ";
-                  const statusCode = indexStatus !== " " ? indexStatus : worktreeStatus;
-                  const remainder = line.slice(3).trim();
-                  const normalized = statusCode === "R"
-                    ? `R\t${remainder.replace(/\s+->\s+/, "\t")}`
-                    : `${statusCode || "M"}\t${remainder}`;
-                  return normalized;
-                })
-                .map((line) => parseNameStatus(line)[0])
-                .filter((entry): entry is TaskFileDiff => Boolean(entry))
-            : [];
+          files = loadWorkingTreeFiles();
         }
       }
 
       if (files.length === 0) {
         taskFileDiffsCache.set(task.id, {
           files: [],
-          expiresAt: Date.now() + 10000,
+          expiresAt: now + 10000,
         });
         res.json([]);
         return;
       }
 
       const filesWithDiffs = files.map((file) => {
-        try {
-          const diff = execSync(`git diff ${baseBranch}...HEAD -- "${file.path.replace(/"/g, '\\"')}"`, {
-            cwd: task.worktree,
-            encoding: "utf-8",
-            timeout: 10000,
-          });
-          return { ...file, diff };
-        } catch {
-          return file;
+        const escapedPath = file.path.replace(/"/g, '\\"');
+        const escapedOldPath = file.oldPath?.replace(/"/g, '\\"');
+        const diffCommands = file.status === "added"
+          ? [
+              `git diff --no-index -- /dev/null "${escapedPath}"`,
+              `git diff --cached -- "${escapedPath}"`,
+              `git diff HEAD -- "${escapedPath}"`,
+              `git diff -- "${escapedPath}"`,
+            ]
+          : file.status === "deleted"
+            ? [
+                escapedOldPath ? `git diff --no-index -- "${escapedOldPath}" /dev/null` : "",
+                `git diff HEAD -- "${escapedPath}"`,
+                `git diff -- "${escapedPath}"`,
+              ].filter(Boolean)
+            : file.status === "renamed"
+              ? [
+                  escapedOldPath
+                    ? `git diff ${baseBranch}...HEAD --find-renames -- "${escapedOldPath}" "${escapedPath}"`
+                    : `git diff ${baseBranch}...HEAD --find-renames`,
+                  escapedOldPath
+                    ? `git diff HEAD --find-renames -- "${escapedOldPath}" "${escapedPath}"`
+                    : `git diff HEAD --find-renames`,
+                  escapedOldPath
+                    ? `git diff --find-renames -- "${escapedOldPath}" "${escapedPath}"`
+                    : `git diff --find-renames`,
+                ]
+              : [
+                  `git diff ${baseBranch}...HEAD -- "${escapedPath}"`,
+                  `git diff HEAD -- "${escapedPath}"`,
+                  `git diff -- "${escapedPath}"`,
+                ];
+
+        for (const command of diffCommands) {
+          try {
+            const diff = execSync(command, {
+              cwd: task.worktree,
+              encoding: "utf-8",
+              timeout: 10000,
+            });
+
+            if (diff.trim()) {
+              return { ...file, diff };
+            }
+          } catch (error: any) {
+            if (typeof error?.stdout === "string" && error.stdout.trim()) {
+              return { ...file, diff: error.stdout };
+            }
+          }
         }
+
+        return file;
       });
 
       taskFileDiffsCache.set(task.id, {
         files: filesWithDiffs,
-        expiresAt: Date.now() + 10000,
+        expiresAt: now + 10000,
       });
 
       res.json(filesWithDiffs);
