@@ -113,6 +113,16 @@ function createMockStore() {
   return store as any;
 }
 
+function createMockMissionStore(overrides: Record<string, unknown> = {}) {
+  return {
+    getFeatureByTaskId: vi.fn(),
+    getSlice: vi.fn(),
+    computeSliceStatus: vi.fn(),
+    updateFeatureStatus: vi.fn(),
+    ...overrides,
+  } as any;
+}
+
 describe("TaskExecutor with semaphore", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -4025,6 +4035,144 @@ describe("Workflow Steps Execution", () => {
 
     // Task should move to in-review
     expect(store.moveTask).toHaveBeenCalledWith("FN-001", "in-review");
+  });
+
+  it("marks linked mission feature done when task reaches in-review", async () => {
+    const store = createMockStore();
+    const missionStore = createMockMissionStore({
+      getFeatureByTaskId: vi.fn().mockReturnValue({ id: "F-001", sliceId: "SL-001" }),
+      getSlice: vi.fn().mockReturnValueOnce({ id: "SL-001", status: "active" }).mockReturnValueOnce({ id: "SL-001", status: "complete" }),
+      computeSliceStatus: vi.fn().mockReturnValue("complete"),
+      updateFeatureStatus: vi.fn(),
+    });
+    const onSliceComplete = vi.fn();
+
+    store.getTask.mockResolvedValue({
+      id: "FN-001",
+      title: "Test",
+      description: "Test task",
+      column: "in-progress",
+      sliceId: "SL-001",
+      dependencies: [],
+      steps: [{ name: "Preflight", status: "pending" }],
+      currentStep: 0,
+      log: [],
+      prompt: "# test\n## Steps\n### Step 0: Preflight\n- [ ] check",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    createAgentWithTaskDone();
+
+    const executor = new TaskExecutor(store, "/tmp/test", { missionStore, onSliceComplete });
+
+    await executor.execute({
+      id: "FN-001",
+      title: "Test",
+      description: "Test task",
+      column: "in-progress",
+      sliceId: "SL-001",
+      dependencies: [],
+      steps: [{ name: "Preflight", status: "pending" }],
+      currentStep: 0,
+      log: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as any);
+
+    expect(missionStore.updateFeatureStatus).toHaveBeenCalledWith("F-001", "done");
+    expect(onSliceComplete).toHaveBeenCalledWith(expect.objectContaining({ id: "SL-001", status: "complete" }));
+    expect(store.logEntry).toHaveBeenCalledWith(
+      "FN-001",
+      expect.stringContaining("Slice SL-001 completed"),
+      "Mission feature implementation ready for review",
+    );
+  });
+
+  it("skips mission updates when linked feature slice does not match task sliceId", async () => {
+    const store = createMockStore();
+    const missionStore = createMockMissionStore({
+      getFeatureByTaskId: vi.fn().mockReturnValue({ id: "F-001", sliceId: "SL-OTHER" }),
+      updateFeatureStatus: vi.fn(),
+    });
+
+    store.getTask.mockResolvedValue({
+      id: "FN-001",
+      title: "Test",
+      description: "Test task",
+      column: "in-progress",
+      sliceId: "SL-001",
+      dependencies: [],
+      steps: [{ name: "Preflight", status: "pending" }],
+      currentStep: 0,
+      log: [],
+      prompt: "# test\n## Steps\n### Step 0: Preflight\n- [ ] check",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    createAgentWithTaskDone();
+
+    const executor = new TaskExecutor(store, "/tmp/test", { missionStore });
+
+    await executor.execute({
+      id: "FN-001",
+      title: "Test",
+      description: "Test task",
+      column: "in-progress",
+      sliceId: "SL-001",
+      dependencies: [],
+      steps: [{ name: "Preflight", status: "pending" }],
+      currentStep: 0,
+      log: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as any);
+
+    expect(missionStore.updateFeatureStatus).not.toHaveBeenCalled();
+    expect(missionStore.computeSliceStatus).not.toHaveBeenCalled();
+  });
+
+  it("does not update mission progress when agent finishes without task_done", async () => {
+    const store = createMockStore();
+    const missionStore = createMockMissionStore({
+      getFeatureByTaskId: vi.fn().mockReturnValue({ id: "F-001", sliceId: "SL-001" }),
+      computeSliceStatus: vi.fn(),
+      updateFeatureStatus: vi.fn(),
+    });
+    const onSliceComplete = vi.fn();
+
+    mockedCreateHaiAgent.mockResolvedValue({
+      session: {
+        prompt: vi.fn().mockResolvedValue(undefined),
+        dispose: vi.fn(),
+        subscribe: vi.fn(),
+        on: vi.fn(),
+        sessionManager: { getLeafId: vi.fn().mockReturnValue("leaf-1") },
+        state: {},
+      },
+    } as any);
+
+    const executor = new TaskExecutor(store, "/tmp/test", { missionStore, onSliceComplete });
+
+    await executor.execute({
+      id: "FN-001",
+      title: "Test",
+      description: "Test task",
+      column: "in-progress",
+      sliceId: "SL-001",
+      dependencies: [],
+      steps: [{ name: "Preflight", status: "pending" }],
+      currentStep: 0,
+      log: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as any);
+
+    expect(store.moveTask).toHaveBeenCalledWith("FN-001", "in-review");
+    expect(missionStore.updateFeatureStatus).not.toHaveBeenCalled();
+    expect(missionStore.computeSliceStatus).not.toHaveBeenCalled();
+    expect(onSliceComplete).not.toHaveBeenCalled();
   });
 
   it("skips workflow steps with no prompt", async () => {

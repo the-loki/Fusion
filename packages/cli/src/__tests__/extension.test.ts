@@ -407,7 +407,7 @@ describe("kb pi extension", () => {
       const tool = api.tools.get("kb_mission_create")!;
       const result = await tool.execute(
         "call-1",
-        { title: "Test Mission", description: "Test description" },
+        { title: "Test Mission", description: "Test description", autoAdvance: true },
         undefined,
         undefined,
         makeCtx(tmpDir),
@@ -415,8 +415,10 @@ describe("kb pi extension", () => {
 
       expect(result.details.missionId).toBeDefined();
       expect(result.details.title).toBe("Test Mission");
+      expect(result.details.autoAdvance).toBe(true);
       expect(result.content[0].text).toContain("Created");
       expect(result.content[0].text).toContain("Test Mission");
+      expect(result.content[0].text).toContain("Auto-advance: enabled");
     });
   });
 
@@ -443,6 +445,7 @@ describe("kb pi extension", () => {
 
       expect(result.details.count).toBeGreaterThanOrEqual(1);
       expect(result.content[0].text).toContain("Missions");
+      expect(result.content[0].text).toContain("Summary:");
     });
   });
 
@@ -512,33 +515,272 @@ describe("kb pi extension", () => {
     });
   });
 
+  describe("kb_milestone_add", () => {
+    it("creates a milestone in the mission store", async () => {
+      const missionTool = api.tools.get("kb_mission_create")!;
+      const milestoneTool = api.tools.get("kb_milestone_add")!;
+      const mission = await missionTool.execute("m1", { title: "Mission" }, undefined, undefined, makeCtx(tmpDir));
+
+      const result = await milestoneTool.execute(
+        "ms1",
+        { missionId: mission.details.missionId, title: "Milestone", description: "Phase 1" },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
+
+      const store = new TaskStore(tmpDir);
+      await store.init();
+      const persisted = store.getMissionStore().getMilestone(result.details.milestoneId);
+
+      expect(result.content[0].text).toContain("Added");
+      expect(persisted?.title).toBe("Milestone");
+      expect(persisted?.description).toBe("Phase 1");
+    });
+  });
+
+  describe("kb_slice_add", () => {
+    it("creates a slice in the mission store", async () => {
+      const missionTool = api.tools.get("kb_mission_create")!;
+      const milestoneTool = api.tools.get("kb_milestone_add")!;
+      const sliceTool = api.tools.get("kb_slice_add")!;
+      const mission = await missionTool.execute("m1", { title: "Mission" }, undefined, undefined, makeCtx(tmpDir));
+      const milestone = await milestoneTool.execute(
+        "ms1",
+        { missionId: mission.details.missionId, title: "Milestone" },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
+
+      const result = await sliceTool.execute(
+        "sl1",
+        { milestoneId: milestone.details.milestoneId, title: "Slice", description: "Work unit" },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
+
+      const store = new TaskStore(tmpDir);
+      await store.init();
+      const persisted = store.getMissionStore().getSlice(result.details.sliceId);
+
+      expect(result.content[0].text).toContain("Added");
+      expect(persisted?.title).toBe("Slice");
+      expect(persisted?.description).toBe("Work unit");
+    });
+  });
+
+  describe("kb_feature_add", () => {
+    it("creates a feature in the mission store", async () => {
+      const missionTool = api.tools.get("kb_mission_create")!;
+      const milestoneTool = api.tools.get("kb_milestone_add")!;
+      const sliceTool = api.tools.get("kb_slice_add")!;
+      const featureTool = api.tools.get("kb_feature_add")!;
+      const mission = await missionTool.execute("m1", { title: "Mission" }, undefined, undefined, makeCtx(tmpDir));
+      const milestone = await milestoneTool.execute(
+        "ms1",
+        { missionId: mission.details.missionId, title: "Milestone" },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
+      const slice = await sliceTool.execute(
+        "sl1",
+        { milestoneId: milestone.details.milestoneId, title: "Slice" },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
+
+      const result = await featureTool.execute(
+        "f1",
+        { sliceId: slice.details.sliceId, title: "Feature", description: "Deliverable", acceptanceCriteria: "Must pass" },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
+
+      const store = new TaskStore(tmpDir);
+      await store.init();
+      const persisted = store.getMissionStore().getFeature(result.details.featureId);
+
+      expect(result.content[0].text).toContain("Added");
+      expect(persisted?.title).toBe("Feature");
+      expect(persisted?.acceptanceCriteria).toBe("Must pass");
+    });
+  });
+
   describe("kb_slice_activate", () => {
+    it("returns error when slice is already active", async () => {
+      const missionTool = api.tools.get("kb_mission_create")!;
+      const milestoneTool = api.tools.get("kb_milestone_add")!;
+      const sliceTool = api.tools.get("kb_slice_add")!;
+      const activateTool = api.tools.get("kb_slice_activate")!;
+
+      const mission = await missionTool.execute("m1", { title: "Mission" }, undefined, undefined, makeCtx(tmpDir));
+      const milestone = await milestoneTool.execute(
+        "ms1",
+        { missionId: mission.details.missionId, title: "Milestone" },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
+      const slice = await sliceTool.execute(
+        "sl1",
+        { milestoneId: milestone.details.milestoneId, title: "Slice" },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
+
+      await activateTool.execute("sl2", { id: slice.details.sliceId }, undefined, undefined, makeCtx(tmpDir));
+      const result = await activateTool.execute("sl3", { id: slice.details.sliceId }, undefined, undefined, makeCtx(tmpDir));
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("not pending");
+    });
+
     it("activates slice and updates status", async () => {
-      // This test would need a full mission hierarchy setup
-      // For now, verify the tool exists and has correct parameters
-      const tool = api.tools.get("kb_slice_activate")!;
-      expect(tool).toBeDefined();
-      expect(tool.parameters.properties.id).toBeDefined();
+      const missionTool = api.tools.get("kb_mission_create")!;
+      const milestoneTool = api.tools.get("kb_milestone_add")!;
+      const sliceTool = api.tools.get("kb_slice_add")!;
+      const activateTool = api.tools.get("kb_slice_activate")!;
+
+      const mission = await missionTool.execute("m1", { title: "Mission" }, undefined, undefined, makeCtx(tmpDir));
+      const milestone = await milestoneTool.execute(
+        "ms1",
+        { missionId: mission.details.missionId, title: "Milestone" },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
+      const slice = await sliceTool.execute(
+        "sl1",
+        { milestoneId: milestone.details.milestoneId, title: "Slice" },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
+
+      const result = await activateTool.execute(
+        "sl2",
+        { id: slice.details.sliceId },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
+
+      const store = new TaskStore(tmpDir);
+      await store.init();
+      const persisted = store.getMissionStore().getSlice(slice.details.sliceId);
+
+      expect(result.content[0].text).toContain("Activated");
+      expect(result.details.status).toBe("active");
+      expect(persisted?.status).toBe("active");
     });
   });
 
   describe("kb_feature_link_task", () => {
+    it("returns error when task is missing", async () => {
+      const missionTool = api.tools.get("kb_mission_create")!;
+      const milestoneTool = api.tools.get("kb_milestone_add")!;
+      const sliceTool = api.tools.get("kb_slice_add")!;
+      const featureTool = api.tools.get("kb_feature_add")!;
+      const linkTool = api.tools.get("kb_feature_link_task")!;
+
+      const mission = await missionTool.execute("m1", { title: "Mission" }, undefined, undefined, makeCtx(tmpDir));
+      const milestone = await milestoneTool.execute(
+        "ms1",
+        { missionId: mission.details.missionId, title: "Milestone" },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
+      const slice = await sliceTool.execute(
+        "sl1",
+        { milestoneId: milestone.details.milestoneId, title: "Slice" },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
+      const feature = await featureTool.execute(
+        "f1",
+        { sliceId: slice.details.sliceId, title: "Feature" },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
+
+      const result = await linkTool.execute(
+        "l0",
+        { featureId: feature.details.featureId, taskId: "FN-999" },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("Task FN-999 not found");
+    });
+
     it("links feature to task", async () => {
-      // Create a task first
+      const missionTool = api.tools.get("kb_mission_create")!;
+      const milestoneTool = api.tools.get("kb_milestone_add")!;
+      const sliceTool = api.tools.get("kb_slice_add")!;
+      const featureTool = api.tools.get("kb_feature_add")!;
       const createTaskTool = api.tools.get("kb_task_create")!;
+      const linkTool = api.tools.get("kb_feature_link_task")!;
+
+      const mission = await missionTool.execute("m1", { title: "Mission" }, undefined, undefined, makeCtx(tmpDir));
+      const milestone = await milestoneTool.execute(
+        "ms1",
+        { missionId: mission.details.missionId, title: "Milestone" },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
+      const slice = await sliceTool.execute(
+        "sl1",
+        { milestoneId: milestone.details.milestoneId, title: "Slice" },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
+      const feature = await featureTool.execute(
+        "f1",
+        { sliceId: slice.details.sliceId, title: "Feature" },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
       const taskResult = await createTaskTool.execute(
-        "c1",
+        "t1",
         { description: "Task for feature" },
         undefined,
         undefined,
         makeCtx(tmpDir),
       );
 
-      // Verify the tool exists with correct parameters
-      const tool = api.tools.get("kb_feature_link_task")!;
-      expect(tool).toBeDefined();
-      expect(tool.parameters.properties.featureId).toBeDefined();
-      expect(tool.parameters.properties.taskId).toBeDefined();
+      const result = await linkTool.execute(
+        "l1",
+        { featureId: feature.details.featureId, taskId: taskResult.details.taskId },
+        undefined,
+        undefined,
+        makeCtx(tmpDir),
+      );
+
+      const store = new TaskStore(tmpDir);
+      await store.init();
+      const missionStore = store.getMissionStore();
+      const persisted = missionStore.getFeature(feature.details.featureId);
+      const linkedTask = await store.getTask(taskResult.details.taskId);
+
+      expect(result.content[0].text).toContain(taskResult.details.taskId);
+      expect(result.details.taskId).toBe(taskResult.details.taskId);
+      expect(persisted?.taskId).toBe(taskResult.details.taskId);
+      expect(persisted?.status).toBe("triaged");
+      expect(linkedTask.sliceId).toBe(slice.details.sliceId);
     });
   });
 });

@@ -255,6 +255,7 @@ CREATE TABLE IF NOT EXISTS missions (
   description TEXT,
   status TEXT NOT NULL,
   interviewState TEXT NOT NULL,
+  autoAdvance INTEGER DEFAULT 0,
   createdAt TEXT NOT NULL,
   updatedAt TEXT NOT NULL
 );
@@ -395,6 +396,7 @@ export class Database {
 
     if (version < 5) {
       this.applyMigration(5, () => {
+        this.addColumnIfMissing("missions", "autoAdvance", "INTEGER DEFAULT 0");
         this.migrateLegacyCommentsToUnifiedComments();
       });
     }

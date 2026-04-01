@@ -128,7 +128,7 @@ export class Scheduler {
      * Also handles mission auto-advance: when a linked task completes,
      * update feature status and potentially activate next pending slice.
      */
-    this.store.on("task:moved", ({ task, to }) => {
+    this.store.on("task:moved", ({ task, from, to }) => {
       // PR Monitoring
       if (this.options.prMonitor) {
         if (to === "in-review" && task.prInfo) {
@@ -137,7 +137,7 @@ export class Scheduler {
           if (repo) {
             this.options.prMonitor.startMonitoring(task.id, repo.owner, repo.repo, task.prInfo);
           }
-        } else if (task.column === "in-review" && to !== "in-review") {
+        } else if (from === "in-review" && to !== "in-review") {
           // Task moved out of in-review, stop monitoring
           this.options.prMonitor.stopMonitoring(task.id);
 
@@ -148,13 +148,9 @@ export class Scheduler {
         }
       }
 
-      // Mission progress tracking: when task with sliceId moves to "in-progress" or "done"
-      if (task.sliceId && this.options.missionStore) {
-        if (to === "in-progress") {
-          void this.handleMissionTaskStart(task.id, task.sliceId);
-        } else if (to === "done") {
-          void this.handleMissionTaskCompletion(task.id, task.sliceId);
-        }
+      // Mission progress tracking: when task with sliceId moves to in-progress
+      if (task.sliceId && this.options.missionStore && to === "in-progress") {
+        void this.handleMissionTaskStart(task.id, task.sliceId);
       }
     });
 
@@ -188,7 +184,7 @@ export class Scheduler {
    * @returns Object with `valid: true` if checks pass, or `valid: false` with a `reason` string if they fail
    */
   private async validateTaskFilesystem(id: string): Promise<{ valid: boolean; reason?: string }> {
-    const taskDir = join(this.store.getRootDir(), ".fusion", "tasks", id);
+    const taskDir = join(this.store.getRootDir(), ".kb", "tasks", id);
     
     // Check if task directory exists
     if (!existsSync(taskDir)) {
@@ -523,60 +519,40 @@ export class Scheduler {
     }
   }
 
-  /**
-   * Handle mission task completion.
-   * When a task with a sliceId moves to "done", update the linked feature
-   * status and check if the slice is complete. If autoAdvance is enabled
-   * on the mission, activate the next pending slice.
-   */
-  private async handleMissionTaskCompletion(taskId: string, sliceId: string): Promise<void> {
+  async onSliceComplete(slice: import("@fusion/core").Slice): Promise<void> {
     if (!this.options.missionStore) return;
 
     const missionStore = this.options.missionStore;
 
     try {
-      // Find the feature linked to this task
-      const feature = missionStore.getFeatureByTaskId(taskId);
-      if (!feature) {
-        schedulerLog.log(`Task ${taskId} has sliceId ${sliceId} but no linked feature found`);
-        return;
-      }
-
-      // Update feature status to done
-      await missionStore.updateFeatureStatus(feature.id, "done");
-      schedulerLog.log(`Feature ${feature.id} marked done (task ${taskId} completed)`);
-
-      // Get the slice to check its status
-      const slice = missionStore.getSlice(sliceId);
-      if (!slice) {
-        schedulerLog.warn(`Slice ${sliceId} not found for task ${taskId}`);
-        return;
-      }
-
-      // Get the milestone to find the mission
       const milestone = missionStore.getMilestone(slice.milestoneId);
       if (!milestone) {
-        schedulerLog.warn(`Milestone ${slice.milestoneId} not found for slice ${sliceId}`);
+        schedulerLog.warn(`Milestone ${slice.milestoneId} not found for slice ${slice.id}`);
         return;
       }
 
-      // Recompute and check if slice is now complete
-      const newSliceStatus = missionStore.computeSliceStatus(sliceId);
-      if (newSliceStatus === "complete") {
-        schedulerLog.log(`Slice ${sliceId} completed (all features done)`);
+      const mission = missionStore.getMission(milestone.missionId);
+      if (!mission || mission.status !== "active" || !mission.autoAdvance) {
+        return;
+      }
 
-        // Check if mission has autoAdvance enabled
-        const mission = missionStore.getMission(milestone.missionId);
-        if (mission?.autoAdvance) {
-          // Activate next pending slice
-          const nextSlice = await this.activateNextPendingSlice(mission.id);
-          if (nextSlice) {
-            schedulerLog.log(`Auto-advanced: activated slice ${nextSlice.id} for mission ${mission.id}`);
-          }
-        }
+      const missionHierarchy = missionStore.getMissionWithHierarchy(mission.id);
+      const hasActiveSlice = missionHierarchy?.milestones.some((candidateMilestone) =>
+        candidateMilestone.slices.some((candidateSlice) =>
+          candidateSlice.id !== slice.id && candidateSlice.status === "active"
+        )
+      );
+      if (hasActiveSlice) {
+        schedulerLog.log(`Mission ${mission.id} already has an active slice; skipping auto-advance`);
+        return;
+      }
+
+      const nextSlice = await this.activateNextPendingSlice(mission.id);
+      if (nextSlice) {
+        schedulerLog.log(`Auto-advanced: activated slice ${nextSlice.id} for mission ${mission.id}`);
       }
     } catch (err) {
-      schedulerLog.error(`Error handling mission task completion for ${taskId}:`, err);
+      schedulerLog.error(`Error handling slice completion for ${slice.id}:`, err);
     }
   }
 
@@ -594,15 +570,37 @@ export class Scheduler {
     const missionStore = this.options.missionStore;
 
     try {
-      const nextSlice = missionStore.findNextPendingSlice(missionId);
-      if (!nextSlice) {
-        schedulerLog.log(`Mission ${missionId}: no pending slices to activate`);
+      const mission = missionStore.getMissionWithHierarchy(missionId);
+      if (!mission || mission.status !== "active") {
+        schedulerLog.log(`Mission ${missionId}: not active, skipping slice activation`);
         return null;
       }
 
-      const activated = missionStore.activateSlice(nextSlice.id);
-      schedulerLog.log(`Activated slice ${activated.id} for mission ${missionId}`);
-      return activated;
+      const sortedMilestones = [...mission.milestones].sort((a, b) => a.orderIndex - b.orderIndex);
+
+      for (const milestone of sortedMilestones) {
+        const dependenciesMet = milestone.dependencies.every((dependencyId) => {
+          const dependency = mission.milestones.find((candidate) => candidate.id === dependencyId);
+          return dependency?.status === "complete";
+        });
+        if (!dependenciesMet) {
+          continue;
+        }
+
+        const pendingSlice = [...milestone.slices]
+          .sort((a, b) => a.orderIndex - b.orderIndex)
+          .find((slice) => slice.status === "pending");
+        if (!pendingSlice) {
+          continue;
+        }
+
+        const activated = missionStore.activateSlice(pendingSlice.id);
+        schedulerLog.log(`Activated slice ${activated.id} for mission ${missionId}`);
+        return activated;
+      }
+
+      schedulerLog.log(`Mission ${missionId}: no pending slices to activate`);
+      return null;
     } catch (err) {
       schedulerLog.error(`Error activating next slice for mission ${missionId}:`, err);
       return null;

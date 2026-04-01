@@ -125,10 +125,12 @@ export class InProcessRuntime
       this.globalSemaphore = new AgentSemaphore(() => globalLimit);
 
       // 4. Initialize Scheduler
+      const missionStore = this.taskStore.getMissionStore();
       this.scheduler = new Scheduler(this.taskStore, {
         maxConcurrent: this.config.maxConcurrent,
         maxWorktrees: this.config.maxWorktrees,
         semaphore: this.globalSemaphore,
+        missionStore,
         onSchedule: (task) => {
           this.recordActivity();
           runtimeLog.log(`Scheduled task ${task.id}`);
@@ -144,6 +146,10 @@ export class InProcessRuntime
         pool: this.worktreePool,
         usageLimitPauser: this.usageLimitPauser,
         stuckTaskDetector: this.stuckTaskDetector,
+        missionStore,
+        onSliceComplete: (slice) => {
+          void this.scheduler.onSliceComplete(slice);
+        },
         onStart: (task, worktreePath) => {
           this.recordActivity();
           runtimeLog.log(`Started executing task ${task.id} in ${worktreePath}`);

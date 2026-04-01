@@ -997,6 +997,9 @@ export default function kbExtension(pi: ExtensionAPI) {
       description: Type.Optional(
         Type.String({ description: "Detailed mission objectives and context" })
       ),
+      autoAdvance: Type.Optional(
+        Type.Boolean({ description: "Automatically activate the next pending slice when the current slice completes" })
+      ),
     }),
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -1008,14 +1011,25 @@ export default function kbExtension(pi: ExtensionAPI) {
         description: params.description?.trim(),
       });
 
+      if (params.autoAdvance !== undefined) {
+        missionStore.updateMission(mission.id, { autoAdvance: params.autoAdvance });
+      }
+
+      const createdMission = missionStore.getMission(mission.id)!;
+
       return {
         content: [
           {
             type: "text",
-            text: `Created ${mission.id}: ${mission.title}\nStatus: ${mission.status}`,
+            text: `Created ${createdMission.id}: ${createdMission.title}\nStatus: ${createdMission.status}${createdMission.autoAdvance ? "\nAuto-advance: enabled" : ""}`,
           },
         ],
-        details: { missionId: mission.id, title: mission.title, status: mission.status },
+        details: {
+          missionId: createdMission.id,
+          title: createdMission.title,
+          status: createdMission.status,
+          autoAdvance: createdMission.autoAdvance ?? false,
+        },
       };
     },
   });
@@ -1047,12 +1061,24 @@ export default function kbExtension(pi: ExtensionAPI) {
         };
       }
 
+      const summary = {
+        planning: missions.filter((mission) => mission.status === "planning").length,
+        active: missions.filter((mission) => mission.status === "active").length,
+        blocked: missions.filter((mission) => mission.status === "blocked").length,
+        complete: missions.filter((mission) => mission.status === "complete").length,
+        archived: missions.filter((mission) => mission.status === "archived").length,
+      };
+
       const lines: string[] = [];
-      lines.push(`Missions (${missions.length}):\n`);
+      lines.push(`Missions (${missions.length})`);
+      lines.push(
+        `Summary: active ${summary.active}, planning ${summary.planning}, blocked ${summary.blocked}, complete ${summary.complete}, archived ${summary.archived}\n`,
+      );
 
       for (const mission of missions) {
-        const statusIcon = mission.status === "complete" ? "✓" : mission.status === "active" ? "●" : "○";
-        lines.push(`  ${statusIcon} ${mission.id}: ${mission.title} (${mission.status})`);
+        const statusIcon = mission.status === "complete" ? "✓" : mission.status === "active" ? "●" : mission.status === "blocked" ? "⚠" : "○";
+        const autoAdvance = mission.autoAdvance ? " · auto-advance" : "";
+        lines.push(`  ${statusIcon} ${mission.id}: ${mission.title} (${mission.status}${autoAdvance})`);
       }
 
       return {
@@ -1401,6 +1427,7 @@ export default function kbExtension(pi: ExtensionAPI) {
       }
 
       const updated = missionStore.linkFeatureToTask(params.featureId, params.taskId);
+      await store.updateTask(params.taskId, { sliceId: feature.sliceId });
 
       return {
         content: [

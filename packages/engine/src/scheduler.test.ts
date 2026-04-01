@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { PrMonitor } from "./pr-monitor.js";
 import { Scheduler, pathsOverlap } from "./scheduler.js";
 import { AgentSemaphore } from "./concurrency.js";
 import type { TaskStore, Task } from "@fusion/core";
@@ -263,6 +264,30 @@ describe("Scheduler", () => {
   });
 
   describe("filesystem validation", () => {
+    it("validates tasks using the .kb task directory layout", async () => {
+      const todoTask = createMockTask({ id: "FN-010", column: "todo" });
+      const moveTask = vi.fn().mockResolvedValue(undefined);
+      const updateTask = vi.fn().mockResolvedValue(undefined);
+      const store = createMockStore({
+        listTasks: vi.fn().mockResolvedValue([todoTask]),
+        moveTask,
+        updateTask,
+      });
+
+      vi.mocked(existsSync).mockImplementation((path) => {
+        const value = String(path);
+        return value.includes(".kb/tasks/FN-010") || value.includes("PROMPT.md");
+      });
+      vi.mocked(readFile).mockResolvedValue("# Prompt\n" as any);
+
+      const scheduler = new Scheduler(store);
+      scheduler.start();
+      await scheduler.schedule();
+
+      expect(moveTask).toHaveBeenCalledWith("FN-010", "in-progress");
+      expect(moveTask).not.toHaveBeenCalledWith("FN-010", "triage");
+    });
+
     it("moves task to triage when task directory is missing", async () => {
       const tasks = [
         createMockTask({ id: "FN-001", column: "todo", dependencies: [] }),
@@ -456,6 +481,29 @@ describe("Scheduler", () => {
     });
   });
 
+  describe("pr monitoring", () => {
+    it("stops monitoring when task moves out of in-review based on from column", () => {
+      const prMonitor = {
+        startMonitoring: vi.fn(),
+        stopMonitoring: vi.fn(),
+        updatePrInfo: vi.fn(),
+        getTrackedPrs: vi.fn().mockReturnValue(new Map()),
+        stopAll: vi.fn(),
+      } as unknown as PrMonitor;
+
+      const store = createMockStore();
+      new Scheduler(store, { prMonitor });
+
+      const onCalls = (store.on as any).mock.calls;
+      const movedHandler = onCalls.find((call: any) => call[0] === "task:moved")?.[1];
+      const task = createMockTask({ id: "FN-001", column: "done", prInfo: { status: "open" } as any });
+
+      movedHandler({ task, from: "in-review", to: "done" });
+
+      expect(prMonitor.stopMonitoring).toHaveBeenCalledWith("FN-001");
+    });
+  });
+
   describe("mission integration", () => {
     // Helper to create mock MissionStore
     function createMockMissionStore(overrides = {}) {
@@ -466,6 +514,7 @@ describe("Scheduler", () => {
         getMilestone: vi.fn(),
         computeSliceStatus: vi.fn(),
         getMission: vi.fn(),
+        getMissionWithHierarchy: vi.fn(),
         findNextPendingSlice: vi.fn(),
         activateSlice: vi.fn(),
         ...overrides,
@@ -495,7 +544,8 @@ describe("Scheduler", () => {
 
       // Simulate task moving to in-progress with sliceId
       const task = createMockTask({ id: "FN-001", sliceId: "SL-001" });
-      await movedHandler({ task, to: "in-progress" });
+      movedHandler({ task, to: "in-progress" });
+      await Promise.resolve();
 
       expect(mockMissionStore.getFeatureByTaskId).toHaveBeenCalledWith("FN-001");
       expect(mockMissionStore.updateFeatureStatus).toHaveBeenCalledWith("F-001", "in-progress");
@@ -514,7 +564,8 @@ describe("Scheduler", () => {
       const movedHandler = onCalls.find((call: any) => call[0] === "task:moved")?.[1];
 
       const task = createMockTask({ id: "FN-001", sliceId: "SL-001" });
-      await movedHandler({ task, to: "in-progress" });
+      movedHandler({ task, to: "in-progress" });
+      await Promise.resolve();
 
       expect(mockMissionStore.getFeatureByTaskId).toHaveBeenCalledWith("FN-001");
       expect(mockMissionStore.updateFeatureStatus).not.toHaveBeenCalled();
@@ -539,37 +590,53 @@ describe("Scheduler", () => {
 
       // Simulate task moving to done with sliceId
       const task = createMockTask({ id: "FN-001", sliceId: "SL-001" });
-      await movedHandler({ task, to: "done" });
+      movedHandler({ task, to: "done" });
+      await Promise.resolve();
 
       expect(mockMissionStore.getFeatureByTaskId).toHaveBeenCalledWith("FN-001");
       expect(mockMissionStore.updateFeatureStatus).toHaveBeenCalledWith("F-001", "done");
     });
 
     it("auto-advances when slice completes and autoAdvance is enabled", async () => {
+      const missionHierarchy = {
+        id: "M-001",
+        status: "active",
+        milestones: [
+          {
+            id: "MS-001",
+            dependencies: [],
+            slices: [
+              { id: "SL-001", status: "complete" },
+              { id: "SL-002", status: "pending" },
+            ],
+          },
+        ],
+      };
       const mockMissionStore = createMockMissionStore({
         getFeatureByTaskId: vi.fn().mockReturnValue({ id: "F-001", sliceId: "SL-001" }),
         updateFeatureStatus: vi.fn().mockReturnValue({ id: "F-001", status: "done" }),
         getSlice: vi.fn().mockReturnValue({ id: "SL-001", milestoneId: "MS-001" }),
         getMilestone: vi.fn().mockReturnValue({ id: "MS-001", missionId: "M-001" }),
         computeSliceStatus: vi.fn().mockReturnValue("complete"),
-        getMission: vi.fn().mockReturnValue({ id: "M-001", autoAdvance: true }),
-        findNextPendingSlice: vi.fn().mockReturnValue({ id: "SL-002" }),
+        getMission: vi.fn().mockReturnValue({ id: "M-001", status: "active", autoAdvance: true }),
+        getMissionWithHierarchy: vi.fn().mockReturnValue(missionHierarchy),
         activateSlice: vi.fn().mockReturnValue({ id: "SL-002", status: "active" }),
       });
 
       const store = createMockStore();
       const scheduler = new Scheduler(store, { missionStore: mockMissionStore as any });
 
-      // Trigger task:moved event
       const onCalls = (store.on as any).mock.calls;
       const movedHandler = onCalls.find((call: any) => call[0] === "task:moved")?.[1];
 
       const task = createMockTask({ id: "FN-001", sliceId: "SL-001" });
-      await movedHandler({ task, to: "done" });
+      movedHandler({ task, to: "done" });
+      await Promise.resolve();
+      await Promise.resolve();
 
       expect(mockMissionStore.computeSliceStatus).toHaveBeenCalledWith("SL-001");
       expect(mockMissionStore.getMission).toHaveBeenCalledWith("M-001");
-      expect(mockMissionStore.findNextPendingSlice).toHaveBeenCalledWith("M-001");
+      expect(mockMissionStore.getMissionWithHierarchy).toHaveBeenCalledWith("M-001");
       expect(mockMissionStore.activateSlice).toHaveBeenCalledWith("SL-002");
     });
 
@@ -580,21 +647,64 @@ describe("Scheduler", () => {
         getSlice: vi.fn().mockReturnValue({ id: "SL-001", milestoneId: "MS-001" }),
         getMilestone: vi.fn().mockReturnValue({ id: "MS-001", missionId: "M-001" }),
         computeSliceStatus: vi.fn().mockReturnValue("complete"),
-        getMission: vi.fn().mockReturnValue({ id: "M-001", autoAdvance: false }),
+        getMission: vi.fn().mockReturnValue({ id: "M-001", status: "active", autoAdvance: false }),
       });
 
       const store = createMockStore();
       const scheduler = new Scheduler(store, { missionStore: mockMissionStore as any });
 
-      // Trigger task:moved event
       const onCalls = (store.on as any).mock.calls;
       const movedHandler = onCalls.find((call: any) => call[0] === "task:moved")?.[1];
 
       const task = createMockTask({ id: "FN-001", sliceId: "SL-001" });
-      await movedHandler({ task, to: "done" });
+      movedHandler({ task, to: "done" });
+      await Promise.resolve();
 
       expect(mockMissionStore.getMission).toHaveBeenCalledWith("M-001");
-      expect(mockMissionStore.findNextPendingSlice).not.toHaveBeenCalled();
+      expect(mockMissionStore.activateSlice).not.toHaveBeenCalled();
+    });
+
+    it("skips mission progression when task sliceId mismatches linked feature sliceId", async () => {
+      const mockMissionStore = createMockMissionStore({
+        getFeatureByTaskId: vi.fn().mockReturnValue({ id: "F-001", sliceId: "SL-OTHER" }),
+        updateFeatureStatus: vi.fn(),
+      });
+
+      const store = createMockStore();
+      const scheduler = new Scheduler(store, { missionStore: mockMissionStore as any });
+
+      const onCalls = (store.on as any).mock.calls;
+      const movedHandler = onCalls.find((call: any) => call[0] === "task:moved")?.[1];
+
+      const task = createMockTask({ id: "FN-001", sliceId: "SL-001" });
+      movedHandler({ task, from: "in-progress", to: "done" });
+      await Promise.resolve();
+
+      expect(mockMissionStore.updateFeatureStatus).not.toHaveBeenCalled();
+      expect(mockMissionStore.getSlice).not.toHaveBeenCalled();
+    });
+
+    it("does not auto-advance when mission is not active", async () => {
+      const mockMissionStore = createMockMissionStore({
+        getFeatureByTaskId: vi.fn().mockReturnValue({ id: "F-001", sliceId: "SL-001" }),
+        updateFeatureStatus: vi.fn().mockReturnValue({ id: "F-001", status: "done" }),
+        getSlice: vi.fn().mockReturnValue({ id: "SL-001", milestoneId: "MS-001" }),
+        getMilestone: vi.fn().mockReturnValue({ id: "MS-001", missionId: "M-001" }),
+        computeSliceStatus: vi.fn().mockReturnValue("complete"),
+        getMission: vi.fn().mockReturnValue({ id: "M-001", status: "planning", autoAdvance: true }),
+      });
+
+      const store = createMockStore();
+      const scheduler = new Scheduler(store, { missionStore: mockMissionStore as any });
+
+      const onCalls = (store.on as any).mock.calls;
+      const movedHandler = onCalls.find((call: any) => call[0] === "task:moved")?.[1];
+
+      const task = createMockTask({ id: "FN-001", sliceId: "SL-001" });
+      movedHandler({ task, to: "done" });
+      await Promise.resolve();
+
+      expect(mockMissionStore.getMission).toHaveBeenCalledWith("M-001");
       expect(mockMissionStore.activateSlice).not.toHaveBeenCalled();
     });
 
@@ -611,16 +721,32 @@ describe("Scheduler", () => {
       const movedHandler = onCalls.find((call: any) => call[0] === "task:moved")?.[1];
 
       const task = createMockTask({ id: "FN-001", sliceId: "SL-001" });
-      await movedHandler({ task, to: "done" });
+      movedHandler({ task, to: "done" });
+      await Promise.resolve();
 
       expect(mockMissionStore.getFeatureByTaskId).toHaveBeenCalledWith("FN-001");
       expect(mockMissionStore.updateFeatureStatus).not.toHaveBeenCalled();
     });
 
     it("activateNextPendingSlice finds and activates correct slice", async () => {
-      const nextSlice = { id: "SL-002", status: "pending" };
+      const nextSlice = { id: "SL-002", status: "pending", orderIndex: 1 };
       const mockMissionStore = createMockMissionStore({
-        findNextPendingSlice: vi.fn().mockReturnValue(nextSlice),
+        getMissionWithHierarchy: vi.fn().mockReturnValue({
+          id: "M-001",
+          status: "active",
+          milestones: [
+            {
+              id: "MS-001",
+              orderIndex: 0,
+              dependencies: [],
+              slices: [
+                nextSlice,
+                { id: "SL-003", status: "pending", orderIndex: 2 },
+                { id: "SL-001", status: "complete", orderIndex: 0 },
+              ],
+            },
+          ],
+        }),
         activateSlice: vi.fn().mockReturnValue({ ...nextSlice, status: "active" }),
       });
 
@@ -629,14 +755,77 @@ describe("Scheduler", () => {
 
       const result = await scheduler.activateNextPendingSlice("M-001");
 
-      expect(mockMissionStore.findNextPendingSlice).toHaveBeenCalledWith("M-001");
+      expect(mockMissionStore.getMissionWithHierarchy).toHaveBeenCalledWith("M-001");
       expect(mockMissionStore.activateSlice).toHaveBeenCalledWith("SL-002");
       expect(result).toEqual({ id: "SL-002", status: "active" });
     });
 
+    it("activateNextPendingSlice skips milestones with incomplete dependencies", async () => {
+      const mockMissionStore = createMockMissionStore({
+        getMissionWithHierarchy: vi.fn().mockReturnValue({
+          id: "M-001",
+          status: "active",
+          milestones: [
+            {
+              id: "MS-001",
+              orderIndex: 0,
+              status: "planning",
+              dependencies: ["MS-999"],
+              slices: [{ id: "SL-001", status: "pending", orderIndex: 0 }],
+            },
+            {
+              id: "MS-002",
+              orderIndex: 1,
+              status: "planning",
+              dependencies: [],
+              slices: [{ id: "SL-002", status: "pending", orderIndex: 0 }],
+            },
+          ],
+        }),
+        activateSlice: vi.fn().mockReturnValue({ id: "SL-002", status: "active" }),
+      });
+
+      const store = createMockStore();
+      const scheduler = new Scheduler(store, { missionStore: mockMissionStore as any });
+
+      const result = await scheduler.activateNextPendingSlice("M-001");
+
+      expect(mockMissionStore.activateSlice).toHaveBeenCalledWith("SL-002");
+      expect(result).toEqual({ id: "SL-002", status: "active" });
+    });
+
+    it("activateNextPendingSlice returns null when mission is not active", async () => {
+      const mockMissionStore = createMockMissionStore({
+        getMissionWithHierarchy: vi.fn().mockReturnValue({
+          id: "M-001",
+          status: "planning",
+          milestones: [],
+        }),
+      });
+
+      const store = createMockStore();
+      const scheduler = new Scheduler(store, { missionStore: mockMissionStore as any });
+
+      const result = await scheduler.activateNextPendingSlice("M-001");
+
+      expect(result).toBeNull();
+      expect(mockMissionStore.activateSlice).not.toHaveBeenCalled();
+    });
+
     it("activateNextPendingSlice returns null when no pending slices", async () => {
       const mockMissionStore = createMockMissionStore({
-        findNextPendingSlice: vi.fn().mockReturnValue(undefined),
+        getMissionWithHierarchy: vi.fn().mockReturnValue({
+          id: "M-001",
+          status: "active",
+          milestones: [
+            {
+              id: "MS-001",
+              orderIndex: 0,
+              dependencies: [],
+              slices: [{ id: "SL-001", status: "complete", orderIndex: 0 }],
+            },
+          ],
+        }),
       });
 
       const store = createMockStore();

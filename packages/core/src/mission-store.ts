@@ -93,6 +93,7 @@ export class MissionStore extends EventEmitter<MissionStoreEvents> {
       description: row.description || undefined,
       status: row.status as MissionStatus,
       interviewState: row.interviewState as InterviewState,
+      autoAdvance: Boolean(row.autoAdvance),
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
@@ -169,19 +170,21 @@ export class MissionStore extends EventEmitter<MissionStoreEvents> {
       description: input.description,
       status: "planning",
       interviewState: "not_started",
+      autoAdvance: false,
       createdAt: now,
       updatedAt: now,
     };
 
     this.db.prepare(`
-      INSERT INTO missions (id, title, description, status, interviewState, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO missions (id, title, description, status, interviewState, autoAdvance, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       mission.id,
       mission.title,
       mission.description ?? null,
       mission.status,
       mission.interviewState,
+      mission.autoAdvance ? 1 : 0,
       mission.createdAt,
       mission.updatedAt,
     );
@@ -270,6 +273,7 @@ export class MissionStore extends EventEmitter<MissionStoreEvents> {
         description = ?,
         status = ?,
         interviewState = ?,
+        autoAdvance = ?,
         updatedAt = ?
       WHERE id = ?
     `).run(
@@ -277,6 +281,7 @@ export class MissionStore extends EventEmitter<MissionStoreEvents> {
       updated.description ?? null,
       updated.status,
       updated.interviewState,
+      updated.autoAdvance ? 1 : 0,
       updated.updatedAt,
       updated.id,
     );

@@ -1,10 +1,10 @@
-import { MissionStore, type Mission, type Slice, type MissionWithHierarchy, type MilestoneWithSlices, type SliceWithFeatures, type MissionCreateInput, type MilestoneCreateInput, type SliceCreateInput, type FeatureCreateInput } from "@fusion/core";
+import { type MissionStatus, type MilestoneStatus, type SliceStatus, type FeatureStatus } from "@fusion/core";
 import { createInterface } from "node:readline/promises";
 import { getStore } from "../project-resolver.js";
 
 // ── Status Labels for Display ───────────────────────────────────────────────
 
-const MISSION_STATUS_LABELS: Record<string, string> = {
+const MISSION_STATUS_LABELS: Record<MissionStatus, string> = {
   planning: "Planning",
   active: "Active",
   blocked: "Blocked",
@@ -12,25 +12,53 @@ const MISSION_STATUS_LABELS: Record<string, string> = {
   archived: "Archived",
 };
 
-const MILESTONE_STATUS_LABELS: Record<string, string> = {
+const MILESTONE_STATUS_LABELS: Record<MilestoneStatus, string> = {
   planning: "Planning",
   active: "Active",
   blocked: "Blocked",
   complete: "Complete",
 };
 
-const SLICE_STATUS_LABELS: Record<string, string> = {
+const SLICE_STATUS_LABELS: Record<SliceStatus, string> = {
   pending: "Pending",
   active: "Active",
   complete: "Complete",
 };
 
-const FEATURE_STATUS_LABELS: Record<string, string> = {
+const FEATURE_STATUS_LABELS: Record<FeatureStatus, string> = {
   defined: "Defined",
   triaged: "Triaged",
   "in-progress": "In Progress",
   done: "Done",
 };
+
+async function promptForTitleAndDescription(
+  titleArg: string | undefined,
+  titlePrompt: string,
+  descriptionPrompt: string,
+): Promise<{ title: string; description?: string }> {
+  let title = titleArg;
+  let description: string | undefined;
+
+  if (!title) {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    title = await rl.question(titlePrompt);
+
+    if (!title?.trim()) {
+      rl.close();
+      console.error("Title is required");
+      process.exit(1);
+    }
+
+    description = await rl.question(descriptionPrompt);
+    rl.close();
+  }
+
+  return {
+    title: title.trim(),
+    description: description?.trim() || undefined,
+  };
+}
 
 // ── Mission Commands ─────────────────────────────────────────────────────────
 
@@ -39,30 +67,20 @@ const FEATURE_STATUS_LABELS: Record<string, string> = {
  * If arguments are omitted, prompts interactively.
  */
 export async function runMissionCreate(titleArg?: string, descriptionArg?: string, projectName?: string) {
-  let title = titleArg;
-  let description = descriptionArg;
-
-  // Interactive prompts if title not provided
-  if (!title) {
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    title = await rl.question("Mission title: ");
-    
-    if (!title?.trim()) {
-      rl.close();
-      console.error("Title is required");
-      process.exit(1);
-    }
-
-    description = await rl.question("Mission description (optional): ");
-    rl.close();
-  }
-
   const store = await getStore({ project: projectName });
   const missionStore = store.getMissionStore();
 
+  const { title, description } = titleArg
+    ? { title: titleArg.trim(), description: descriptionArg?.trim() || undefined }
+    : await promptForTitleAndDescription(
+      titleArg,
+      "Mission title: ",
+      "Mission description (optional): ",
+    );
+
   const mission = missionStore.createMission({
-    title: title.trim(),
-    description: description?.trim() || undefined,
+    title,
+    description,
   });
 
   console.log();
@@ -254,54 +272,35 @@ export async function runMissionActivateSlice(id: string, projectName?: string) 
   console.log();
 }
 
-// ── Milestone Commands ──────────────────────────────────────────────────────
-
-/**
- * Add a milestone to a mission.
- */
 export async function runMilestoneAdd(
   missionId: string,
   titleArg?: string,
   descriptionArg?: string,
-  projectName?: string
+  projectName?: string,
 ) {
   if (!missionId) {
     console.error("Usage: fn mission add-milestone <mission-id> [title] [description]");
     process.exit(1);
   }
 
-  let title = titleArg;
-  let description = descriptionArg;
-
-  // Interactive prompts if title not provided
-  if (!title) {
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    title = await rl.question("Milestone title: ");
-    
-    if (!title?.trim()) {
-      rl.close();
-      console.error("Title is required");
-      process.exit(1);
-    }
-
-    description = await rl.question("Milestone description (optional): ");
-    rl.close();
-  }
-
   const store = await getStore({ project: projectName });
   const missionStore = store.getMissionStore();
-
-  // Check if mission exists
   const mission = missionStore.getMission(missionId);
+
   if (!mission) {
     console.error(`✗ Mission ${missionId} not found`);
     process.exit(1);
   }
 
-  const milestone = missionStore.addMilestone(missionId, {
-    title: title.trim(),
-    description: description?.trim() || undefined,
-  });
+  const { title, description } = titleArg
+    ? { title: titleArg.trim(), description: descriptionArg?.trim() || undefined }
+    : await promptForTitleAndDescription(
+      titleArg,
+      "Milestone title: ",
+      "Milestone description (optional): ",
+    );
+
+  const milestone = missionStore.addMilestone(missionId, { title, description });
 
   console.log();
   console.log(`  ✓ Added ${milestone.id}: "${milestone.title}" to ${missionId}`);
@@ -309,54 +308,35 @@ export async function runMilestoneAdd(
   console.log();
 }
 
-// ── Slice Commands ───────────────────────────────────────────────────────────
-
-/**
- * Add a slice to a milestone.
- */
 export async function runSliceAdd(
   milestoneId: string,
   titleArg?: string,
   descriptionArg?: string,
-  projectName?: string
+  projectName?: string,
 ) {
   if (!milestoneId) {
     console.error("Usage: fn mission add-slice <milestone-id> [title] [description]");
     process.exit(1);
   }
 
-  let title = titleArg;
-  let description = descriptionArg;
-
-  // Interactive prompts if title not provided
-  if (!title) {
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    title = await rl.question("Slice title: ");
-    
-    if (!title?.trim()) {
-      rl.close();
-      console.error("Title is required");
-      process.exit(1);
-    }
-
-    description = await rl.question("Slice description (optional): ");
-    rl.close();
-  }
-
   const store = await getStore({ project: projectName });
   const missionStore = store.getMissionStore();
-
-  // Check if milestone exists
   const milestone = missionStore.getMilestone(milestoneId);
+
   if (!milestone) {
     console.error(`✗ Milestone ${milestoneId} not found`);
     process.exit(1);
   }
 
-  const slice = missionStore.addSlice(milestoneId, {
-    title: title.trim(),
-    description: description?.trim() || undefined,
-  });
+  const { title, description } = titleArg
+    ? { title: titleArg.trim(), description: descriptionArg?.trim() || undefined }
+    : await promptForTitleAndDescription(
+      titleArg,
+      "Slice title: ",
+      "Slice description (optional): ",
+    );
+
+  const slice = missionStore.addSlice(milestoneId, { title, description });
 
   console.log();
   console.log(`  ✓ Added ${slice.id}: "${slice.title}" to ${milestoneId}`);
@@ -364,57 +344,50 @@ export async function runSliceAdd(
   console.log();
 }
 
-// ── Feature Commands ─────────────────────────────────────────────────────────
-
-/**
- * Add a feature to a slice.
- */
 export async function runFeatureAdd(
   sliceId: string,
   titleArg?: string,
   descriptionArg?: string,
   acceptanceCriteriaArg?: string,
-  projectName?: string
+  projectName?: string,
 ) {
   if (!sliceId) {
     console.error("Usage: fn mission add-feature <slice-id> [title] [description] [--acceptance-criteria <criteria>]");
     process.exit(1);
   }
 
-  let title = titleArg;
-  let description = descriptionArg;
-  let acceptanceCriteria = acceptanceCriteriaArg;
+  const store = await getStore({ project: projectName });
+  const missionStore = store.getMissionStore();
+  const slice = missionStore.getSlice(sliceId);
 
-  // Interactive prompts if title not provided
+  if (!slice) {
+    console.error(`✗ Slice ${sliceId} not found`);
+    process.exit(1);
+  }
+
+  let title = titleArg;
+  let description = descriptionArg?.trim() || undefined;
+  let acceptanceCriteria = acceptanceCriteriaArg?.trim() || undefined;
+
   if (!title) {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     title = await rl.question("Feature title: ");
-    
+
     if (!title?.trim()) {
       rl.close();
       console.error("Title is required");
       process.exit(1);
     }
 
-    description = await rl.question("Feature description (optional): ");
-    acceptanceCriteria = await rl.question("Acceptance criteria (optional): ");
+    description = (await rl.question("Feature description (optional): ")).trim() || undefined;
+    acceptanceCriteria = (await rl.question("Acceptance criteria (optional): ")).trim() || undefined;
     rl.close();
-  }
-
-  const store = await getStore({ project: projectName });
-  const missionStore = store.getMissionStore();
-
-  // Check if slice exists
-  const slice = missionStore.getSlice(sliceId);
-  if (!slice) {
-    console.error(`✗ Slice ${sliceId} not found`);
-    process.exit(1);
   }
 
   const feature = missionStore.addFeature(sliceId, {
     title: title.trim(),
-    description: description?.trim() || undefined,
-    acceptanceCriteria: acceptanceCriteria?.trim() || undefined,
+    description,
+    acceptanceCriteria,
   });
 
   console.log();
@@ -426,9 +399,6 @@ export async function runFeatureAdd(
   console.log();
 }
 
-/**
- * Link a feature to a task.
- */
 export async function runFeatureLinkTask(featureId: string, taskId: string, projectName?: string) {
   if (!featureId || !taskId) {
     console.error("Usage: fn mission link-feature <feature-id> <task-id>");
@@ -437,15 +407,13 @@ export async function runFeatureLinkTask(featureId: string, taskId: string, proj
 
   const store = await getStore({ project: projectName });
   const missionStore = store.getMissionStore();
-
-  // Check if feature exists
   const feature = missionStore.getFeature(featureId);
+
   if (!feature) {
     console.error(`✗ Feature ${featureId} not found`);
     process.exit(1);
   }
 
-  // Check if task exists
   try {
     await store.getTask(taskId);
   } catch {
@@ -454,8 +422,10 @@ export async function runFeatureLinkTask(featureId: string, taskId: string, proj
   }
 
   const updated = missionStore.linkFeatureToTask(featureId, taskId);
+
   console.log();
   console.log(`  ✓ Linked ${updated.id}: "${updated.title}" → ${taskId}`);
   console.log(`    Status: ${FEATURE_STATUS_LABELS[updated.status]}`);
   console.log();
 }
+

@@ -1,7 +1,7 @@
 import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
-import type { TaskStore, Task, TaskDetail, StepStatus, Settings, WorkflowStep } from "@fusion/core";
+import type { TaskStore, Task, TaskDetail, StepStatus, Settings, WorkflowStep, MissionStore, Slice } from "@fusion/core";
 import { findWorktreeUser } from "./merger.js";
 import { generateWorktreeName, slugify } from "./worktree-names.js";
 import { Type, type Static } from "@mariozechner/pi-ai";
@@ -156,6 +156,8 @@ export interface TaskExecutorOptions {
   usageLimitPauser?: UsageLimitPauser;
   /** Stuck task detector — monitors agent sessions for stagnation and triggers recovery. */
   stuckTaskDetector?: StuckTaskDetector;
+  missionStore?: MissionStore;
+  onSliceComplete?: (slice: Slice) => void;
   onStart?: (task: Task, worktreePath: string) => void;
   onComplete?: (task: Task) => void;
   onError?: (task: Task, error: Error) => void;

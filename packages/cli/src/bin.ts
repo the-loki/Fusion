@@ -101,10 +101,10 @@ Usage:
   fn backup --list           List all database backups
   fn backup --restore <file> Restore database from a backup file
   fn backup --cleanup        Remove old backups exceeding retention limit
-  fn mission create [title] [description]  Create a new mission
+  fn mission create [title] [description...]  Create a new mission
   fn mission list                       List all missions
   fn mission show <id>                  Show mission with hierarchy
-  fn mission delete <id> [--force]      Delete mission
+  fn mission delete <id> [--force]      Delete a mission
   fn mission activate-slice <slice-id>  Activate a pending slice
 
 Options:
@@ -711,21 +711,8 @@ async function main() {
         const subcommand = args[1];
         switch (subcommand) {
           case "create": {
-            const titleParts: string[] = [];
-            for (let i = 2; i < args.length; i++) {
-              titleParts.push(args[i]);
-            }
-            const fullInput = titleParts.join(" ");
-            // Split on first space to separate title and description if provided
-            const firstSpaceIdx = fullInput.indexOf(" ");
-            let title: string | undefined;
-            let description: string | undefined;
-            if (firstSpaceIdx > 0) {
-              title = fullInput.slice(0, firstSpaceIdx);
-              description = fullInput.slice(firstSpaceIdx + 1).trim();
-            } else {
-              title = fullInput || undefined;
-            }
+            const title = args[2];
+            const description = args.length > 3 ? args.slice(3).join(" ") : undefined;
             await runMissionCreate(title, description, projectName);
             break;
           }
