@@ -42,6 +42,47 @@ graph TD
 
 Tasks with dependencies are processed sequentially. Independent tasks run in parallel.
 
+## Missions
+
+The Missions system provides a hierarchical planning structure for large-scale projects:
+
+```
+Mission ("Build Auth System")
+├── Milestone 1: "Database Schema"
+│   ├── Slice 1: "User Tables"
+│   │   ├── Feature 1: "User model" → Task FN-101
+│   │   └── Feature 2: "Session table" → Task FN-102
+│   └── Slice 2: "Token Storage"
+│       └── Feature 3: "Refresh tokens" → Task FN-103
+├── Milestone 2: "API Endpoints"
+│   └── Slice 3: "Login/Logout"
+│       ├── Feature 4: "Login endpoint" → Task FN-104
+│       └── Feature 5: "Logout endpoint" → Task FN-105
+└── Milestone 3: "UI Integration"
+    └── Slice 4: "React Components"
+        └── Feature 6: "Login form" → Task FN-106
+```
+
+**Hierarchy:** Mission → Milestone → Slice → Feature → Task
+
+- **Mission** — High-level goal or project (e.g., "Build Authentication System")
+- **Milestone** — Major phases within a mission (e.g., "Database Schema", "API Endpoints")
+- **Slice** — Parallel work areas within a milestone (e.g., "Backend Implementation", "Frontend Components")
+- **Feature** — Individual deliverables linked to kb tasks (e.g., "Login Form", "JWT Middleware")
+
+Status flows automatically: when features are linked to tasks and completed, slice status updates. When all slices in a milestone are complete, the milestone becomes complete. When all milestones are done, the mission is complete.
+
+**CLI Commands:**
+```bash
+fn mission create "Build Auth System" "Complete auth with login, signup"  # Create mission
+fn mission list                                                           # List all missions
+fn mission show M-001                                                     # Show mission hierarchy
+fn mission delete M-001 [--force]                                        # Delete mission
+fn mission activate-slice SL-001                                          # Manually activate slice
+```
+
+**Dashboard:** Press `Cmd/Ctrl+Shift+M` to open the Mission List, then create missions, add milestones, slices, and features. Link features to tasks for automatic progress tracking.
+
 ## Quick Start
 
 ```bash
@@ -70,6 +111,15 @@ fn dashboard                              # Start the web UI (default port 4040)
 fn dashboard --interactive                # Start with interactive port selection
 fn dashboard --paused                     # Start with automation paused
 fn dashboard --dev                        # Start web UI only (no AI engine)
+```
+
+**Mission Management:**
+```bash
+fn mission create "Title" "Description"    # Create a new mission
+fn mission list                             # List all missions
+fn mission show <id>                        # Show mission with hierarchy
+fn mission delete <id> [--force]            # Delete mission (cascades to children)
+fn mission activate-slice <slice-id>        # Manually activate a pending slice
 ```
 
 **Task Management:**
