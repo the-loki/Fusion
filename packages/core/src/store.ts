@@ -8,6 +8,7 @@ import { VALID_TRANSITIONS, DEFAULT_SETTINGS, DEFAULT_GLOBAL_SETTINGS, DEFAULT_P
 import { GlobalSettingsStore } from "./global-settings.js";
 import { Database, toJson, toJsonNullable, fromJson } from "./db.js";
 import { detectLegacyData, migrateFromLegacy } from "./db-migrate.js";
+import { MissionStore } from "./mission-store.js";
 
 export interface TaskStoreEvents {
   "task:created": [task: Task];
@@ -54,6 +55,8 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   /** Last known modification timestamp for change detection */
   private lastKnownModified: number = 0;
+  /** Cached MissionStore instance */
+  private missionStore: MissionStore | null = null;
 
   constructor(private rootDir: string, globalSettingsDir?: string) {
     super();
@@ -2658,5 +2661,16 @@ ${notificationsSection}`;
   async clearActivityLog(): Promise<void> {
     this.db.prepare("DELETE FROM activityLog").run();
     this.db.bumpLastModified();
+  }
+
+  /**
+   * Get the MissionStore instance for mission hierarchy operations.
+   * Lazily initializes the MissionStore on first access.
+   */
+  getMissionStore(): MissionStore {
+    if (!this.missionStore) {
+      this.missionStore = new MissionStore(this.kbDir, this.db);
+    }
+    return this.missionStore;
   }
 }

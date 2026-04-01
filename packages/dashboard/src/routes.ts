@@ -20,6 +20,7 @@ import {
   hasIssueBadgeFieldsChanged,
   type BadgeUrlComponents,
 } from "./github-webhooks.js";
+import { createMissionRouter } from "./mission-routes.js";
 
 /**
  * Minimal interface matching pi-coding-agent's ModelRegistry API surface
@@ -5663,6 +5664,10 @@ Output ONLY the prompt text (no markdown, no explanations).`;
       res.status(500).json({ error: err.message });
     }
   });
+
+  // ── Mission Routes ─────────────────────────────────────────────────────────
+  // Mount mission routes at /api/missions
+  router.use("/missions", createMissionRouter(store));
 
   return router;
 }
