@@ -248,6 +248,9 @@ describe("App auto-open Settings on unauthenticated", () => {
       expect(screen.getByText("Anthropic")).toBeTruthy();
     });
 
+    // Authentication auto-open should not render General fields yet
+    expect(screen.queryByLabelText("Task Prefix")).toBeNull();
+
     // Close the auto-opened settings modal via Cancel button
     fireEvent.click(screen.getByText("Cancel"));
 

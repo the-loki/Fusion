@@ -778,7 +778,26 @@ describe("SettingsModal", () => {
     // General content should be visible
     expect(screen.getByLabelText("Task Prefix")).toBeTruthy();
     // Authentication content should NOT be visible
-    expect(screen.queryByText("✗ Not authenticated")).toBeNull();
+    expect(screen.queryByText("Anthropic")).toBeNull();
+  });
+
+  it("preserves section-scope behavior across authentication auto-open and general reopen states", async () => {
+    const { unmount } = render(
+      <SettingsModal onClose={onClose} addToast={addToast} initialSection="authentication" />,
+    );
+    await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
+    await waitFor(() => expect(fetchAuthStatus).toHaveBeenCalled());
+
+    expect(screen.getByText("Anthropic")).toBeTruthy();
+    expect(screen.queryByLabelText("Task Prefix")).toBeNull();
+
+    unmount();
+
+    render(<SettingsModal onClose={onClose} addToast={addToast} />);
+    await waitFor(() => expect(fetchSettings).toHaveBeenCalledTimes(2));
+
+    expect(screen.getByLabelText("Task Prefix")).toBeTruthy();
+    expect(screen.queryByText("Anthropic")).toBeNull();
   });
 
   it("shows sign-in hint when no providers are authenticated", async () => {

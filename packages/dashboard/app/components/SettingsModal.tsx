@@ -49,6 +49,11 @@ const SETTINGS_SECTIONS = [
 ] as const;
 
 export type SectionId = (typeof SETTINGS_SECTIONS)[number]["id"];
+type SectionScope = (typeof SETTINGS_SECTIONS)[number]["scope"];
+
+function getSectionScope(sectionId: SectionId): SectionScope {
+  return SETTINGS_SECTIONS.find((section) => section.id === sectionId)?.scope;
+}
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -80,7 +85,7 @@ export function SettingsModal({
   const [prefixError, setPrefixError] = useState<string | null>(null);
 
   /** Get the scope of the currently active section */
-  const activeSectionScope = SETTINGS_SECTIONS.find((s) => s.id === activeSection)?.scope;
+  const activeSectionScope = getSectionScope(activeSection);
 
   // Auth state (independent of the settings save flow)
   const [authProviders, setAuthProviders] = useState<AuthProvider[]>([]);
