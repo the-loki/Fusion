@@ -45,7 +45,7 @@ const { runSettingsExport } = await import("./commands/settings-export.js");
 const { runSettingsImport } = await import("./commands/settings-import.js");
 const { runGitStatus, runGitFetch, runGitPull, runGitPush } = await import("./commands/git.js");
 const { runBackupCreate, runBackupList, runBackupRestore, runBackupCleanup } = await import("./commands/backup.js");
-const { runProjectList, runProjectAdd, runProjectRemove, runProjectShow, runProjectSetDefault, runProjectDetect } = await import("./commands/project.js");
+const { runProjectList, runProjectAdd, runProjectRemove, runProjectShow, runProjectInfo, runProjectSetDefault, runProjectDetect } = await import("./commands/project.js");
 
 const HELP = `
 fn — AI-orchestrated task board
@@ -80,11 +80,12 @@ Usage:
   fn task pr-create <id> [--title <title>] [--base <branch>] [--body <body>]
                          Create a GitHub PR for an in-review task
   fn task import <owner/repo> [opts]  Import GitHub issues as tasks
-  fn project list | ls                List all registered projects
-  fn project add <name> <path> [opts]  Register a new project
+  fn project list | ls [--json]       List all registered projects
+  fn project add [name] [path] [opts]  Register a new project
   fn project remove | rm <name> [--force]
                                       Unregister a project
-  fn project show <name>               Show project details
+  fn project show <name>               Show project details with health
+  fn project info [name]               Show project details (alias for show)
   fn project set-default | default <name>
                                       Set default project
   fn project detect                    Detect project from current directory
@@ -184,24 +185,33 @@ async function main() {
         switch (subcommand) {
           case "list":
           case "ls":
-            await runProjectList();
+            {
+              const json = args.includes("--json");
+              await runProjectList({ json });
+            }
             break;
           case "add": {
             const name = args[2];
             const path = args[3];
             const isolationIdx = args.indexOf("--isolation");
             const isolation = isolationIdx !== -1 && isolationIdx + 1 < args.length
-              ? args[isolationIdx + 1]
+              ? args[isolationIdx + 1] as "in-process" | "child-process"
               : undefined;
             const force = args.includes("--force");
-            await runProjectAdd(name, path, { isolation, force });
+            const interactive = args.includes("--interactive");
+            await runProjectAdd(name, path, { isolation, force, interactive });
+            break;
+          }
+          case "info": {
+            const name = args[2];
+            await runProjectInfo(name);
             break;
           }
           case "remove":
           case "rm": {
             const name = args[2];
             const force = args.includes("--force");
-            await runProjectRemove(name, force);
+            await runProjectRemove(name, { force });
             break;
           }
           case "show": {
@@ -220,7 +230,7 @@ async function main() {
             break;
           default:
             console.error(`Unknown subcommand: project ${subcommand || ""}`);
-            console.log("Try: fn project list | add | remove | show | set-default | detect");
+            console.log("Try: fn project list | add | remove | show | info | set-default | detect");
             process.exit(1);
         }
         break;

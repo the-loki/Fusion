@@ -8,6 +8,7 @@ const mockRegisterProject = vi.fn();
 const mockUnregisterProject = vi.fn();
 const mockGetProject = vi.fn();
 const mockGetProjectByPath = vi.fn();
+const mockGetProjectHealth = vi.fn();
 const mockInit = vi.fn();
 const mockClose = vi.fn();
 const mockQuestion = vi.fn();
@@ -17,7 +18,10 @@ const mockDetectProjectFromCwd = vi.fn();
 const mockFormatProjectLine = vi.fn();
 const mockGetSettings = vi.fn();
 const mockGlobalInit = vi.fn();
+const mockTaskStoreInit = vi.fn();
+const mockTaskStoreListTasks = vi.fn();
 
+// Mock @fusion/core
 vi.mock("@fusion/core", () => ({
   CentralCore: vi.fn().mockImplementation(() => ({
     init: mockInit.mockResolvedValue(undefined),
@@ -27,11 +31,25 @@ vi.mock("@fusion/core", () => ({
     unregisterProject: mockUnregisterProject,
     getProject: mockGetProject,
     getProjectByPath: mockGetProjectByPath,
+    getProjectHealth: mockGetProjectHealth,
   })),
   GlobalSettingsStore: vi.fn().mockImplementation(() => ({
     init: mockGlobalInit.mockResolvedValue(undefined),
     getSettings: mockGetSettings,
   })),
+  TaskStore: vi.fn().mockImplementation(() => ({
+    init: mockTaskStoreInit,
+    listTasks: mockTaskStoreListTasks,
+  })),
+  COLUMNS: ["triage", "todo", "in-progress", "in-review", "done", "archived"],
+  COLUMN_LABELS: {
+    triage: "Triage",
+    todo: "To Do",
+    "in-progress": "In Progress",
+    "in-review": "In Review",
+    done: "Done",
+    archived: "Archived",
+  },
 }));
 
 vi.mock("node:readline/promises", () => ({
@@ -45,6 +63,7 @@ vi.mock("../project-context.js", () => ({
   formatProjectLine: mockFormatProjectLine,
   detectProjectFromCwd: mockDetectProjectFromCwd,
   setDefaultProject: mockSetDefaultProject,
+  resolveProject: vi.fn(),
 }));
 
 describe("project commands", () => {
@@ -63,6 +82,9 @@ describe("project commands", () => {
     mockGetSettings.mockResolvedValue({});
     mockFormatProjectLine.mockImplementation((project, isDefault) => `${isDefault ? "* " : "  "}${project.name}`);
     mockQuestion.mockResolvedValue("y");
+    mockGetProjectHealth.mockResolvedValue(undefined);
+    mockTaskStoreInit.mockResolvedValue(undefined);
+    mockTaskStoreListTasks.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -77,6 +99,7 @@ describe("project commands", () => {
     expect(typeof project.runProjectAdd).toBe("function");
     expect(typeof project.runProjectRemove).toBe("function");
     expect(typeof project.runProjectShow).toBe("function");
+    expect(typeof project.runProjectInfo).toBe("function");
     expect(typeof project.runProjectSetDefault).toBe("function");
     expect(typeof project.runProjectDetect).toBe("function");
   });
@@ -96,8 +119,28 @@ describe("project commands", () => {
     const { runProjectList } = await import("./project.js");
     await runProjectList();
 
-    expect(mockFormatProjectLine).toHaveBeenCalledTimes(2);
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("2 projects registered, 1 active"));
+    // Check that projects are displayed in output
+    const output = consoleSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("app-one");
+    expect(output).toContain("app-two");
+  });
+
+  it("runProjectList with --json flag outputs JSON", async () => {
+    mockListProjects.mockResolvedValue([
+      { id: "proj-1", name: "app-one", path: "/tmp/app-one", status: "active", isolationMode: "in-process" },
+    ]);
+    mockGetSettings.mockResolvedValue({});
+
+    const { runProjectList } = await import("./project.js");
+    await runProjectList({ json: true });
+
+    // Should output JSON
+    const jsonOutput = consoleSpy.mock.calls.map((call) => String(call[0])).join("");
+    expect(() => JSON.parse(jsonOutput)).not.toThrow();
+    const parsed = JSON.parse(jsonOutput);
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed[0].name).toBe("app-one");
   });
 
   it("runProjectAdd registers project and prints sanitized path output", async () => {
@@ -118,10 +161,21 @@ describe("project commands", () => {
     mockGetProject.mockResolvedValue({ id: "proj-1", name: "demo", path: "/tmp/demo", status: "active", isolationMode: "in-process" });
 
     const { runProjectRemove } = await import("./project.js");
-    await runProjectRemove("proj-1", false);
+    await runProjectRemove("proj-1", { force: false });
 
     expect(mockUnregisterProject).toHaveBeenCalledWith("proj-1");
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Unregistered project 'demo'"));
+  });
+
+  it("runProjectRemove with --force skips confirmation", async () => {
+    mockGetProject.mockResolvedValue({ id: "proj-1", name: "demo", path: "/tmp/demo", status: "active", isolationMode: "in-process" });
+
+    const { runProjectRemove } = await import("./project.js");
+    await runProjectRemove("proj-1", { force: true });
+
+    expect(mockUnregisterProject).toHaveBeenCalledWith("proj-1");
+    // Question should not be called when force is true
+    expect(mockQuestion).not.toHaveBeenCalled();
   });
 
   it("runProjectShow prints detailed project metadata without absolute path leakage", async () => {
@@ -135,6 +189,7 @@ describe("project commands", () => {
       updatedAt: "2026-01-02T00:00:00.000Z",
     });
     mockGetSettings.mockResolvedValue({ defaultProjectId: "proj-1" });
+    mockTaskStoreListTasks.mockResolvedValue([]);
 
     const { runProjectShow } = await import("./project.js");
     await runProjectShow("proj-1");
@@ -144,6 +199,26 @@ describe("project commands", () => {
     expect(output).toContain("Isolation: child-process");
     expect(output).toContain("Created:");
     expect(output).not.toContain("/tmp/demo");
+  });
+
+  it("runProjectInfo is alias for runProjectShow", async () => {
+    mockGetProject.mockResolvedValue({
+      id: "proj-1",
+      name: "demo",
+      path: "/tmp/demo",
+      status: "active",
+      isolationMode: "in-process",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    });
+    mockGetSettings.mockResolvedValue({});
+    mockTaskStoreListTasks.mockResolvedValue([]);
+
+    const { runProjectInfo } = await import("./project.js");
+    await runProjectInfo("proj-1");
+
+    const output = consoleSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("Project: demo");
   });
 
   it("runProjectSetDefault sets default project", async () => {
@@ -168,12 +243,100 @@ describe("project commands", () => {
     expect(output).not.toContain("/tmp/demo");
   });
 
-  it("validation exits on missing required args", async () => {
-    const { runProjectAdd, runProjectRemove, runProjectShow, runProjectSetDefault } = await import("./project.js");
+  it("runProjectList shows task counts for projects", async () => {
+    mockListProjects.mockResolvedValue([
+      { id: "proj-1", name: "app-one", path: "/tmp/app-one", status: "active", isolationMode: "in-process" },
+    ]);
+    mockGetSettings.mockResolvedValue({});
 
+    // Mock task store to return some tasks - return 3 tasks
+    mockTaskStoreListTasks.mockResolvedValue([
+      { id: "FN-001", column: "todo" },
+      { id: "FN-002", column: "in-progress" },
+      { id: "FN-003", column: "done" },
+    ]);
+
+    const { runProjectList } = await import("./project.js");
+    await runProjectList();
+
+    // Verify TaskStore.listTasks was called
+    expect(mockTaskStoreListTasks).toHaveBeenCalled();
+    const output = consoleSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("3"); // Total task count
+  });
+
+  it("runProjectShow shows task counts in output", async () => {
+    mockGetProject.mockResolvedValue({
+      id: "proj-1",
+      name: "demo",
+      path: "/tmp/demo",
+      status: "active",
+      isolationMode: "in-process",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    });
+    mockGetSettings.mockResolvedValue({});
+    mockTaskStoreListTasks.mockResolvedValue([
+      { id: "FN-001", column: "todo" },
+      { id: "FN-002", column: "todo" },
+      { id: "FN-003", column: "in-progress" },
+    ]);
+
+    const { runProjectShow } = await import("./project.js");
+    await runProjectShow("proj-1");
+
+    // Verify TaskStore.listTasks was called
+    expect(mockTaskStoreListTasks).toHaveBeenCalled();
+    const output = consoleSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("Total: 3");
+    expect(output).toContain("To Do: 2");
+    expect(output).toContain("In Progress: 1");
+  });
+
+  it("runProjectShow shows health info when available", async () => {
+    mockGetProject.mockResolvedValue({
+      id: "proj-1",
+      name: "demo",
+      path: "/tmp/demo",
+      status: "active",
+      isolationMode: "in-process",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    });
+    mockGetSettings.mockResolvedValue({});
+    mockGetProjectHealth.mockResolvedValue({
+      projectId: "proj-1",
+      status: "active",
+      activeTaskCount: 2,
+      inFlightAgentCount: 1,
+      totalTasksCompleted: 10,
+      totalTasksFailed: 1,
+      lastActivityAt: new Date().toISOString(),
+    });
+    mockTaskStoreListTasks.mockResolvedValue([]);
+
+    const { runProjectShow } = await import("./project.js");
+    await runProjectShow("proj-1");
+
+    const output = consoleSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("Health:");
+    expect(output).toContain("Active Tasks: 2");
+    expect(output).toContain("In-Flight Agents: 1");
+    expect(output).toContain("Completed: 10");
+  });
+
+  it("validation exits on missing required args for runProjectAdd", async () => {
+    const { runProjectAdd } = await import("./project.js");
     await expect(runProjectAdd("", "/tmp")).rejects.toThrow("process.exit:1");
+  });
+
+  it("validation exits on missing required args for runProjectRemove", async () => {
+    const { runProjectRemove } = await import("./project.js");
     await expect(runProjectRemove("")).rejects.toThrow("process.exit:1");
-    await expect(runProjectShow("")).rejects.toThrow("process.exit:1");
+  });
+
+  it("validation exits on missing required args for runProjectSetDefault", async () => {
+    const { runProjectSetDefault } = await import("./project.js");
     await expect(runProjectSetDefault("")).rejects.toThrow("process.exit:1");
   });
 });
