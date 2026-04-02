@@ -767,7 +767,7 @@ export function InlineCreateCard({
                   data-testid="plan-button"
                   title="Open planning mode with current description"
                 >
-                  <Lightbulb size={12} style={{ verticalAlign: "middle" }} />
+                  <Lightbulb size={12} style={{ verticalAlign: "middle", marginRight: 4 }} />
                   Plan
                 </button>
                 <button
@@ -778,7 +778,7 @@ export function InlineCreateCard({
                   data-testid="subtask-button"
                   title="Break down into AI-generated subtasks"
                 >
-                  <ListTree size={12} style={{ verticalAlign: "middle" }} />
+                  <ListTree size={12} style={{ verticalAlign: "middle", marginRight: 4 }} />
                   Subtask
                 </button>
                 <button

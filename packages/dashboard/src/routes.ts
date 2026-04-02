@@ -6501,7 +6501,7 @@ Output ONLY the prompt text (no markdown, no explanations).`;
    */
   router.get("/tasks/:id/diff", async (req, res) => {
     try {
-      const task = store.getTask(req.params.id);
+      const task = await store.getTask(req.params.id);
       if (!task) {
         res.status(404).json({ error: "Task not found" });
         return;
@@ -6510,18 +6510,30 @@ Output ONLY the prompt text (no markdown, no explanations).`;
       const worktree = typeof req.query.worktree === "string" ? req.query.worktree : undefined;
       const cwd = worktree || store.getRootDir();
 
-      // Get the base commit - default to HEAD~1 if not provided
-      let baseCommit = "HEAD~1";
+      // Get the base branch for merge-base comparison
+      const baseBranch = task.baseBranch ?? "main";
+      let diffBase = `${baseBranch}...HEAD`;
 
       // Get the diff
       const { execSync } = await import("node:child_process");
       
-      // Get list of changed files
-      const filesOutput = execSync(`git diff --name-status ${baseCommit}..HEAD`, {
-        encoding: "utf-8",
-        cwd,
-        timeout: 10000,
-      });
+      // Get list of changed files using merge-base comparison
+      let filesOutput = "";
+      try {
+        filesOutput = execSync(`git diff --name-status ${diffBase}`, {
+          encoding: "utf-8",
+          cwd,
+          timeout: 10000,
+        }).trim();
+      } catch {
+        // Fallback to current HEAD if merge-base fails
+        diffBase = "HEAD";
+        filesOutput = execSync("git diff --name-status HEAD", {
+          encoding: "utf-8",
+          cwd,
+          timeout: 10000,
+        }).trim();
+      }
 
       const files: Array<{
         path: string;
@@ -6546,7 +6558,7 @@ Output ONLY the prompt text (no markdown, no explanations).`;
         // Get patch for this file
         let patch = "";
         try {
-          patch = execSync(`git diff ${baseCommit}..HEAD -- "${filePath}"`, {
+          patch = execSync(`git diff ${diffBase} -- "${filePath}"`, {
             encoding: "utf-8",
             cwd,
             timeout: 10000,

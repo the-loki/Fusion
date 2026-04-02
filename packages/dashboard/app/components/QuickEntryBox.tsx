@@ -597,7 +597,7 @@ export function QuickEntryBox({ onCreate, addToast, tasks = [], availableModels,
                 data-testid="plan-button"
                 title="Open planning mode with current description"
               >
-                <Lightbulb size={12} style={{ verticalAlign: "middle" }} />
+                <Lightbulb size={12} style={{ verticalAlign: "middle", marginRight: 4 }} />
                 Plan
               </button>
               <button
@@ -609,7 +609,7 @@ export function QuickEntryBox({ onCreate, addToast, tasks = [], availableModels,
                 data-testid="subtask-button"
                 title="Break down into AI-generated subtasks"
               >
-                <ListTree size={12} style={{ verticalAlign: "middle" }} />
+                <ListTree size={12} style={{ verticalAlign: "middle", marginRight: 4 }} />
                 Subtask
               </button>
               <button
@@ -621,7 +621,7 @@ export function QuickEntryBox({ onCreate, addToast, tasks = [], availableModels,
                 data-testid="save-button"
                 title="Create task"
               >
-                <Save size={12} style={{ verticalAlign: "middle" }} />
+                <Save size={12} style={{ verticalAlign: "middle", marginRight: 4 }} />
                 Save
               </button>
               <div className="refine-trigger-wrap" ref={refineMenuRef}>
