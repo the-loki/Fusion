@@ -13,7 +13,7 @@ import { applyPresetToSelection, generatePresetId, validatePresetId } from "../u
  *
  * Each section groups related settings fields under a sidebar nav item.
  * Sections have a `scope` to indicate where their settings are stored:
- *   - "global": User-level settings stored in ~/.pi/fusion/settings.json (shared across projects)
+ *   - "global": User-level settings stored in ~/.pi/kb/settings.json (shared across projects)
  *   - "project": Project-specific settings stored in .fusion/config.json
  *   - undefined: Section operates independently of settings storage (e.g. authentication)
  *
@@ -52,11 +52,6 @@ const SETTINGS_SECTIONS = [
 ] as const;
 
 export type SectionId = (typeof SETTINGS_SECTIONS)[number]["id"];
-type SectionScope = (typeof SETTINGS_SECTIONS)[number]["scope"];
-
-function getSectionScope(sectionId: SectionId): SectionScope {
-  return SETTINGS_SECTIONS.find((section) => section.id === sectionId)?.scope;
-}
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -88,7 +83,7 @@ export function SettingsModal({
   const [prefixError, setPrefixError] = useState<string | null>(null);
 
   /** Get the scope of the currently active section */
-  const activeSectionScope = getSectionScope(activeSection);
+  const activeSectionScope = SETTINGS_SECTIONS.find((s) => s.id === activeSection)?.scope;
 
   // Auth state (independent of the settings save flow)
   const [authProviders, setAuthProviders] = useState<AuthProvider[]>([]);
@@ -98,7 +93,6 @@ export function SettingsModal({
 
   // Model state
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
-  const [favoriteProviders, setFavoriteProviders] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
 
   // Test notification state
@@ -146,10 +140,7 @@ export function SettingsModal({
     if (activeSection === "default-model" || activeSection === "execution-model") {
       setModelsLoading(true);
       fetchModels()
-        .then((response) => {
-          setAvailableModels(response.models);
-          setFavoriteProviders(response.favoriteProviders);
-        })
+        .then((models) => setAvailableModels(models))
         .catch(() => setAvailableModels([]))
         .finally(() => setModelsLoading(false));
     }
@@ -319,7 +310,7 @@ export function SettingsModal({
     try {
       const result = await importSettings(importPreview, { scope: importScope, merge: importMerge });
       if (result.success) {
-        const parts: string[] = [];
+        const parts = [];
         if (result.globalCount > 0) parts.push(`${result.globalCount} global`);
         if (result.projectCount > 0) parts.push(`${result.projectCount} project`);
         addToast(`Imported ${parts.join(", ")} setting(s)`, "success");
@@ -435,24 +426,6 @@ export function SettingsModal({
     setPresetDraft(null);
     setPresetIdTouched(false);
   };
-
-  /** Toggle provider favorite status */
-  const handleToggleFavorite = useCallback(async (provider: string) => {
-    const currentFavorites = favoriteProviders;
-    const isFavorite = currentFavorites.includes(provider);
-    const newFavorites = isFavorite
-      ? currentFavorites.filter((p) => p !== provider)
-      : [provider, ...currentFavorites];
-
-    setFavoriteProviders(newFavorites);
-
-    try {
-      await updateGlobalSettings({ favoriteProviders: newFavorites });
-    } catch {
-      // Revert on error
-      setFavoriteProviders(currentFavorites);
-    }
-  }, [favoriteProviders]);
 
   /** Render a scope indicator banner for the current section */
   const renderScopeBanner = () => {
@@ -626,8 +599,6 @@ export function SettingsModal({
                       }
                     }}
                     placeholder="Use default"
-                    favoriteProviders={favoriteProviders}
-                    onToggleFavorite={handleToggleFavorite}
                   />
                   <small>AI model used for task planning and specification (triage). Falls back to Default Model when not set.</small>
                 </div>
@@ -651,8 +622,6 @@ export function SettingsModal({
                       }
                     }}
                     placeholder="Use default"
-                    favoriteProviders={favoriteProviders}
-                    onToggleFavorite={handleToggleFavorite}
                   />
                   <small>AI model used for code and specification review. Falls back to Default Model when not set.</small>
                 </div>
@@ -801,8 +770,6 @@ export function SettingsModal({
                           } : current);
                         }}
                         placeholder="Use default"
-                        favoriteProviders={favoriteProviders}
-                        onToggleFavorite={handleToggleFavorite}
                       />
                     </div>
                     <div className="form-group">
@@ -825,8 +792,6 @@ export function SettingsModal({
                           } : current);
                         }}
                         placeholder="Use default"
-                        favoriteProviders={favoriteProviders}
-                        onToggleFavorite={handleToggleFavorite}
                       />
                     </div>
                   </>
@@ -939,8 +904,6 @@ export function SettingsModal({
                         }));
                       }}
                       placeholder="Use fallback model"
-                      favoriteProviders={favoriteProviders}
-                      onToggleFavorite={handleToggleFavorite}
                     />
                   )}
                   <small>
@@ -1435,37 +1398,6 @@ export function SettingsModal({
                 >
                   {testNotificationLoading ? "Sending…" : "Test notification"}
                 </button>
-              </div>
-            )}
-            {form.ntfyEnabled && (
-              <div className="form-group">
-                <label htmlFor="ntfyDashboardHost">Dashboard Hostname</label>
-                <input
-                  id="ntfyDashboardHost"
-                  type="text"
-                  placeholder="http://localhost:3000"
-                  value={form.ntfyDashboardHost || ""}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setForm((f) => ({ ...f, ntfyDashboardHost: val || undefined }));
-                  }}
-                />
-                <small>
-                  Base URL for deep links in notifications. When set, clicking a notification
-                  will open the dashboard directly to the task. Example: http://localhost:3000
-                  or https://fusion.example.com
-                </small>
-                {form.ntfyDashboardHost && (
-                  !/^https?:\/\/.+/.test(form.ntfyDashboardHost) ? (
-                    <small className="field-error">
-                      Must be a valid URL starting with http:// or https://
-                    </small>
-                  ) : form.ntfyDashboardHost.includes("?") || form.ntfyDashboardHost.includes("#") ? (
-                    <small className="field-error">
-                      URL should not include query parameters or fragments
-                    </small>
-                  ) : null
-                )}
               </div>
             )}
           </>
