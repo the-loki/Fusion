@@ -360,4 +360,108 @@ describe("AgentLogViewer", () => {
       expect(viewer.scrollTop).toBe(100);
     });
   });
+
+  describe("markdown rendering", () => {
+    it("renders plain text without markdown correctly", () => {
+      const entries = [
+        makeEntry({ text: "Hello world, this is plain text." }),
+      ];
+      const { container } = render(<AgentLogViewer entries={entries} loading={false} />);
+      const textSpans = container.querySelectorAll(".agent-log-text");
+      expect(textSpans).toHaveLength(1);
+      expect(textSpans[0].textContent).toBe("Hello world, this is plain text.");
+    });
+
+    it("renders inline markdown elements (bold, italic, inline code)", () => {
+      const entries = [
+        makeEntry({ text: "This is **bold** and *italic* with `inline code`." }),
+      ];
+      const { container } = render(<AgentLogViewer entries={entries} loading={false} />);
+      const textSpans = container.querySelectorAll(".agent-log-text");
+      expect(textSpans).toHaveLength(1);
+      // Check that the markdown elements are rendered
+      const strong = textSpans[0].querySelector("strong");
+      expect(strong).toBeTruthy();
+      expect(strong!.textContent).toBe("bold");
+      const em = textSpans[0].querySelector("em");
+      expect(em).toBeTruthy();
+      expect(em!.textContent).toBe("italic");
+      const code = textSpans[0].querySelector("code");
+      expect(code).toBeTruthy();
+      expect(code!.textContent).toBe("inline code");
+    });
+
+    it("renders code blocks with GFM support", () => {
+      const entries = [
+        makeEntry({ text: "```typescript\nconst x = 1;\n```" }),
+      ];
+      const { container } = render(<AgentLogViewer entries={entries} loading={false} />);
+      const textSpans = container.querySelectorAll(".agent-log-text");
+      expect(textSpans).toHaveLength(1);
+      // Check that code block is rendered
+      const pre = textSpans[0].querySelector("pre");
+      expect(pre).toBeTruthy();
+      const code = pre!.querySelector("code");
+      expect(code).toBeTruthy();
+      expect(code!.textContent).toContain("const x = 1");
+    });
+
+    it("renders GFM task lists", () => {
+      const entries = [
+        makeEntry({ text: "- [x] Completed task\n- [ ] Pending task" }),
+      ];
+      const { container } = render(<AgentLogViewer entries={entries} loading={false} />);
+      const textSpans = container.querySelectorAll(".agent-log-text");
+      expect(textSpans).toHaveLength(1);
+      // Check that task list is rendered
+      const ul = textSpans[0].querySelector("ul");
+      expect(ul).toBeTruthy();
+      const taskListItems = ul!.querySelectorAll("li");
+      expect(taskListItems).toHaveLength(2);
+      // Check checkboxes
+      const checkboxes = ul!.querySelectorAll('input[type="checkbox"]');
+      expect(checkboxes).toHaveLength(2);
+      expect((checkboxes[0] as HTMLInputElement).checked).toBe(true);
+      expect((checkboxes[1] as HTMLInputElement).checked).toBe(false);
+    });
+
+    it("renders blockquotes", () => {
+      const entries = [
+        makeEntry({ text: "> This is a blockquote\n> with multiple lines" }),
+      ];
+      const { container } = render(<AgentLogViewer entries={entries} loading={false} />);
+      const textSpans = container.querySelectorAll(".agent-log-text");
+      expect(textSpans).toHaveLength(1);
+      // Check that blockquote is rendered
+      const blockquote = textSpans[0].querySelector("blockquote");
+      expect(blockquote).toBeTruthy();
+      expect(blockquote!.textContent).toContain("This is a blockquote");
+    });
+
+    it("renders markdown in thinking entries", () => {
+      const entries = [
+        makeEntry({ text: "Let me think about **this problem**...", type: "thinking" }),
+      ];
+      const { container } = render(<AgentLogViewer entries={entries} loading={false} />);
+      const thinkingSpans = container.querySelectorAll(".agent-log-thinking");
+      expect(thinkingSpans).toHaveLength(1);
+      const strong = thinkingSpans[0].querySelector("strong");
+      expect(strong).toBeTruthy();
+      expect(strong!.textContent).toBe("this problem");
+    });
+
+    it("renders mixed content with markdown and plain text", () => {
+      const entries = [
+        makeEntry({ text: "The code:\n\n```js\nconsole.log('hello');\n```\n\nworks!" }),
+      ];
+      const { container } = render(<AgentLogViewer entries={entries} loading={false} />);
+      const textSpans = container.querySelectorAll(".agent-log-text");
+      expect(textSpans).toHaveLength(1);
+      const pre = textSpans[0].querySelector("pre");
+      expect(pre).toBeTruthy();
+      // Plain text before and after should be preserved
+      expect(textSpans[0].textContent).toContain("The code:");
+      expect(textSpans[0].textContent).toContain("works!");
+    });
+  });
 });

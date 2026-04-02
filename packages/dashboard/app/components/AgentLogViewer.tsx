@@ -1,6 +1,8 @@
 import type { AgentLogEntry } from "@fusion/core";
 import { ProviderIcon } from "./ProviderIcon";
 import { useRef, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface ModelInfo {
   provider?: string;
@@ -190,7 +192,10 @@ export function AgentLogViewer({ entries, loading, executorModel, validatorModel
                 opacity: 0.7,
               }}
             >
-              {agentBadge}{entry.text}
+              {agentBadge}
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {entry.text}
+              </ReactMarkdown>
             </span>
           );
         }
@@ -258,7 +263,10 @@ export function AgentLogViewer({ entries, loading, executorModel, validatorModel
         // Default: text entries
         return (
           <span key={i} className="agent-log-text">
-            {agentBadge}{entry.text}
+            {agentBadge}
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {entry.text}
+            </ReactMarkdown>
           </span>
         );
       })}
