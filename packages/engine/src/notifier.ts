@@ -1,4 +1,4 @@
-import type { TaskStore, Task, Column, Settings, MergeResult } from "@fusion/core";
+import type { TaskStore, Task, Column, Settings, MergeResult, NtfyNotificationEvent } from "@fusion/core";
 import { EventEmitter } from "node:events";
 import { schedulerLog } from "./logger.js";
 
@@ -36,6 +36,7 @@ interface NtfyConfig {
   enabled: boolean;
   topic: string | undefined;
   dashboardHost: string | undefined;
+  events: NtfyNotificationEvent[];
 }
 
 /** Event types for notification deduplication */
@@ -53,7 +54,7 @@ type NotificationEventType = "in-review" | "merged" | "failed";
  * - Configurable notification events (hardcoded defaults)
  */
 export class NtfyNotifier {
-  private config: NtfyConfig = { enabled: false, topic: undefined, dashboardHost: undefined };
+  private config: NtfyConfig = { enabled: false, topic: undefined, dashboardHost: undefined, events: ["in-review", "merged", "failed"] };
   private ntfyBaseUrl: string;
   /** Project identifier for deep links in notifications */
   private projectId?: string;
@@ -123,7 +124,7 @@ export class NtfyNotifier {
     const { task, to } = data;
 
     // Notify when task moves to in-review (completed work, ready for review)
-    if (to === "in-review") {
+    if (to === "in-review" && this.isEventEnabled("in-review")) {
       const clickUrl = this.buildTaskUrl(task.id);
       this.maybeNotify(task.id, "in-review", () =>
         this.sendNotification(
@@ -144,7 +145,7 @@ export class NtfyNotifier {
     if (!this.config.enabled || !this.config.topic) return;
 
     // Notify when task fails
-    if (task.status === "failed") {
+    if (task.status === "failed" && this.isEventEnabled("failed")) {
       const clickUrl = this.buildTaskUrl(task.id);
       this.maybeNotify(task.id, "failed", () =>
         this.sendNotification(
@@ -162,7 +163,7 @@ export class NtfyNotifier {
     if (!this.config.enabled || !this.config.topic) return;
 
     // Only notify on successful merges
-    if (result.merged) {
+    if (result.merged && this.isEventEnabled("merged")) {
       const clickUrl = this.buildTaskUrl(result.task.id);
       this.maybeNotify(result.task.id, "merged", () =>
         this.sendNotification(
@@ -182,7 +183,8 @@ export class NtfyNotifier {
     // Check if ntfy settings changed
     if (settings.ntfyEnabled !== previous.ntfyEnabled ||
         settings.ntfyTopic !== previous.ntfyTopic ||
-        settings.ntfyDashboardHost !== previous.ntfyDashboardHost) {
+        settings.ntfyDashboardHost !== previous.ntfyDashboardHost ||
+        JSON.stringify(settings.ntfyEvents) !== JSON.stringify(previous.ntfyEvents)) {
       const wasEnabled = this.config.enabled;
       this.loadConfig(settings);
 
@@ -194,6 +196,8 @@ export class NtfyNotifier {
         schedulerLog.log("NtfyNotifier topic updated");
       } else if (this.config.dashboardHost !== previous.ntfyDashboardHost) {
         schedulerLog.log("NtfyNotifier dashboard host updated");
+      } else if (JSON.stringify(this.config.events) !== JSON.stringify(previous.ntfyEvents)) {
+        schedulerLog.log("NtfyNotifier events updated");
       }
     }
   };
@@ -203,7 +207,15 @@ export class NtfyNotifier {
       enabled: settings.ntfyEnabled ?? false,
       topic: settings.ntfyTopic,
       dashboardHost: settings.ntfyDashboardHost,
+      events: settings.ntfyEvents ?? ["in-review", "merged", "failed"],
     };
+  }
+
+  /**
+   * Check if a notification event type is enabled based on the configured events list.
+   */
+  private isEventEnabled(event: NotificationEventType): boolean {
+    return this.config.events.includes(event);
   }
 
   /**
@@ -295,6 +307,6 @@ export class NtfyNotifier {
    * Get current config (for testing purposes).
    */
   getConfig(): NtfyConfig {
-    return { ...this.config };
+    return { ...this.config, events: [...this.config.events] };
   }
 }
