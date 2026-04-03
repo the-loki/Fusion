@@ -16,3 +16,8 @@ coverage/
 
 # Pi
 .pi/
+
+# Local kb state and backups
+.kb/
+.fusion-backup/
+.fusion-backup-*/
