@@ -33,6 +33,10 @@ export interface StuckTaskDetectorOptions {
   /** Callback invoked when a stuck task is detected and killed.
    *  The task will be moved to "todo" for retry by the detector. */
   onStuck?: (taskId: string) => void;
+  /** Called before re-queuing a killed task. Return false to prevent re-queue
+   *  (caller is responsible for marking the task as terminally failed).
+   *  Used by SelfHealingManager to enforce stuck kill budgets. */
+  beforeRequeue?: (taskId: string) => Promise<boolean>;
 }
 
 export class StuckTaskDetector {
@@ -40,6 +44,7 @@ export class StuckTaskDetector {
   private interval: ReturnType<typeof setInterval> | null = null;
   private pollIntervalMs: number;
   private onStuck?: (taskId: string) => void;
+  private beforeRequeue?: (taskId: string) => Promise<boolean>;
 
   constructor(
     private store: TaskStore,
@@ -47,6 +52,7 @@ export class StuckTaskDetector {
   ) {
     this.pollIntervalMs = options.pollIntervalMs ?? 30_000;
     this.onStuck = options.onStuck;
+    this.beforeRequeue = options.beforeRequeue;
   }
 
   /**
@@ -156,6 +162,22 @@ export class StuckTaskDetector {
       );
     } catch (err) {
       stuckLog.error(`Failed to log stuck event for ${taskId}:`, err);
+    }
+
+    // Check stuck kill budget before re-queuing (SelfHealingManager integration).
+    // If beforeRequeue returns false, the task has been marked failed — skip re-queue.
+    if (this.beforeRequeue) {
+      try {
+        const shouldRequeue = await this.beforeRequeue(taskId);
+        if (!shouldRequeue) {
+          stuckLog.log(`${taskId} exceeded stuck kill budget — not re-queuing`);
+          this.onStuck?.(taskId);
+          return;
+        }
+      } catch (err) {
+        stuckLog.error(`beforeRequeue check failed for ${taskId}:`, err);
+        // Fall through to re-queue on error — safer than dropping the task
+      }
     }
 
     // Set transient "stuck-killed" status, then move to "todo" for retry.

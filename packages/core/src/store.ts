@@ -178,6 +178,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       validatorModelProvider: row.validatorModelProvider || undefined,
       validatorModelId: row.validatorModelId || undefined,
       mergeRetries: row.mergeRetries ?? undefined,
+      stuckKillCount: row.stuckKillCount ?? undefined,
       recoveryRetryCount: row.recoveryRetryCount ?? undefined,
       nextRecoveryAt: row.nextRecoveryAt || undefined,
       error: row.error || undefined,
@@ -228,14 +229,14 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         id, title, description, "column", status, size, reviewLevel, currentStep,
         worktree, blockedBy, paused, baseBranch, branch, baseCommitSha, modelPresetId, modelProvider,
         modelId, validatorModelProvider, validatorModelId, mergeRetries,
-        recoveryRetryCount, nextRecoveryAt, error,
+        stuckKillCount, recoveryRetryCount, nextRecoveryAt, error,
         summary, thinkingLevel, createdAt, updatedAt, columnMovedAt,
         dependencies, steps, log, attachments, steeringComments,
         comments, workflowStepResults, prInfo, issueInfo, mergeDetails,
         breakIntoSubtasks, enabledWorkflowSteps, modifiedFiles, missionId, sliceId
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       )
     `).run(
       task.id,
@@ -258,6 +259,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       task.validatorModelProvider ?? null,
       task.validatorModelId ?? null,
       task.mergeRetries ?? null,
+      task.stuckKillCount ?? 0,
       task.recoveryRetryCount ?? null,
       task.nextRecoveryAt ?? null,
       task.error ?? null,
@@ -975,7 +977,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
 
   async updateTask(
     id: string,
-    updates: { title?: string; description?: string; prompt?: string; worktree?: string; status?: string | null; dependencies?: string[]; blockedBy?: string | null; paused?: boolean; baseBranch?: string; branch?: string; baseCommitSha?: string; size?: "S" | "M" | "L"; reviewLevel?: number; mergeRetries?: number; recoveryRetryCount?: number | null; nextRecoveryAt?: string | null; modelProvider?: string | null; modelId?: string | null; validatorModelProvider?: string | null; validatorModelId?: string | null; error?: string | null; summary?: string | null; workflowStepResults?: import("./types.js").WorkflowStepResult[] | null; modifiedFiles?: string[] | null; missionId?: string | null; sliceId?: string | null },
+    updates: { title?: string; description?: string; prompt?: string; worktree?: string; status?: string | null; dependencies?: string[]; blockedBy?: string | null; paused?: boolean; baseBranch?: string; branch?: string; baseCommitSha?: string; size?: "S" | "M" | "L"; reviewLevel?: number; mergeRetries?: number; stuckKillCount?: number | null; recoveryRetryCount?: number | null; nextRecoveryAt?: string | null; modelProvider?: string | null; modelId?: string | null; validatorModelProvider?: string | null; validatorModelId?: string | null; error?: string | null; summary?: string | null; workflowStepResults?: import("./types.js").WorkflowStepResult[] | null; modifiedFiles?: string[] | null; missionId?: string | null; sliceId?: string | null },
   ): Promise<Task> {
     return this.withTaskLock(id, async () => {
       // Validate that task doesn't depend on itself
@@ -1030,6 +1032,11 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       if (updates.size !== undefined) task.size = updates.size;
       if (updates.reviewLevel !== undefined) task.reviewLevel = updates.reviewLevel;
       if (updates.mergeRetries !== undefined) task.mergeRetries = updates.mergeRetries;
+      if (updates.stuckKillCount === null) {
+        task.stuckKillCount = undefined;
+      } else if (updates.stuckKillCount !== undefined) {
+        task.stuckKillCount = updates.stuckKillCount;
+      }
       if (updates.recoveryRetryCount === null) {
         task.recoveryRetryCount = undefined;
       } else if (updates.recoveryRetryCount !== undefined) {
@@ -2713,6 +2720,14 @@ ${stepsSection}`;
       this._db.close();
       this._db = null;
     }
+  }
+
+  /**
+   * Run a WAL checkpoint to truncate the WAL file and reclaim disk space.
+   * Safe to call periodically from the self-healing maintenance timer.
+   */
+  walCheckpoint(): { busy: number; log: number; checkpointed: number } {
+    return this.db.walCheckpoint();
   }
 
   getRootDir(): string {

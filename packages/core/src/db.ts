@@ -59,7 +59,7 @@ export function fromJson<T>(json: string | null | undefined): T | undefined {
 
 // ── Schema Definition ────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 function normalizeTaskComments(
   steeringComments: SteeringComment[] | undefined,
@@ -418,8 +418,14 @@ export class Database {
       });
     }
 
+    if (version < 8) {
+      this.applyMigration(8, () => {
+        this.addColumnIfMissing("tasks", "stuckKillCount", "INTEGER DEFAULT 0");
+      });
+    }
+
     // Future migrations go here:
-    // if (version < 8) { this.applyMigration(8, () => { ... }); }
+    // if (version < 9) { this.applyMigration(9, () => { ... }); }
   }
 
   /**
@@ -484,6 +490,15 @@ export class Database {
         updateStmt.run(nextCommentsJson, row.id);
       }
     }
+  }
+
+  /**
+   * Run a WAL checkpoint to truncate the WAL file and reclaim disk space.
+   * Safe to call periodically. Returns checkpoint stats.
+   */
+  walCheckpoint(): { busy: number; log: number; checkpointed: number } {
+    const row = this.db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get() as any;
+    return { busy: row?.busy ?? 0, log: row?.log ?? 0, checkpointed: row?.checkpointed ?? 0 };
   }
 
   /**

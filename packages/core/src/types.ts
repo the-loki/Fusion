@@ -475,6 +475,10 @@ export interface Task {
   workflowStepResults?: WorkflowStepResult[];
   /** Number of merge retry attempts made for this task (auto-merge conflict recovery) */
   mergeRetries?: number;
+  /** Number of times the stuck-task detector has killed this task's agent session.
+   *  Incremented by the self-healing manager on each stuck kill. When this reaches
+   *  `maxStuckKills`, the task is marked as permanently failed instead of re-queued. */
+  stuckKillCount?: number;
   /** Number of bounded recovery retry attempts for transient executor/triage failures.
    *  Distinct from `mergeRetries` (merge-conflict-specific). Incremented by the
    *  recovery-policy module on each recoverable failure; cleared when work restarts
@@ -743,6 +747,21 @@ export interface ProjectSettings {
    *  than this duration, the task is considered stuck and will be terminated and retried.
    *  Default: undefined (disabled). Suggested value: 600000 (10 minutes). */
   taskStuckTimeoutMs?: number;
+  /** When true, automatically unpause after rate-limit-triggered globalPause using
+   *  escalating backoff. Allows unattended recovery from transient API rate limits.
+   *  Default: true. */
+  autoUnpauseEnabled?: boolean;
+  /** Base delay in milliseconds before first auto-unpause attempt after rate-limit pause.
+   *  Subsequent attempts use exponential backoff (2x). Default: 300000 (5 min). */
+  autoUnpauseBaseDelayMs?: number;
+  /** Maximum delay cap in milliseconds for auto-unpause backoff. Default: 3600000 (60 min). */
+  autoUnpauseMaxDelayMs?: number;
+  /** Maximum number of times the stuck-task detector can kill and re-queue a task
+   *  before it is marked as permanently failed. Default: 3. */
+  maxStuckKills?: number;
+  /** Interval in milliseconds for periodic maintenance (worktree pruning, WAL checkpoint,
+   *  orphan cleanup). 0 disables. Default: 900000 (15 min). */
+  maintenanceIntervalMs?: number;
   /** When true, automatically poll and update PR status badges for tasks linked to GitHub PRs.
    *  Default: false. */
   autoUpdatePrStatus?: boolean;
@@ -845,6 +864,11 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   smartConflictResolution: true,
   requirePlanApproval: false,
   taskStuckTimeoutMs: undefined,
+  autoUnpauseEnabled: true,
+  autoUnpauseBaseDelayMs: 300_000,
+  autoUnpauseMaxDelayMs: 3_600_000,
+  maxStuckKills: 3,
+  maintenanceIntervalMs: 900_000,
   autoUpdatePrStatus: false,
   autoCreatePr: false,
   autoBackupEnabled: false,

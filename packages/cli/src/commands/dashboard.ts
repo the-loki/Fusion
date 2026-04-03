@@ -4,7 +4,7 @@ import { createInterface } from "node:readline";
 import { TaskStore, AutomationStore } from "@fusion/core";
 import type { Settings, TaskDetail, PrInfo } from "@fusion/core";
 import { createServer, GitHubClient } from "@fusion/dashboard";
-import { TriageProcessor, TaskExecutor, Scheduler, AgentSemaphore, WorktreePool, aiMergeTask, UsageLimitPauser, PRIORITY_MERGE, scanIdleWorktrees, cleanupOrphanedWorktrees, NtfyNotifier, PrMonitor, PrCommentHandler, CronRunner, StuckTaskDetector } from "@fusion/engine";
+import { TriageProcessor, TaskExecutor, Scheduler, AgentSemaphore, WorktreePool, aiMergeTask, UsageLimitPauser, PRIORITY_MERGE, scanIdleWorktrees, cleanupOrphanedWorktrees, NtfyNotifier, PrMonitor, PrCommentHandler, CronRunner, StuckTaskDetector, SelfHealingManager } from "@fusion/engine";
 import { AuthStorage, DefaultPackageManager, ModelRegistry, SettingsManager, discoverAndLoadExtensions, getAgentDir, createExtensionRuntime } from "@mariozechner/pi-coding-agent";
 
 /**
@@ -506,12 +506,16 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
       onSpecifyError: (t, e) => console.log(`[engine] ✗ ${t.id}: ${e.message}`),
     });
 
+    // ── Self-healing: auto-unpause, stuck kill budgets, maintenance ─────
+    const selfHealing = new SelfHealingManager(store, { rootDir: cwd });
+
     // ── Stuck task detector: monitors agent sessions for stagnation ────
     // Created before the executor so it can be passed in options.
     // The onStuck callback is wired to executor.markStuckAborted after
     // executor creation (late-binding via closure on executorRef).
     const executorRef: { current: TaskExecutor | null } = { current: null };
     const stuckTaskDetector = new StuckTaskDetector(store, {
+      beforeRequeue: (taskId) => selfHealing.checkStuckBudget(taskId),
       onStuck: (taskId) => {
         executorRef.current?.markStuckAborted(taskId);
         console.log(`[engine] ⚠ ${taskId} stuck — terminated, will retry`);
@@ -550,6 +554,7 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
     triage.start();
     scheduler.start();
     stuckTaskDetector.start();
+    selfHealing.start();
 
     // ── Startup sweep: resume orphaned in-progress tasks ──────────────
     executor.resumeOrphaned().catch((err) =>
@@ -660,6 +665,7 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
     scheduleMergeRetry();
 
     const shutdown = () => {
+      selfHealing.stop();
       stuckTaskDetector.stop();
       triage.stop();
       scheduler.stop();

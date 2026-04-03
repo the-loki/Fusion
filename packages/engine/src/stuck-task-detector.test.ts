@@ -244,6 +244,67 @@ describe("StuckTaskDetector", () => {
       // Should not throw
       expect(store.moveTask).not.toHaveBeenCalled();
     });
+
+    it("calls beforeRequeue and skips re-queue when it returns false", async () => {
+      const beforeRequeue = vi.fn().mockResolvedValue(false);
+      const onStuck = vi.fn();
+      const customDetector = new StuckTaskDetector(store, { beforeRequeue, onStuck });
+      const session = createMockSession();
+
+      customDetector.trackTask("FN-001", session);
+
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.advanceTimersByTime(61000);
+
+      await customDetector.killAndRetry("FN-001", 60000);
+
+      expect(beforeRequeue).toHaveBeenCalledWith("FN-001");
+      expect(session.dispose).toHaveBeenCalled();
+      // onStuck should still be called (so executor can mark stuck-aborted)
+      expect(onStuck).toHaveBeenCalledWith("FN-001");
+      // But task should NOT be moved to todo
+      expect(store.moveTask).not.toHaveBeenCalled();
+      expect(store.updateTask).not.toHaveBeenCalledWith("FN-001", { status: "stuck-killed" });
+
+      vi.useRealTimers();
+    });
+
+    it("calls beforeRequeue and proceeds with re-queue when it returns true", async () => {
+      const beforeRequeue = vi.fn().mockResolvedValue(true);
+      const customDetector = new StuckTaskDetector(store, { beforeRequeue });
+      const session = createMockSession();
+
+      customDetector.trackTask("FN-001", session);
+
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.advanceTimersByTime(61000);
+
+      await customDetector.killAndRetry("FN-001", 60000);
+
+      expect(beforeRequeue).toHaveBeenCalledWith("FN-001");
+      expect(store.updateTask).toHaveBeenCalledWith("FN-001", { status: "stuck-killed" });
+      expect(store.moveTask).toHaveBeenCalledWith("FN-001", "todo");
+
+      vi.useRealTimers();
+    });
+
+    it("falls through to re-queue when beforeRequeue throws", async () => {
+      const beforeRequeue = vi.fn().mockRejectedValue(new Error("check failed"));
+      const customDetector = new StuckTaskDetector(store, { beforeRequeue });
+      const session = createMockSession();
+
+      customDetector.trackTask("FN-001", session);
+
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.advanceTimersByTime(61000);
+
+      await customDetector.killAndRetry("FN-001", 60000);
+
+      // Should still re-queue on error (safe fallback)
+      expect(store.moveTask).toHaveBeenCalledWith("FN-001", "todo");
+
+      vi.useRealTimers();
+    });
   });
 
   describe("checkNow", () => {

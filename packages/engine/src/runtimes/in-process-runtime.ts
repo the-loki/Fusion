@@ -20,6 +20,7 @@ import type {
 import { runtimeLog } from "../logger.js";
 import type { StuckTaskDetector } from "../stuck-task-detector.js";
 import type { UsageLimitPauser } from "../usage-limit-detector.js";
+import { SelfHealingManager } from "../self-healing.js";
 
 /**
  * InProcessRuntime runs a project within the main process.
@@ -65,6 +66,7 @@ export class InProcessRuntime
   private globalSemaphore?: AgentSemaphore;
   private stuckTaskDetector?: StuckTaskDetector;
   private usageLimitPauser?: UsageLimitPauser;
+  private selfHealingManager?: SelfHealingManager;
   private agentStore?: AgentStore;
   private heartbeatMonitor?: HeartbeatMonitor;
   /** Maps task IDs to agent IDs for lifecycle tracking */
@@ -225,13 +227,19 @@ export class InProcessRuntime
         runtimeLog.warn(`AgentStore initialization failed (continuing without agent monitoring):`, agentErr);
       }
 
-      // 7. Set up event forwarding from TaskStore
+      // 7. Initialize SelfHealingManager
+      this.selfHealingManager = new SelfHealingManager(this.taskStore, {
+        rootDir: this.config.workingDirectory,
+      });
+      this.selfHealingManager.start();
+
+      // 8. Set up event forwarding from TaskStore
       this.setupEventForwarding();
 
-      // 8. Resume orphaned in-progress tasks
+      // 9. Resume orphaned in-progress tasks
       await this.executor.resumeOrphaned();
 
-      // 9. Start scheduler
+      // 10. Start scheduler
       this.scheduler.start();
 
       this.setStatus("active");
@@ -266,13 +274,19 @@ export class InProcessRuntime
     runtimeLog.log(`Stopping InProcessRuntime for project ${this.config.projectId}`);
 
     try {
-      // 1. Stop heartbeat monitor
+      // 1. Stop self-healing manager
+      if (this.selfHealingManager) {
+        this.selfHealingManager.stop();
+        runtimeLog.log("SelfHealingManager stopped");
+      }
+
+      // 2. Stop heartbeat monitor
       if (this.heartbeatMonitor) {
         this.heartbeatMonitor.stop();
         runtimeLog.log("HeartbeatMonitor stopped");
       }
 
-      // 2. Stop scheduler (prevents new task scheduling)
+      // 3. Stop scheduler (prevents new task scheduling)
       if (this.scheduler) {
         this.scheduler.stop();
         runtimeLog.log("Scheduler stopped");
