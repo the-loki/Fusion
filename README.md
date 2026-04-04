@@ -642,16 +642,41 @@ The **Changes** tab in the task detail modal uses the merge commit to load file-
 
 ## Workflow Steps
 
-Workflow steps are reusable quality gates that run after task implementation but before the task moves to in-review.
+Workflow steps are reusable quality gates that run after task implementation but before the task moves to in-review. Each step can run in one of two modes: **prompt** (AI agent review) or **script** (deterministic command execution).
 
 The dashboard's Workflow Step Manager dialog follows the global theme system (dark/light/color themes) using consistent modal styling, spacing, and form controls.
+
+### Execution Modes
+
+| Mode | How it works | Use for |
+|------|-------------|---------|
+| **Prompt** (default) | Spawns a readonly AI agent with the step's prompt to review changes | Code review, documentation checks, security audits |
+| **Script** | Runs a named script from project settings (`settings.scripts`) in the task worktree | Test suites, linting, type checking, build verification |
+
+**Prompt mode** — The agent receives the step's prompt and has readonly filesystem access. Results are the agent's text output.
+
+**Script mode** — The step references a script name (e.g., `test`) that maps to a command in project settings. The command runs with a 2-minute timeout. On success, stdout is captured as the result. On failure, the exit code, stdout, and stderr are reported. Script-mode steps can only reference named scripts from `settings.scripts` — no raw commands are accepted.
+
+```json
+{
+  "scripts": {
+    "test": "pnpm test",
+    "lint": "pnpm lint",
+    "typecheck": "pnpm tsc --noEmit"
+  }
+}
+```
+
+When creating or updating a script-mode step, the `scriptName` must reference an existing entry in the project's scripts map.
 
 ### Defining Workflow Steps
 
 1. Click the **Workflow Steps** button (⚡) in the dashboard header
 2. Click **Add Workflow Step** and provide a name and description
-3. Use **Refine with AI** to generate a detailed agent prompt from your description
-4. Save and enable the step
+3. Choose the execution mode: **Prompt** (AI agent) or **Script** (named project script)
+4. For prompt mode, use **Refine with AI** to generate a detailed agent prompt from your description
+5. For script mode, select a script name from your project's configured scripts
+6. Save and enable the step
 
 ### Built-in Templates
 
@@ -675,7 +700,7 @@ Click **Add** on any template to create a customizable workflow step.
 4. The task only moves to in-review after all workflow steps pass
 5. View results in the **Workflow** tab of the task detail modal
 
-Workflow step agents use **readonly tools** (no modifications). If a workflow step fails, the task is marked as failed and won't move to in-review.
+Workflow step agents use **readonly tools** (no modifications). Script-mode steps execute their named command in the task worktree. If a workflow step fails (agent reports issues or script exits non-zero), the task is marked as failed and stays in in-review for manual inspection.
 
 ## Scheduled Tasks
 

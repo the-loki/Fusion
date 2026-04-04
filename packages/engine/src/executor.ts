@@ -1437,7 +1437,11 @@ export class TaskExecutor {
         continue;
       }
 
-      if (!ws.prompt?.trim()) {
+      // Normalize legacy steps without mode to prompt-mode
+      const stepMode: "prompt" | "script" = ws.mode || "prompt";
+
+      // Skip validation per mode
+      if (stepMode === "prompt" && !ws.prompt?.trim()) {
         await this.store.logEntry(task.id, `Workflow step '${ws.name}' has no prompt — skipping`);
         results.push({
           workflowStepId: ws.id,
@@ -1449,13 +1453,27 @@ export class TaskExecutor {
         continue;
       }
 
-      await this.store.logEntry(task.id, `Starting workflow step: ${ws.name}`);
-      executorLog.log(`${task.id} — running workflow step: ${ws.name}`);
+      if (stepMode === "script" && !ws.scriptName?.trim()) {
+        await this.store.logEntry(task.id, `Workflow step '${ws.name}' has no scriptName — skipping`);
+        results.push({
+          workflowStepId: ws.id,
+          workflowStepName: ws.name,
+          status: "skipped",
+          output: "No scriptName configured for this workflow step",
+        });
+        await this.store.updateTask(task.id, { workflowStepResults: results });
+        continue;
+      }
+
+      await this.store.logEntry(task.id, `Starting workflow step: ${ws.name} (${stepMode} mode)`);
+      executorLog.log(`${task.id} — running workflow step: ${ws.name} (${stepMode} mode)`);
 
       const startedAt = new Date().toISOString();
 
       try {
-        const result = await this.executeWorkflowStep(task, ws, worktreePath, settings);
+        const result = stepMode === "script"
+          ? await this.executeScriptWorkflowStep(task, ws, worktreePath, settings)
+          : await this.executeWorkflowStep(task, ws, worktreePath, settings);
         const completedAt = new Date().toISOString();
 
         if (result.success) {
@@ -1510,6 +1528,51 @@ export class TaskExecutor {
     }
 
     return true;
+  }
+
+  /**
+   * Execute a script-mode workflow step by resolving the scriptName to a command
+   * from project settings and running it in the task worktree.
+   */
+  private async executeScriptWorkflowStep(
+    task: Task,
+    workflowStep: WorkflowStep,
+    worktreePath: string,
+    settings: Settings,
+  ): Promise<{ success: boolean; output?: string; error?: string }> {
+    const scriptName = workflowStep.scriptName!.trim();
+    const scriptCommand = settings.scripts?.[scriptName];
+
+    if (!scriptCommand) {
+      const available = settings.scripts ? Object.keys(settings.scripts).join(", ") : "none";
+      const msg = `Script '${scriptName}' not found in project settings. Available scripts: ${available}`;
+      await this.store.logEntry(task.id, msg);
+      return { success: false, error: msg };
+    }
+
+    executorLog.log(`${task.id}: workflow step '${workflowStep.name}' executing script '${scriptName}': ${scriptCommand}`);
+    await this.store.logEntry(task.id, `Workflow step '${workflowStep.name}' executing script '${scriptName}': ${scriptCommand}`);
+
+    try {
+      const output = execSync(scriptCommand, {
+        cwd: worktreePath,
+        stdio: "pipe",
+        timeout: 120_000,
+      });
+      const stdout = output.toString().trim();
+      return { success: true, output: stdout || `Script '${scriptName}' completed successfully` };
+    } catch (err: any) {
+      const stderr = err.stderr?.toString()?.trim() || "";
+      const stdout = err.stdout?.toString()?.trim() || "";
+      const exitCode = err.status;
+      const parts: string[] = [];
+      if (exitCode !== undefined) parts.push(`Exit code: ${exitCode}`);
+      if (stdout) parts.push(`stdout: ${stdout}`);
+      if (stderr) parts.push(`stderr: ${stderr}`);
+      if (!parts.length) parts.push(err.message || "Unknown error");
+      const errorOutput = parts.join("\n");
+      return { success: false, error: errorOutput };
+    }
   }
 
   /**

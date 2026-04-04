@@ -5968,17 +5968,22 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         updates.enabled = enabled;
       }
 
-      // Validate script name references an actual script when switching to script mode
-      if (updates.mode === "script") {
-        const scriptNameToValidate = (updates.scriptName as string | undefined);
-        if (!scriptNameToValidate?.trim()) {
+      // Validate script-mode requirements against the resulting state (existing + updates)
+      // This catches cases where an existing script-mode step has its scriptName updated
+      // without the mode field being explicitly sent.
+      const existingStep = await scopedStore.getWorkflowStep(req.params.id);
+      const resultingMode: string | undefined = updates.mode !== undefined ? (updates.mode as string) : existingStep?.mode;
+      const resultingScriptName: string | undefined = updates.scriptName !== undefined ? (updates.scriptName as string) : existingStep?.scriptName;
+
+      if (resultingMode === "script") {
+        if (!resultingScriptName?.trim()) {
           res.status(400).json({ error: "scriptName is required when mode is 'script'" });
           return;
         }
         const settings = await scopedStore.getSettings();
         const scripts = settings.scripts || {};
-        if (!(scriptNameToValidate.trim() in scripts)) {
-          res.status(400).json({ error: `Script '${scriptNameToValidate.trim()}' not found in project settings. Available scripts: ${Object.keys(scripts).join(", ") || "none"}` });
+        if (!(resultingScriptName.trim() in scripts)) {
+          res.status(400).json({ error: `Script '${resultingScriptName.trim()}' not found in project settings. Available scripts: ${Object.keys(scripts).join(", ") || "none"}` });
           return;
         }
       }

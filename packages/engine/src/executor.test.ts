@@ -5574,6 +5574,426 @@ describe("Workflow Steps Execution", () => {
       expect.stringContaining("workflow step override"),
     );
   });
+
+  it("executes script-mode workflow step successfully", async () => {
+    const store = createMockStore();
+
+    store.getSettings.mockResolvedValue({
+      maxConcurrent: 2,
+      maxWorktrees: 4,
+      scripts: { test: "echo 'all tests passed'" },
+    });
+
+    store.getTask.mockResolvedValue({
+      id: "FN-001",
+      title: "Test",
+      description: "Test task",
+      column: "in-progress",
+      dependencies: [],
+      steps: [{ name: "Preflight", status: "pending" }],
+      currentStep: 0,
+      log: [],
+      enabledWorkflowSteps: ["WS-001"],
+      prompt: "# test\n## Steps\n### Step 0: Preflight\n- [ ] check",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    store.getWorkflowStep.mockResolvedValue({
+      id: "WS-001",
+      name: "Run Tests",
+      description: "Execute test suite",
+      mode: "script",
+      prompt: "",
+      scriptName: "test",
+      enabled: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Mock execSync to succeed for the script command
+    mockedExecSync.mockImplementation((cmd: string | string[]) => {
+      if (typeof cmd === "string" && cmd.includes("echo")) {
+        return Buffer.from("all tests passed\n");
+      }
+      return Buffer.from("");
+    });
+
+    // Main agent with task_done
+    createAgentWithTaskDone();
+
+    const onComplete = vi.fn();
+    const executor = new TaskExecutor(store, "/tmp/test", { onComplete });
+
+    await executor.execute({
+      id: "FN-001",
+      title: "Test",
+      description: "Test task",
+      column: "in-progress",
+      dependencies: [],
+      steps: [{ name: "Preflight", status: "pending" }],
+      currentStep: 0,
+      log: [],
+      enabledWorkflowSteps: ["WS-001"],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Should only call createKbAgent once (main execution — no agent for script mode)
+    expect(mockedCreateHaiAgent).toHaveBeenCalledTimes(1);
+
+    // Should log script execution
+    expect(store.logEntry).toHaveBeenCalledWith(
+      "FN-001",
+      expect.stringContaining("executing script 'test'"),
+    );
+
+    // Task should move to in-review
+    expect(store.moveTask).toHaveBeenCalledWith("FN-001", "in-review");
+
+    // Should record a passed result
+    expect(store.updateTask).toHaveBeenCalledWith(
+      "FN-001",
+      expect.objectContaining({
+        workflowStepResults: expect.arrayContaining([
+          expect.objectContaining({
+            workflowStepId: "WS-001",
+            workflowStepName: "Run Tests",
+            status: "passed",
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it("fails task when script-mode workflow step exits non-zero", async () => {
+    const store = createMockStore();
+
+    store.getSettings.mockResolvedValue({
+      maxConcurrent: 2,
+      maxWorktrees: 4,
+      scripts: { lint: "pnpm lint" },
+    });
+
+    store.getTask.mockResolvedValue({
+      id: "FN-001",
+      title: "Test",
+      description: "Test task",
+      column: "in-progress",
+      dependencies: [],
+      steps: [{ name: "Preflight", status: "pending" }],
+      currentStep: 0,
+      log: [],
+      enabledWorkflowSteps: ["WS-001"],
+      prompt: "# test\n## Steps\n### Step 0: Preflight\n- [ ] check",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    store.getWorkflowStep.mockResolvedValue({
+      id: "WS-001",
+      name: "Lint Check",
+      description: "Run linter",
+      mode: "script",
+      prompt: "",
+      scriptName: "lint",
+      enabled: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Mock execSync to throw for the lint command
+    const scriptErr = new Error("Command failed: pnpm lint");
+    (scriptErr as any).status = 1;
+    (scriptErr as any).stderr = Buffer.from("syntax error on line 42\n");
+    (scriptErr as any).stdout = Buffer.from("");
+    mockedExecSync.mockImplementation((cmd: string | string[]) => {
+      if (typeof cmd === "string" && cmd.includes("lint")) {
+        throw scriptErr;
+      }
+      return Buffer.from("");
+    });
+
+    createAgentWithTaskDone();
+
+    const onComplete = vi.fn();
+    const executor = new TaskExecutor(store, "/tmp/test", { onComplete });
+
+    await executor.execute({
+      id: "FN-001",
+      title: "Test",
+      description: "Test task",
+      column: "in-progress",
+      dependencies: [],
+      steps: [{ name: "Preflight", status: "pending" }],
+      currentStep: 0,
+      log: [],
+      enabledWorkflowSteps: ["WS-001"],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Should record a failed result with exit code and stderr
+    expect(store.updateTask).toHaveBeenCalledWith(
+      "FN-001",
+      expect.objectContaining({
+        workflowStepResults: expect.arrayContaining([
+          expect.objectContaining({
+            workflowStepId: "WS-001",
+            workflowStepName: "Lint Check",
+            status: "failed",
+            output: expect.stringContaining("Exit code: 1"),
+          }),
+        ]),
+      }),
+    );
+
+    // Task should move to in-review but with failed status
+    expect(store.updateTask).toHaveBeenCalledWith(
+      "FN-001",
+      expect.objectContaining({ status: "failed", error: "Workflow step failed" }),
+    );
+    expect(store.moveTask).toHaveBeenCalledWith("FN-001", "in-review");
+  });
+
+  it("fails step when script is missing from settings.scripts", async () => {
+    const store = createMockStore();
+
+    store.getSettings.mockResolvedValue({
+      maxConcurrent: 2,
+      maxWorktrees: 4,
+      scripts: { other: "echo other" },
+    });
+
+    store.getTask.mockResolvedValue({
+      id: "FN-001",
+      title: "Test",
+      description: "Test task",
+      column: "in-progress",
+      dependencies: [],
+      steps: [{ name: "Preflight", status: "pending" }],
+      currentStep: 0,
+      log: [],
+      enabledWorkflowSteps: ["WS-001"],
+      prompt: "# test\n## Steps\n### Step 0: Preflight\n- [ ] check",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    store.getWorkflowStep.mockResolvedValue({
+      id: "WS-001",
+      name: "Missing Script",
+      description: "Uses nonexistent script",
+      mode: "script",
+      prompt: "",
+      scriptName: "nonexistent",
+      enabled: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    createAgentWithTaskDone();
+
+    const onComplete = vi.fn();
+    const executor = new TaskExecutor(store, "/tmp/test", { onComplete });
+
+    await executor.execute({
+      id: "FN-001",
+      title: "Test",
+      description: "Test task",
+      column: "in-progress",
+      dependencies: [],
+      steps: [{ name: "Preflight", status: "pending" }],
+      currentStep: 0,
+      log: [],
+      enabledWorkflowSteps: ["WS-001"],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Should log that the script was not found
+    expect(store.logEntry).toHaveBeenCalledWith(
+      "FN-001",
+      expect.stringContaining("not found in project settings"),
+    );
+
+    // Should record a failed result
+    expect(store.updateTask).toHaveBeenCalledWith(
+      "FN-001",
+      expect.objectContaining({
+        workflowStepResults: expect.arrayContaining([
+          expect.objectContaining({
+            workflowStepId: "WS-001",
+            status: "failed",
+            output: expect.stringContaining("not found in project settings"),
+          }),
+        ]),
+      }),
+    );
+
+    // Task should move to in-review but with failed status
+    expect(store.updateTask).toHaveBeenCalledWith(
+      "FN-001",
+      expect.objectContaining({ status: "failed", error: "Workflow step failed" }),
+    );
+    expect(store.moveTask).toHaveBeenCalledWith("FN-001", "in-review");
+  });
+
+  it("skips script-mode step when scriptName is missing", async () => {
+    const store = createMockStore();
+
+    store.getSettings.mockResolvedValue({
+      maxConcurrent: 2,
+      maxWorktrees: 4,
+      scripts: {},
+    });
+
+    store.getTask.mockResolvedValue({
+      id: "FN-001",
+      title: "Test",
+      description: "Test task",
+      column: "in-progress",
+      dependencies: [],
+      steps: [{ name: "Preflight", status: "pending" }],
+      currentStep: 0,
+      log: [],
+      enabledWorkflowSteps: ["WS-001"],
+      prompt: "# test\n## Steps\n### Step 0: Preflight\n- [ ] check",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    store.getWorkflowStep.mockResolvedValue({
+      id: "WS-001",
+      name: "No Script",
+      description: "Script step without scriptName",
+      mode: "script",
+      prompt: "",
+      scriptName: undefined,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    createAgentWithTaskDone();
+
+    const onComplete = vi.fn();
+    const executor = new TaskExecutor(store, "/tmp/test", { onComplete });
+
+    await executor.execute({
+      id: "FN-001",
+      title: "Test",
+      description: "Test task",
+      column: "in-progress",
+      dependencies: [],
+      steps: [{ name: "Preflight", status: "pending" }],
+      currentStep: 0,
+      log: [],
+      enabledWorkflowSteps: ["WS-001"],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Should only call createKbAgent once (main execution)
+    expect(mockedCreateHaiAgent).toHaveBeenCalledTimes(1);
+
+    // Should log that it was skipped
+    expect(store.logEntry).toHaveBeenCalledWith(
+      "FN-001",
+      expect.stringContaining("no scriptName"),
+    );
+
+    // Task should move to in-review (skipped step doesn't block)
+    expect(store.moveTask).toHaveBeenCalledWith("FN-001", "in-review");
+  });
+
+  it("treats legacy steps without mode as prompt-mode", async () => {
+    const store = createMockStore();
+
+    store.getTask.mockResolvedValue({
+      id: "FN-001",
+      title: "Test",
+      description: "Test task",
+      column: "in-progress",
+      dependencies: [],
+      steps: [{ name: "Preflight", status: "pending" }],
+      currentStep: 0,
+      log: [],
+      enabledWorkflowSteps: ["WS-001"],
+      prompt: "# test\n## Steps\n### Step 0: Preflight\n- [ ] check",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Legacy step without mode field
+    store.getWorkflowStep.mockResolvedValue({
+      id: "WS-001",
+      name: "Legacy Review",
+      description: "Old step without mode",
+      prompt: "Review the code changes.",
+      enabled: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as any); // mode field intentionally omitted
+
+    let callIdx = 0;
+    mockedCreateHaiAgent.mockImplementation((async (opts: any) => {
+      callIdx++;
+      if (callIdx === 1) {
+        const customTools = opts.customTools || [];
+        const session = {
+          prompt: vi.fn().mockImplementation(async () => {
+            const taskDoneTool = customTools.find((t: any) => t.name === "task_done");
+            if (taskDoneTool) await taskDoneTool.execute("tool-1", {});
+          }),
+          dispose: vi.fn(),
+          subscribe: vi.fn(),
+          on: vi.fn(),
+          sessionManager: { getLeafId: vi.fn().mockReturnValue("leaf-1") },
+          state: {},
+        };
+        return { session };
+      } else {
+        return {
+          session: {
+            prompt: vi.fn().mockResolvedValue(undefined),
+            dispose: vi.fn(),
+            subscribe: vi.fn(),
+            on: vi.fn(),
+            state: {},
+          },
+        };
+      }
+    }) as any);
+
+    const onComplete = vi.fn();
+    const executor = new TaskExecutor(store, "/tmp/test", { onComplete });
+
+    await executor.execute({
+      id: "FN-001",
+      title: "Test",
+      description: "Test task",
+      column: "in-progress",
+      dependencies: [],
+      steps: [{ name: "Preflight", status: "pending" }],
+      currentStep: 0,
+      log: [],
+      enabledWorkflowSteps: ["WS-001"],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    // createKbAgent called twice: main agent + workflow step agent (prompt mode)
+    expect(mockedCreateHaiAgent).toHaveBeenCalledTimes(2);
+
+    // Second call should use prompt mode (readonly tools, agent-based)
+    const secondCall = mockedCreateHaiAgent.mock.calls[1];
+    expect(secondCall[0].tools).toBe("readonly");
+    expect(secondCall[0].systemPrompt).toContain("Legacy Review");
+
+    // Task should move to in-review
+    expect(store.moveTask).toHaveBeenCalledWith("FN-001", "in-review");
+  });
 });
 
 describe("Real-time steering injection", () => {

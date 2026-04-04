@@ -6503,6 +6503,55 @@ describe("PATCH /workflow-steps/:id", () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toContain("must include both provider and modelId");
   });
+
+  it("returns 400 when updating scriptName to nonexistent on existing script-mode step", async () => {
+    // Simulate an existing script-mode step
+    (store.getWorkflowStep as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: "WS-001",
+      name: "Run Tests",
+      description: "Test runner",
+      mode: "script",
+      scriptName: "test",
+      prompt: "",
+      enabled: true,
+      createdAt: "2026-01-01",
+      updatedAt: "2026-01-01",
+    });
+    (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      scripts: { test: "pnpm test", lint: "pnpm lint" },
+    });
+
+    const res = await REQUEST(buildApp(), "PATCH", "/api/workflow-steps/WS-001", JSON.stringify({
+      scriptName: "nonexistent",
+    }), { "Content-Type": "application/json" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("not found in project settings");
+    // Should NOT have called updateWorkflowStep since validation failed
+    expect(store.updateWorkflowStep).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when updating script-mode step without scriptName (resulting state)", async () => {
+    // Simulate an existing script-mode step with scriptName cleared
+    (store.getWorkflowStep as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: "WS-001",
+      name: "Run Tests",
+      description: "Test runner",
+      mode: "script",
+      scriptName: "",
+      prompt: "",
+      enabled: true,
+      createdAt: "2026-01-01",
+      updatedAt: "2026-01-01",
+    });
+
+    const res = await REQUEST(buildApp(), "PATCH", "/api/workflow-steps/WS-001", JSON.stringify({
+      name: "Updated Name",
+    }), { "Content-Type": "application/json" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("scriptName is required when mode is 'script'");
+  });
 });
 
 describe("DELETE /workflow-steps/:id", () => {

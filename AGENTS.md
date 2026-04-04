@@ -1122,11 +1122,11 @@ The order of IDs in `enabledWorkflowSteps` determines execution order — the en
 
 ### Engine Behavior
 
-- Workflow step agents use **readonly tools** (file reading only, no modifications)
-- Each step runs as a separate agent session in the task's worktree
+- **Prompt mode** steps use readonly agent tools (file reading only, no modifications); **script mode** steps execute a named command from project settings (`settings.scripts`) in the task worktree
+- Each prompt-mode step runs as a separate agent session; script-mode steps run via `execSync` with a 2-minute timeout
 - Steps execute sequentially (not in parallel)
-- If a workflow step fails, the task is marked as failed (not moved to in-review)
-- Steps with empty prompts are skipped with a log entry
+- If a workflow step fails (agent reports issues or script exits non-zero), the task is marked as failed and moved to in-review for manual inspection
+- Steps with empty prompts (prompt mode) or missing script names (script mode) are skipped with a log entry
 - All workflow step activity is logged to the task's agent log
 
 ### Viewing Results
