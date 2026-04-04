@@ -1,14 +1,17 @@
 /**
  * Stuck Task Detector — monitors in-progress tasks for agent session stagnation.
  *
- * When a task's agent session shows no activity (no text deltas, tool calls, or
- * progress updates) for longer than the configured timeout, the detector
- * terminates the stuck session and triggers recovery (moving the task back to
- * "todo" for the scheduler to retry).
+ * The detector supports two detection modes:
+ * - **Inactivity** — no activity at all for the timeout period (session appears dead)
+ * - **Loop** — agent is active but making no step progress despite lots of activity
+ *   (e.g., context growth causing the agent to repeat itself without advancing steps)
  *
- * Activity is tracked via `recordActivity(taskId)` calls from the executor's
- * agent event handlers. The detector polls at a configurable interval and
- * compares the last activity timestamp against `taskStuckTimeoutMs` from settings.
+ * Activity tracking uses two signals:
+ * - `recordActivity(taskId)` — text/tool heartbeats only; increments `activitySinceProgress`
+ * - `recordProgress(taskId)` — step transitions (in-progress, done, skipped); resets counters
+ *
+ * The detector polls at a configurable interval and compares timestamps against
+ * `taskStuckTimeoutMs` from settings.
  */
 
 import type { TaskStore, Settings } from "@fusion/core";
@@ -24,15 +27,39 @@ export interface DisposableSession {
 /** Tracked entry for a single in-progress task. */
 interface TrackedTask {
   session: DisposableSession;
+  /** Timestamp of the last heartbeat (text delta, tool call, etc.). */
   lastActivity: number;
+  /** Timestamp of the last step progress event. */
+  lastProgressAt: number;
+  /** Number of activity heartbeats since the last progress event. */
+  activitySinceProgress: number;
 }
+
+/** Payload emitted when a stuck task is detected. */
+export interface StuckTaskEvent {
+  /** The task that was detected as stuck. */
+  taskId: string;
+  /** Why the task is considered stuck. */
+  reason: "inactivity" | "loop";
+  /** Milliseconds since the last step progress event. */
+  noProgressMs: number;
+  /** Milliseconds since the last activity heartbeat. */
+  inactivityMs: number;
+  /** Number of activity heartbeats since the last progress event. */
+  activitySinceProgress: number;
+}
+
+/** Minimum activity-since-progress count to classify as a loop.
+ *  Prevents false positives when a task is genuinely inactive. */
+const LOOP_ACTIVITY_THRESHOLD = 60;
 
 export interface StuckTaskDetectorOptions {
   /** Polling interval in milliseconds. Default: 30000 (30 seconds). */
   pollIntervalMs?: number;
-  /** Callback invoked when a stuck task is detected and killed.
-   *  The task will be moved to "todo" for retry by the detector. */
-  onStuck?: (taskId: string) => void;
+  /** Callback invoked when a stuck task is detected.
+   *  The task will be moved to "todo" for retry by the detector.
+   *  Receives a structured payload with detection reason and metrics. */
+  onStuck?: (event: StuckTaskEvent) => void;
   /** Called before re-queuing a killed task. Return false to prevent re-queue
    *  (caller is responsible for marking the task as terminally failed).
    *  Used by SelfHealingManager to enforce stuck kill budgets. */
@@ -43,7 +70,7 @@ export class StuckTaskDetector {
   private tracked = new Map<string, TrackedTask>();
   private interval: ReturnType<typeof setInterval> | null = null;
   private pollIntervalMs: number;
-  private onStuck?: (taskId: string) => void;
+  private onStuck?: (event: StuckTaskEvent) => void;
   private beforeRequeue?: (taskId: string) => Promise<boolean>;
 
   constructor(
@@ -84,12 +111,15 @@ export class StuckTaskDetector {
 
   /**
    * Register an active agent session for monitoring.
-   * Sets the initial activity timestamp to now.
+   * Sets initial timestamps and counters to now.
    */
   trackTask(taskId: string, session: DisposableSession): void {
+    const now = Date.now();
     this.tracked.set(taskId, {
       session,
-      lastActivity: Date.now(),
+      lastActivity: now,
+      lastProgressAt: now,
+      activitySinceProgress: 0,
     });
   }
 
@@ -103,12 +133,27 @@ export class StuckTaskDetector {
 
   /**
    * Record a heartbeat for a task's agent session.
-   * Called on text deltas, tool calls, and progress updates.
+   * Called on text deltas and tool calls only (NOT step transitions).
+   * Increments `activitySinceProgress` counter.
    */
   recordActivity(taskId: string): void {
     const entry = this.tracked.get(taskId);
     if (entry) {
       entry.lastActivity = Date.now();
+      entry.activitySinceProgress++;
+    }
+  }
+
+  /**
+   * Record a step progress event for a task's agent session.
+   * Called on step transitions (in-progress, done, skipped).
+   * Resets `activitySinceProgress` to 0 and updates `lastProgressAt`.
+   */
+  recordProgress(taskId: string): void {
+    const entry = this.tracked.get(taskId);
+    if (entry) {
+      entry.lastProgressAt = Date.now();
+      entry.activitySinceProgress = 0;
     }
   }
 
@@ -121,6 +166,22 @@ export class StuckTaskDetector {
   }
 
   /**
+   * Get the activity-since-progress count for a tracked task.
+   * Returns undefined if the task is not tracked.
+   */
+  getActivitySinceProgress(taskId: string): number | undefined {
+    return this.tracked.get(taskId)?.activitySinceProgress;
+  }
+
+  /**
+   * Get the last progress timestamp for a tracked task.
+   * Returns undefined if the task is not tracked.
+   */
+  getLastProgressAt(taskId: string): number | undefined {
+    return this.tracked.get(taskId)?.lastProgressAt;
+  }
+
+  /**
    * Check whether a task is stuck (no activity for longer than timeout).
    */
   isStuck(taskId: string, timeoutMs: number): boolean {
@@ -130,19 +191,58 @@ export class StuckTaskDetector {
   }
 
   /**
+   * Classify why a task is stuck.
+   * Returns null if the task is not stuck.
+   */
+  classifyStuckReason(taskId: string, timeoutMs: number): "inactivity" | "loop" | null {
+    const entry = this.tracked.get(taskId);
+    if (!entry) return null;
+
+    const now = Date.now();
+    const inactivityMs = now - entry.lastActivity;
+    const noProgressMs = now - entry.lastProgressAt;
+
+    // Check inactivity first — if there's been zero activity, it's just inactive
+    if (inactivityMs >= timeoutMs) {
+      return "inactivity";
+    }
+
+    // Check loop — active but not making progress, with enough activity to be a real loop
+    if (noProgressMs >= timeoutMs && entry.activitySinceProgress >= LOOP_ACTIVITY_THRESHOLD) {
+      return "loop";
+    }
+
+    return null;
+  }
+
+  /**
    * Terminate a stuck task's agent session and trigger recovery.
    * - Disposes the agent session
    * - Logs the stuck event to the task log
    * - Moves the task back to "todo" (preserving step progress)
    * - Invokes the onStuck callback
    */
-  async killAndRetry(taskId: string, _timeoutMs: number): Promise<void> {
+  async killAndRetry(taskId: string, timeoutMs: number): Promise<void> {
     const entry = this.tracked.get(taskId);
     if (!entry) return;
 
-    const elapsedMin = Math.round((Date.now() - entry.lastActivity) / 60_000);
+    const now = Date.now();
+    const inactivityMs = now - entry.lastActivity;
+    const noProgressMs = now - entry.lastProgressAt;
+    const activitySinceProgress = entry.activitySinceProgress;
 
-    stuckLog.log(`Killing stuck task ${taskId} (no activity for ~${elapsedMin} minutes)`);
+    // Classify the reason
+    const reason = this.classifyStuckReason(taskId, timeoutMs) ?? "inactivity";
+
+    const elapsedMin = Math.round(inactivityMs / 60_000);
+    const noProgressMin = Math.round(noProgressMs / 60_000);
+
+    stuckLog.log(
+      `Killing stuck task ${taskId} (reason=${reason}, ` +
+      `no progress for ~${noProgressMin}min, ` +
+      `no activity for ~${elapsedMin}min, ` +
+      `${activitySinceProgress} events since last progress)`,
+    );
 
     // Dispose the agent session first
     try {
@@ -158,11 +258,23 @@ export class StuckTaskDetector {
     try {
       await this.store.logEntry(
         taskId,
-        `Task terminated due to stuck agent session (no activity for ~${elapsedMin} minutes)`,
+        `Task terminated due to stuck agent session (reason=${reason}, ` +
+        `no progress for ~${noProgressMin}min, ` +
+        `no activity for ~${elapsedMin}min, ` +
+        `${activitySinceProgress} events since last progress)`,
       );
     } catch (err) {
       stuckLog.error(`Failed to log stuck event for ${taskId}:`, err);
     }
+
+    // Build the event payload
+    const event: StuckTaskEvent = {
+      taskId,
+      reason,
+      noProgressMs,
+      inactivityMs,
+      activitySinceProgress,
+    };
 
     // Check stuck kill budget before re-queuing (SelfHealingManager integration).
     // If beforeRequeue returns false, the task has been marked failed — skip re-queue.
@@ -171,7 +283,7 @@ export class StuckTaskDetector {
         const shouldRequeue = await this.beforeRequeue(taskId);
         if (!shouldRequeue) {
           stuckLog.log(`${taskId} exceeded stuck kill budget — not re-queuing`);
-          this.onStuck?.(taskId);
+          this.onStuck?.(event);
           return;
         }
       } catch (err) {
@@ -193,7 +305,7 @@ export class StuckTaskDetector {
     }
 
     // Notify listeners
-    this.onStuck?.(taskId);
+    this.onStuck?.(event);
   }
 
   /**
@@ -210,6 +322,11 @@ export class StuckTaskDetector {
    * Poll all tracked tasks and kill any that have exceeded the timeout.
    * Reads `taskStuckTimeoutMs` from settings on each check so changes
    * take effect on the next poll cycle.
+   *
+   * Detection rules:
+   * - **inactivity**: `lastActivity` older than `taskStuckTimeoutMs` (no heartbeats at all)
+   * - **loop**: `lastProgressAt` older than `taskStuckTimeoutMs` AND `activitySinceProgress >= 60`
+   *   (agent is actively doing things but not advancing steps)
    */
   private async checkStuckTasks(): Promise<void> {
     if (this.tracked.size === 0) return;
@@ -224,11 +341,11 @@ export class StuckTaskDetector {
     const timeoutMs = settings.taskStuckTimeoutMs;
     if (!timeoutMs || timeoutMs <= 0) return; // Disabled
 
-    const now = Date.now();
     const stuckTasks: string[] = [];
 
-    for (const [taskId, entry] of this.tracked) {
-      if ((now - entry.lastActivity) > timeoutMs) {
+    for (const [taskId] of this.tracked) {
+      const reason = this.classifyStuckReason(taskId, timeoutMs);
+      if (reason !== null) {
         stuckTasks.push(taskId);
       }
     }

@@ -577,9 +577,14 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
     const executorRef: { current: TaskExecutor | null } = { current: null };
     const stuckTaskDetector = new StuckTaskDetector(store, {
       beforeRequeue: (taskId) => selfHealing.checkStuckBudget(taskId),
-      onStuck: (taskId) => {
-        executorRef.current?.markStuckAborted(taskId);
-        console.log(`[engine] ⚠ ${taskId} stuck — terminated, will retry`);
+      onStuck: (event) => {
+        executorRef.current?.markStuckAborted(event.taskId);
+        console.log(
+          `[engine] ⚠ ${event.taskId} stuck (${event.reason}) — ` +
+          `no progress for ${Math.round(event.noProgressMs / 60_000)}min, ` +
+          `${event.activitySinceProgress} events since last progress — ` +
+          `terminated, will retry`,
+        );
       },
     });
 

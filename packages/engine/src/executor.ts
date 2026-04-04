@@ -812,8 +812,13 @@ export class TaskExecutor {
       execute: async (_id: string, params: Static<typeof taskUpdateParams>) => {
         const { step, status } = params;
 
-        // Record heartbeat for stuck task detection
-        stuckDetector?.recordActivity(taskId);
+        // Record step progress for stuck task detection.
+        // Step transitions (in-progress, done, skipped) indicate real progress
+        // and reset the loop detection counter. Generic activity (text deltas,
+        // tool calls) is tracked separately via recordActivity in AgentLogger.
+        if (status === "in-progress" || status === "done" || status === "skipped") {
+          stuckDetector?.recordProgress(taskId);
+        }
 
         // Enforce code review REVISE: block advancing to "done" when the last
         // code review for this step returned REVISE. The agent must fix the
