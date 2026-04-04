@@ -1,8 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { fetchTaskFileDiffs, fetchCommitDiff, type TaskFileDiff } from "../api";
-import { parsePatch } from "../components/CommitDiffTab";
-
-const ACTIVE_COLUMNS = new Set(["in-progress", "in-review"]);
+import { fetchTaskFileDiffs, type TaskFileDiff } from "../api";
 
 interface UseChangedFilesResult {
   files: TaskFileDiff[];
@@ -15,22 +12,19 @@ interface UseChangedFilesResult {
 
 export function useChangedFiles(
   taskId: string,
-  worktree: string | undefined,
+  _worktree: string | undefined,
   column: string,
   projectId?: string,
-  commitSha?: string,
 ): UseChangedFilesResult {
   const [files, setFiles] = useState<TaskFileDiff[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<TaskFileDiff | null>(null);
 
-  const isDone = column === "done";
+  const canLoad = column === "in-progress" || column === "in-review" || column === "done";
 
   useEffect(() => {
-    // For active tasks: need worktree
-    // For done tasks: need commitSha
-    if (!taskId || (!isDone && (!worktree || !ACTIVE_COLUMNS.has(column))) || (isDone && !commitSha)) {
+    if (!taskId || !canLoad) {
       setFiles([]);
       setLoading(false);
       setError(null);
@@ -44,21 +38,7 @@ export function useChangedFiles(
       setLoading(true);
       setError(null);
       try {
-        let result: TaskFileDiff[];
-        if (isDone && commitSha) {
-          // Done task: fetch from commit history
-          const data = await fetchCommitDiff(commitSha);
-          const parsed = parsePatch(data.patch || "");
-          result = parsed.map((f) => ({
-            path: f.path,
-            status: f.status === "unknown" ? "modified" as const : f.status,
-            diff: f.patch,
-            oldPath: undefined,
-          }));
-        } else {
-          // Active task: fetch from worktree
-          result = await fetchTaskFileDiffs(taskId, projectId);
-        }
+        const result = await fetchTaskFileDiffs(taskId, projectId);
         if (cancelled) return;
         setFiles(result);
         setSelectedFile((current) => {
@@ -88,7 +68,7 @@ export function useChangedFiles(
     return () => {
       cancelled = true;
     };
-  }, [taskId, worktree, column, projectId, commitSha, isDone]);
+  }, [taskId, column, projectId, canLoad]);
 
   const resetSelection = useCallback(() => {
     setSelectedFile(null);

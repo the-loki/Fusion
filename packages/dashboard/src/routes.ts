@@ -7024,32 +7024,91 @@ Output ONLY the prompt text (no markdown, no explanations).`;
         return;
       }
 
+      // Done tasks: use commit-backed diff from mergeDetails.commitSha
+      if (task.column === "done" && task.mergeDetails?.commitSha) {
+        const rootDir = scopedStore.getRootDir();
+        const sha = task.mergeDetails.commitSha;
+        const nameStatus = nodeChildProcess.execSync(
+          `git show --name-status --format="" ${sha}`,
+          { cwd: rootDir, encoding: "utf-8", timeout: 10000 },
+        ).trim();
+
+        const doneFiles: Array<{
+          path: string;
+          status: "added" | "modified" | "deleted";
+          additions: number;
+          deletions: number;
+          patch: string;
+        }> = [];
+
+        for (const line of nameStatus.split("\n").filter(Boolean)) {
+          const parts = line.split("\t");
+          const statusCode = parts[0] ?? "M";
+          const filePath = parts[1] ?? "";
+          if (!filePath) continue;
+
+          let status: "added" | "modified" | "deleted" = "modified";
+          if (statusCode.startsWith("A")) status = "added";
+          else if (statusCode.startsWith("D")) status = "deleted";
+
+          let patch = "";
+          try {
+            patch = nodeChildProcess.execSync(
+              `git show ${sha} -- "${filePath}"`,
+              { cwd: rootDir, encoding: "utf-8", timeout: 10000 },
+            );
+          } catch { /* ignore */ }
+
+          const additions = (patch.match(/^\+[^+]/gm) || []).length;
+          const deletions = (patch.match(/^-[^-]/gm) || []).length;
+          doneFiles.push({ path: filePath, status, additions, deletions, patch });
+        }
+
+        const doneStats = {
+          filesChanged: doneFiles.length,
+          additions: doneFiles.reduce((s, f) => s + f.additions, 0),
+          deletions: doneFiles.reduce((s, f) => s + f.deletions, 0),
+        };
+
+        res.json({ files: doneFiles, stats: doneStats });
+        return;
+      }
+
       const worktree = typeof req.query.worktree === "string" ? req.query.worktree : undefined;
-      const cwd = worktree || scopedStore.getRootDir();
+      const cwd = worktree || task.worktree || scopedStore.getRootDir();
 
-      // Get the base branch for merge-base comparison
-      const baseBranch = task.baseBranch ?? "main";
-      let diffBase = `${baseBranch}...HEAD`;
+      // Use resolveDiffBase for consistent diff base across all endpoints
+      const diffBase = resolveDiffBase(task, cwd);
+      const diffRange = diffBase ? `${diffBase}..HEAD` : "HEAD";
 
-      // Get the diff
-      const { execSync } = await import("node:child_process");
-      
-      // Get list of changed files using merge-base comparison
-      let filesOutput = "";
+      // Get list of changed files — include both committed and working-tree changes
+      const fileMap = new Map<string, string>();
+
+      if (diffBase) {
+        try {
+          const committedOutput = nodeChildProcess.execSync(
+            `git diff --name-status ${diffBase}..HEAD`,
+            { encoding: "utf-8", cwd, timeout: 10000 },
+          ).trim();
+          for (const line of committedOutput.split("\n").filter(Boolean)) {
+            const parts = line.split("\t");
+            fileMap.set(parts[1] ?? "", parts[0] ?? "M");
+          }
+        } catch {
+          // committed diff failed
+        }
+      }
+
       try {
-        filesOutput = execSync(`git diff --name-status ${diffBase}`, {
-          encoding: "utf-8",
-          cwd,
-          timeout: 10000,
+        const workingTreeOutput = nodeChildProcess.execSync("git diff --name-status", {
+          encoding: "utf-8", cwd, timeout: 10000,
         }).trim();
+        for (const line of workingTreeOutput.split("\n").filter(Boolean)) {
+          const parts = line.split("\t");
+          fileMap.set(parts[1] ?? "", parts[0] ?? "M");
+        }
       } catch {
-        // Fallback to current HEAD if merge-base fails
-        diffBase = "HEAD";
-        filesOutput = execSync("git diff --name-status HEAD", {
-          encoding: "utf-8",
-          cwd,
-          timeout: 10000,
-        }).trim();
+        // working tree diff failed
       }
 
       const files: Array<{
@@ -7060,13 +7119,9 @@ Output ONLY the prompt text (no markdown, no explanations).`;
         patch: string;
       }> = [];
 
-      for (const line of filesOutput.trim().split("\n")) {
-        if (!line.trim()) continue;
-        
-        const parts = line.split("\t");
-        const statusCode = parts[0];
-        const filePath = parts[1];
-        
+      for (const [filePath, statusCode] of fileMap) {
+        if (!filePath) continue;
+
         let status: "added" | "modified" | "deleted";
         if (statusCode.startsWith("A")) status = "added";
         else if (statusCode.startsWith("D")) status = "deleted";
@@ -7075,7 +7130,7 @@ Output ONLY the prompt text (no markdown, no explanations).`;
         // Get patch for this file
         let patch = "";
         try {
-          patch = execSync(`git diff ${diffBase} -- "${filePath}"`, {
+          patch = nodeChildProcess.execSync(`git diff ${diffRange} -- "${filePath}"`, {
             encoding: "utf-8",
             cwd,
             timeout: 10000,
@@ -7115,6 +7170,40 @@ Output ONLY the prompt text (no markdown, no explanations).`;
     try {
       const scopedStore = await getScopedStore(req);
       const task = await scopedStore.getTask(req.params.id);
+
+      // Done tasks: derive file diffs from the merge commit
+      if (task.column === "done" && task.mergeDetails?.commitSha) {
+        const rootDir = scopedStore.getRootDir();
+        const sha = task.mergeDetails.commitSha;
+        try {
+          const nameStatus = nodeChildProcess.execSync(
+            `git show --name-status --format="" ${sha}`,
+            { cwd: rootDir, encoding: "utf-8", timeout: 5000 },
+          ).trim();
+          const doneFiles = nameStatus.split("\n").filter(Boolean).map((line) => {
+            const parts = line.split("\t");
+            const statusCode = parts[0] ?? "M";
+            const filePath = parts[1] ?? "";
+            let status: "added" | "modified" | "deleted" | "renamed" = "modified";
+            if (statusCode.startsWith("A")) status = "added";
+            else if (statusCode.startsWith("D")) status = "deleted";
+            else if (statusCode.startsWith("R")) status = "renamed";
+            let diff = "";
+            try {
+              diff = nodeChildProcess.execSync(
+                `git show ${sha} -- "${filePath}"`,
+                { cwd: rootDir, encoding: "utf-8", timeout: 5000 },
+              );
+            } catch { /* ignore */ }
+            return { path: filePath, status, diff };
+          });
+          res.json(doneFiles);
+        } catch {
+          res.json([]);
+        }
+        return;
+      }
+
       if (!task.worktree || !nodeFs.existsSync(task.worktree)) {
         res.json([]);
         return;

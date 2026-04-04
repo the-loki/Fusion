@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { FileCode, ChevronDown, ChevronRight, AlertCircle, GitCommit } from "lucide-react";
 import type { MergeDetails, Column } from "@fusion/core";
-import { fetchTaskDiff, fetchCommitDiff, type TaskDiff } from "../api";
-import { parsePatch, type ParsedFile } from "./CommitDiffTab";
+import { fetchTaskDiff, type TaskDiff } from "../api";
 import { highlightDiff } from "../utils/highlightDiff";
 
 interface TaskChangesTabProps {
@@ -50,43 +49,10 @@ export function TaskChangesTab({ taskId, worktree, projectId, column, mergeDetai
   const [error, setError] = useState<string | null>(null);
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
 
-  const commitSha = column === "done" ? mergeDetails?.commitSha : undefined;
-  const useCommitDiff = !!commitSha;
+  const canLoad = column === "in-progress" || column === "in-review" || column === "done";
 
   const loadDiff = useCallback(async () => {
-    // Done task with merge commit → use commit-backed diff
-    if (useCommitDiff) {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await fetchCommitDiff(commitSha);
-        const parsed = parsePatch(data.patch || "");
-        const normalized: NormalizedFile[] = parsed.map((f) => ({
-          path: f.path,
-          status: f.status,
-          additions: f.additions,
-          deletions: f.deletions,
-          patch: f.patch,
-        }));
-        setFiles(normalized);
-        setStats({
-          filesChanged: mergeDetails?.filesChanged ?? normalized.length,
-          additions: mergeDetails?.insertions ?? normalized.reduce((s, f) => s + f.additions, 0),
-          deletions: mergeDetails?.deletions ?? normalized.reduce((s, f) => s + f.deletions, 0),
-        });
-        if (normalized.length > 0) {
-          setExpandedFiles(new Set([normalized[0].path]));
-        }
-      } catch (err: any) {
-        setError(err.message || "Failed to load commit diff");
-      } finally {
-        setLoading(false);
-      }
-      return;
-    }
-
-    // Non-done task → use worktree-backed diff
-    if (!worktree) {
+    if (!canLoad) {
       setLoading(false);
       return;
     }
@@ -112,7 +78,7 @@ export function TaskChangesTab({ taskId, worktree, projectId, column, mergeDetai
     } finally {
       setLoading(false);
     }
-  }, [taskId, worktree, projectId, useCommitDiff, commitSha, mergeDetails]);
+  }, [taskId, projectId, canLoad]);
 
   useEffect(() => {
     loadDiff();
@@ -152,8 +118,10 @@ export function TaskChangesTab({ taskId, worktree, projectId, column, mergeDetai
     );
   }
 
+  const isDone = column === "done";
+
   // Non-done task without a worktree → show worktree empty state
-  if (!useCommitDiff && !worktree) {
+  if (!isDone && !worktree) {
     return (
       <div className="detail-section">
         <div className="task-changes-state task-changes-state--empty">
@@ -174,7 +142,7 @@ export function TaskChangesTab({ taskId, worktree, projectId, column, mergeDetai
           <FileCode size={24} />
           <p>No files modified.</p>
           <span className="task-changes-state-hint">
-            {useCommitDiff
+            {isDone
               ? "No file changes were recorded in the merge commit."
               : "The agent did not modify any files during execution."}
           </span>
@@ -186,12 +154,14 @@ export function TaskChangesTab({ taskId, worktree, projectId, column, mergeDetai
   return (
     <div className="detail-section task-changes-tab">
       {/* Commit metadata for done tasks */}
-      {useCommitDiff && mergeDetails && (
+      {isDone && mergeDetails && (
         <div className="commit-diff-meta">
-          <div className="commit-diff-sha">
-            <GitCommit size={14} />
-            <code>{commitSha!.slice(0, 7)}</code>
-          </div>
+          {mergeDetails.commitSha && (
+            <div className="commit-diff-sha">
+              <GitCommit size={14} />
+              <code>{mergeDetails.commitSha.slice(0, 7)}</code>
+            </div>
+          )}
           {mergeDetails.mergeCommitMessage && (
             <div className="commit-diff-message">{mergeDetails.mergeCommitMessage}</div>
           )}

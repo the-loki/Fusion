@@ -35,17 +35,15 @@ describe("useChangedFiles", () => {
     expect(mockFetchTaskFileDiffs).toHaveBeenCalledWith("KB-651", undefined);
   });
 
-  it("does not fetch for tasks without worktrees or inactive columns", async () => {
-    const { result: noWorktree } = renderHook(() => useChangedFiles("KB-651", undefined, "in-progress"));
-    const { result: inactive } = renderHook(() => useChangedFiles("KB-651", "/repo/.worktrees/kb-651", "todo"));
+  it("does not fetch for tasks in inactive columns", async () => {
+    const { result: triage } = renderHook(() => useChangedFiles("KB-651", "/repo/.worktrees/kb-651", "triage"));
+    const { result: todo } = renderHook(() => useChangedFiles("KB-651", "/repo/.worktrees/kb-651", "todo"));
 
-    await waitFor(() => expect(noWorktree.current.loading).toBe(false));
-    await waitFor(() => expect(inactive.current.loading).toBe(false));
+    await waitFor(() => expect(triage.current.loading).toBe(false));
+    await waitFor(() => expect(todo.current.loading).toBe(false));
 
-    expect(noWorktree.current.files).toEqual([]);
-    expect(noWorktree.current.selectedFile).toBeNull();
-    expect(inactive.current.files).toEqual([]);
-    expect(inactive.current.selectedFile).toBeNull();
+    expect(triage.current.files).toEqual([]);
+    expect(todo.current.files).toEqual([]);
     expect(mockFetchTaskFileDiffs).not.toHaveBeenCalled();
   });
 
@@ -120,12 +118,16 @@ describe("useChangedFiles", () => {
     expect(result.current.selectedFile).toBeNull();
   });
 
-  it("returns empty files and null selection when column is inactive", () => {
-    const { result } = renderHook(() => useChangedFiles("KB-651", "/repo/.worktrees/kb-651", "done"));
+  it("fetches changed files for done tasks", async () => {
+    mockFetchTaskFileDiffs.mockResolvedValueOnce([
+      { path: "src/a.ts", status: "modified", diff: "diff" },
+    ]);
 
-    expect(result.current.files).toEqual([]);
-    expect(result.current.loading).toBe(false);
-    expect(result.current.selectedFile).toBeNull();
-    expect(result.current.error).toBeNull();
+    const { result } = renderHook(() => useChangedFiles("KB-651", undefined, "done"));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.files).toHaveLength(1);
+    expect(mockFetchTaskFileDiffs).toHaveBeenCalledWith("KB-651", undefined);
   });
 });

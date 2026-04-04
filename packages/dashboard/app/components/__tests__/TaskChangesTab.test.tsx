@@ -4,11 +4,9 @@ import { TaskChangesTab } from "../TaskChangesTab";
 import type { MergeDetails, Column } from "@fusion/core";
 
 const mockFetchTaskDiff = vi.fn();
-const mockFetchCommitDiff = vi.fn();
 
 vi.mock("../../api", () => ({
   fetchTaskDiff: (...args: any[]) => mockFetchTaskDiff(...args),
-  fetchCommitDiff: (...args: any[]) => mockFetchCommitDiff(...args),
 }));
 
 vi.mock("lucide-react", () => ({
@@ -23,53 +21,13 @@ vi.mock("../../utils/highlightDiff", () => ({
   highlightDiff: (diff: string) => diff,
 }));
 
-vi.mock("../CommitDiffTab", () => ({
-  parsePatch: (rawPatch: string) => {
-    const files: Array<{
-      path: string;
-      status: "added" | "modified" | "deleted" | "unknown";
-      additions: number;
-      deletions: number;
-      patch: string;
-    }> = [];
-    const parts = rawPatch.split(/(?=^diff --git )/m);
-    for (const part of parts) {
-      const trimmed = part.trim();
-      if (!trimmed.startsWith("diff --git ")) continue;
-      const headerMatch = trimmed.match(/^diff --git a\/(.+?) b\/(.+)/m);
-      const path = headerMatch ? headerMatch[2] : "unknown";
-      let status: "added" | "modified" | "deleted" | "unknown" = "modified";
-      if (trimmed.includes("new file mode")) status = "added";
-      else if (trimmed.includes("deleted file mode")) status = "deleted";
-      let additions = 0;
-      let deletions = 0;
-      for (const line of trimmed.split("\n")) {
-        if (line.startsWith("+") && !line.startsWith("+++")) additions++;
-        else if (line.startsWith("-") && !line.startsWith("---")) deletions++;
-      }
-      files.push({ path, status, additions, deletions, patch: trimmed });
-    }
-    return files;
-  },
-}));
-
-const SAMPLE_PATCH = `diff --git a/src/app.ts b/src/app.ts
-index abc1234..def5678 100644
---- a/src/app.ts
-+++ b/src/app.ts
-@@ -1,3 +1,4 @@
- import express from "express";
-+import cors from "cors";
- const app = express();
- app.listen(3000);
-diff --git a/src/new-file.ts b/src/new-file.ts
-new file mode 100644
-index 0000000..abc1234
---- /dev/null
-+++ b/src/new-file.ts
-@@ -0,0 +1,2 @@
-+export function hello() {}
-+export function world() {}`;
+const DONE_TASK_DIFF = {
+  files: [
+    { path: "src/app.ts", status: "modified" as const, additions: 1, deletions: 0, patch: "diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1,2 @@\n import express from \"express\";\n+import cors from \"cors\";" },
+    { path: "src/new-file.ts", status: "added" as const, additions: 2, deletions: 0, patch: "diff --git a/src/new-file.ts b/src/new-file.ts\nnew file mode 100644\n@@ -0,0 +1,2 @@\n+export function hello() {}\n+export function world() {}" },
+  ],
+  stats: { filesChanged: 2, additions: 3, deletions: 0 },
+};
 
 const MERGE_DETAILS: MergeDetails = {
   commitSha: "abc1234567890def",
@@ -82,11 +40,12 @@ const MERGE_DETAILS: MergeDetails = {
 
 beforeEach(() => {
   mockFetchTaskDiff.mockReset();
-  mockFetchCommitDiff.mockReset();
 });
 
 describe("TaskChangesTab — worktree-backed (non-done tasks)", () => {
-  it("shows 'No worktree available' when no worktree and not done", () => {
+  it("shows 'No worktree available' when no worktree and not done", async () => {
+    mockFetchTaskDiff.mockResolvedValue({ files: [], stats: { filesChanged: 0, additions: 0, deletions: 0 } });
+
     render(
       <TaskChangesTab
         taskId="FN-001"
@@ -94,9 +53,10 @@ describe("TaskChangesTab — worktree-backed (non-done tasks)", () => {
         column="in-progress"
       />,
     );
-    expect(screen.getByText("No worktree available for this task.")).toBeTruthy();
-    expect(mockFetchTaskDiff).not.toHaveBeenCalled();
-    expect(mockFetchCommitDiff).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(screen.getByText("No worktree available for this task.")).toBeTruthy();
+    });
   });
 
   it("loads diff from fetchTaskDiff for in-progress task with worktree", async () => {
@@ -119,7 +79,6 @@ describe("TaskChangesTab — worktree-backed (non-done tasks)", () => {
       expect(screen.getByText("src/app.ts")).toBeTruthy();
     });
     expect(mockFetchTaskDiff).toHaveBeenCalledWith("FN-001", undefined, undefined);
-    expect(mockFetchCommitDiff).not.toHaveBeenCalled();
   });
 
   it("loads diff from fetchTaskDiff for in-review task with worktree", async () => {
@@ -142,7 +101,6 @@ describe("TaskChangesTab — worktree-backed (non-done tasks)", () => {
       expect(screen.getByText("src/app.ts")).toBeTruthy();
     });
     expect(mockFetchTaskDiff).toHaveBeenCalled();
-    expect(mockFetchCommitDiff).not.toHaveBeenCalled();
   });
 
   it("shows 'No files modified' when worktree diff returns empty", async () => {
@@ -194,8 +152,8 @@ describe("TaskChangesTab — worktree-backed (non-done tasks)", () => {
 });
 
 describe("TaskChangesTab — commit-backed (done tasks)", () => {
-  it("loads diff from fetchCommitDiff for done task with commitSha", async () => {
-    mockFetchCommitDiff.mockResolvedValue({ stat: "", patch: SAMPLE_PATCH });
+  it("loads diff from fetchTaskDiff for done task with commitSha", async () => {
+    mockFetchTaskDiff.mockResolvedValue(DONE_TASK_DIFF);
 
     render(
       <TaskChangesTab
@@ -209,12 +167,11 @@ describe("TaskChangesTab — commit-backed (done tasks)", () => {
     await waitFor(() => {
       expect(screen.getByText("src/app.ts")).toBeTruthy();
     });
-    expect(mockFetchCommitDiff).toHaveBeenCalledWith("abc1234567890def");
-    expect(mockFetchTaskDiff).not.toHaveBeenCalled();
+    expect(mockFetchTaskDiff).toHaveBeenCalledWith("FN-001", undefined, undefined);
   });
 
   it("shows commit metadata for done task", async () => {
-    mockFetchCommitDiff.mockResolvedValue({ stat: "", patch: SAMPLE_PATCH });
+    mockFetchTaskDiff.mockResolvedValue(DONE_TASK_DIFF);
 
     render(
       <TaskChangesTab
@@ -233,7 +190,7 @@ describe("TaskChangesTab — commit-backed (done tasks)", () => {
   });
 
   it("uses mergeDetails stats for summary", async () => {
-    mockFetchCommitDiff.mockResolvedValue({ stat: "", patch: SAMPLE_PATCH });
+    mockFetchTaskDiff.mockResolvedValue(DONE_TASK_DIFF);
 
     render(
       <TaskChangesTab
@@ -252,7 +209,7 @@ describe("TaskChangesTab — commit-backed (done tasks)", () => {
   });
 
   it("toggling file expansion shows/hides diff content", async () => {
-    mockFetchCommitDiff.mockResolvedValue({ stat: "", patch: SAMPLE_PATCH });
+    mockFetchTaskDiff.mockResolvedValue(DONE_TASK_DIFF);
     const { container } = render(
       <TaskChangesTab
         taskId="FN-001"
@@ -282,7 +239,7 @@ describe("TaskChangesTab — commit-backed (done tasks)", () => {
   });
 
   it("shows 'No files modified' with commit-specific hint when patch is empty", async () => {
-    mockFetchCommitDiff.mockResolvedValue({ stat: "", patch: "" });
+    mockFetchTaskDiff.mockResolvedValue({ files: [], stats: { filesChanged: 0, additions: 0, deletions: 0 } });
 
     render(
       <TaskChangesTab
@@ -299,8 +256,8 @@ describe("TaskChangesTab — commit-backed (done tasks)", () => {
     expect(screen.getByText("No file changes were recorded in the merge commit.")).toBeTruthy();
   });
 
-  it("shows error state when fetchCommitDiff fails", async () => {
-    mockFetchCommitDiff.mockRejectedValue(new Error("Git error"));
+  it("shows error state when fetchTaskDiff fails", async () => {
+    mockFetchTaskDiff.mockRejectedValue(new Error("Git error"));
 
     render(
       <TaskChangesTab
@@ -317,7 +274,7 @@ describe("TaskChangesTab — commit-backed (done tasks)", () => {
   });
 
   it("renders commit SHA metadata even when only commitSha is set", async () => {
-    mockFetchCommitDiff.mockResolvedValue({ stat: "", patch: SAMPLE_PATCH });
+    mockFetchTaskDiff.mockResolvedValue(DONE_TASK_DIFF);
 
     const { container } = render(
       <TaskChangesTab
@@ -342,7 +299,9 @@ describe("TaskChangesTab — commit-backed (done tasks)", () => {
 });
 
 describe("TaskChangesTab — regression: non-done tasks still use worktree path", () => {
-  it("in-progress without worktree shows worktree empty state, not commit path", () => {
+  it("in-progress without worktree shows worktree empty state, not commit path", async () => {
+    mockFetchTaskDiff.mockResolvedValue({ files: [], stats: { filesChanged: 0, additions: 0, deletions: 0 } });
+
     render(
       <TaskChangesTab
         taskId="FN-001"
@@ -351,11 +310,15 @@ describe("TaskChangesTab — regression: non-done tasks still use worktree path"
         mergeDetails={MERGE_DETAILS}
       />,
     );
-    expect(screen.getByText("No worktree available for this task.")).toBeTruthy();
-    expect(mockFetchCommitDiff).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(screen.getByText("No worktree available for this task.")).toBeTruthy();
+    });
   });
 
-  it("in-review without worktree shows worktree empty state", () => {
+  it("in-review without worktree shows worktree empty state", async () => {
+    mockFetchTaskDiff.mockResolvedValue({ files: [], stats: { filesChanged: 0, additions: 0, deletions: 0 } });
+
     render(
       <TaskChangesTab
         taskId="FN-001"
@@ -364,8 +327,10 @@ describe("TaskChangesTab — regression: non-done tasks still use worktree path"
         mergeDetails={MERGE_DETAILS}
       />,
     );
-    expect(screen.getByText("No worktree available for this task.")).toBeTruthy();
-    expect(mockFetchCommitDiff).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(screen.getByText("No worktree available for this task.")).toBeTruthy();
+    });
   });
 
   it("todo task never loads diff even with mergeDetails", () => {
@@ -379,10 +344,11 @@ describe("TaskChangesTab — regression: non-done tasks still use worktree path"
     );
     expect(screen.getByText("No worktree available for this task.")).toBeTruthy();
     expect(mockFetchTaskDiff).not.toHaveBeenCalled();
-    expect(mockFetchCommitDiff).not.toHaveBeenCalled();
   });
 
-  it("done task without commitSha falls through to worktree path", () => {
+  it("done task without commitSha calls fetchTaskDiff (server handles it)", async () => {
+    mockFetchTaskDiff.mockResolvedValue({ files: [], stats: { filesChanged: 0, additions: 0, deletions: 0 } });
+
     render(
       <TaskChangesTab
         taskId="FN-001"
@@ -391,15 +357,16 @@ describe("TaskChangesTab — regression: non-done tasks still use worktree path"
         mergeDetails={{}} // no commitSha
       />,
     );
-    // Falls through to the !worktree check for non-commit-diff path
-    expect(screen.getByText("No worktree available for this task.")).toBeTruthy();
-    expect(mockFetchCommitDiff).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(mockFetchTaskDiff).toHaveBeenCalledWith("FN-001", undefined, undefined);
+    });
   });
 });
 
 describe("TaskChangesTab — status-to-class mapping", () => {
   it("applies semantic status class for each file status", async () => {
-    mockFetchCommitDiff.mockResolvedValue({ stat: "", patch: SAMPLE_PATCH });
+    mockFetchTaskDiff.mockResolvedValue(DONE_TASK_DIFF);
 
     const { container } = render(
       <TaskChangesTab
@@ -414,7 +381,7 @@ describe("TaskChangesTab — status-to-class mapping", () => {
       expect(screen.getByText("src/app.ts")).toBeTruthy();
     });
 
-    // src/app.ts is modified (no new file mode / deleted file mode markers)
+    // src/app.ts is modified, src/new-file.ts is added
     const statusBadges = container.querySelectorAll(".changes-file-status");
     expect(statusBadges.length).toBeGreaterThanOrEqual(2);
 
@@ -429,7 +396,7 @@ describe("TaskChangesTab — status-to-class mapping", () => {
   });
 
   it("uses CSS classes instead of inline styles for status colors", async () => {
-    mockFetchCommitDiff.mockResolvedValue({ stat: "", patch: SAMPLE_PATCH });
+    mockFetchTaskDiff.mockResolvedValue(DONE_TASK_DIFF);
 
     const { container } = render(
       <TaskChangesTab
@@ -452,7 +419,7 @@ describe("TaskChangesTab — status-to-class mapping", () => {
   });
 
   it("renders stat summary with diff-add and diff-del classes", async () => {
-    mockFetchCommitDiff.mockResolvedValue({ stat: "", patch: SAMPLE_PATCH });
+    mockFetchTaskDiff.mockResolvedValue(DONE_TASK_DIFF);
 
     const { container } = render(
       <TaskChangesTab
