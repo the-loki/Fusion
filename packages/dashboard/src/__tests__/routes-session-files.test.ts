@@ -135,10 +135,10 @@ describe("GET /api/tasks/:id/session-files", () => {
     const store = new MockStore();
     store.addTask(createTask({ id: "FN-675-base", baseCommitSha: "abc123" }));
     mockExecSync.mockImplementation((command) => {
-      if (String(command) === "git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main") {
-        return "mergebase123\n" as any;
+      if (String(command) === "git merge-base --is-ancestor abc123 HEAD") {
+        return "" as any;
       }
-      if (String(command) === "git diff --name-only mergebase123..HEAD") {
+      if (String(command) === "git diff --name-only abc123..HEAD") {
         return "src/a.ts\n" as any;
       }
       if (String(command) === "git diff --name-only") {
@@ -151,14 +151,15 @@ describe("GET /api/tasks/:id/session-files", () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual(["src/a.ts", "src/b.ts"]);
+    // Should use task-scoped baseCommitSha (not merge-base)
     expect(mockExecSync).toHaveBeenNthCalledWith(
       1,
-      "git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main",
+      "git merge-base --is-ancestor abc123 HEAD",
       expect.objectContaining({ cwd: "/tmp/fn-675" }),
     );
     expect(mockExecSync).toHaveBeenNthCalledWith(
       2,
-      "git diff --name-only mergebase123..HEAD",
+      "git diff --name-only abc123..HEAD",
       expect.objectContaining({ cwd: "/tmp/fn-675" }),
     );
     expect(mockExecSync).toHaveBeenNthCalledWith(
@@ -168,10 +169,14 @@ describe("GET /api/tasks/:id/session-files", () => {
     );
   });
 
-  it("ignores stale baseCommitSha values and uses current branch merge-base", async () => {
+  it("ignores stale baseCommitSha values and falls back to merge-base", async () => {
     const store = new MockStore();
     store.addTask(createTask({ id: "FN-675-stale-base", baseCommitSha: "stale123" }));
     mockExecSync.mockImplementation((command) => {
+      // baseCommitSha is stale — is-ancestor fails
+      if (String(command) === "git merge-base --is-ancestor stale123 HEAD") {
+        throw new Error("not an ancestor");
+      }
       if (String(command) === "git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main") {
         return "mergebase123\n" as any;
       }
@@ -188,19 +193,20 @@ describe("GET /api/tasks/:id/session-files", () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual(["packages/engine/src/executor.ts"]);
+    // Should try baseCommitSha first, then fall back to merge-base
     expect(mockExecSync).toHaveBeenNthCalledWith(
       1,
-      "git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main",
+      "git merge-base --is-ancestor stale123 HEAD",
       expect.objectContaining({ cwd: "/tmp/fn-675" }),
     );
     expect(mockExecSync).toHaveBeenNthCalledWith(
       2,
-      "git diff --name-only mergebase123..HEAD",
+      "git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main",
       expect.objectContaining({ cwd: "/tmp/fn-675" }),
     );
     expect(mockExecSync).toHaveBeenNthCalledWith(
       3,
-      "git diff --name-only",
+      "git diff --name-only mergebase123..HEAD",
       expect.objectContaining({ cwd: "/tmp/fn-675" }),
     );
   });
@@ -307,10 +313,10 @@ describe("GET /api/tasks/:id/session-files", () => {
     const store = new MockStore();
     store.addTask(createTask({ id: "FN-675-cache", baseCommitSha: "cachebase" }));
     mockExecSync.mockImplementation((command) => {
-      if (String(command) === "git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main") {
-        return "mergebase123\n" as any;
+      if (String(command) === "git merge-base --is-ancestor cachebase HEAD") {
+        return "" as any;
       }
-      if (String(command) === "git diff --name-only mergebase123..HEAD") {
+      if (String(command) === "git diff --name-only cachebase..HEAD") {
         return "cached/file.ts\n" as any;
       }
       if (String(command) === "git diff --name-only") {
@@ -332,5 +338,43 @@ describe("GET /api/tasks/:id/session-files", () => {
 
     expect(third.body).toEqual(["cached/file.ts"]);
     expect(mockExecSync).toHaveBeenCalledTimes(6);
+  });
+
+  // ── Regression: shared/recycled worktree produces broader file sets ─────────────────
+
+  it("task-scoped baseCommitSha narrows changed-files to this task's work", async () => {
+    const store = new MockStore();
+    // Scenario: previous task left commits A, B, C. Current task started after and added D, E.
+    // baseCommitSha = commit C (the commit where the current task started)
+    // merge-base would return commit A (oldest common ancestor), which would be broader.
+    // With task-scoped diffing using baseCommitSha=C, we should only see D, E.
+    store.addTask(createTask({
+      id: "FN-REGRESSION",
+      baseCommitSha: "commitC",
+      worktree: "/tmp/worktree",
+    }));
+
+    mockExecSync.mockImplementation((command) => {
+      const cmd = String(command);
+      // baseCommitSha is valid — ancestor check passes
+      if (cmd === "git merge-base --is-ancestor commitC HEAD") {
+        return "" as any;
+      }
+      // Task-scoped diff shows only D, E
+      if (cmd === "git diff --name-only commitC..HEAD") {
+        return "src/d.ts\nsrc/e.ts\n" as any;
+      }
+      // No working tree changes
+      if (cmd === "git diff --name-only") {
+        return "" as any;
+      }
+      throw new Error(`Unexpected command: ${cmd}`);
+    });
+
+    const response = await requestSessionFiles(store, "FN-REGRESSION");
+
+    expect(response.status).toBe(200);
+    // Task-scoped: should only show files D and E, not the A, B, C
+    expect(response.body).toEqual(["src/d.ts", "src/e.ts"]);
   });
 });

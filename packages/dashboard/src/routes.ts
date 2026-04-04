@@ -2059,6 +2059,59 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
     }
   });
 
+  /**
+   * Resolve the diff base ref for a task's worktree.
+   *
+   * Strategy (in priority order):
+   * 1. **Task-scoped** — When the task has a `baseCommitSha` that is still
+   *    a valid ancestor of the current HEAD in the worktree, use it.  This
+   *    keeps the changed-files list scoped to files introduced by *this*
+   *    specific task, even in shared or recycled worktree scenarios.
+   * 2. **Branch merge-base** — Fall back to the merge-base between HEAD and
+   *    `origin/{baseBranch}` (or bare `{baseBranch}`).
+   * 3. **HEAD~1** — Last resort when neither baseCommitSha nor merge-base
+   *    can be resolved.
+   */
+  function resolveDiffBase(task: { baseCommitSha?: string; baseBranch?: string }, cwd: string): string | undefined {
+    // 1. Try task-scoped baseCommitSha
+    if (task.baseCommitSha) {
+      try {
+        // Validate that the stored SHA is still an ancestor of HEAD.
+        // If the branch was rebased or the SHA is otherwise unreachable,
+        // this will exit non-zero and we fall through.
+        nodeChildProcess.execSync(
+          `git merge-base --is-ancestor ${task.baseCommitSha} HEAD`,
+          { cwd, encoding: "utf-8", timeout: 5000, stdio: "pipe" },
+        );
+        return task.baseCommitSha;
+      } catch {
+        // baseCommitSha is stale or invalid — fall through to merge-base
+      }
+    }
+
+    // 2. Branch merge-base
+    const baseBranch = task.baseBranch ?? "main";
+    try {
+      return nodeChildProcess.execSync(
+        `git merge-base HEAD origin/${baseBranch} 2>/dev/null || git merge-base HEAD ${baseBranch}`,
+        { cwd, encoding: "utf-8", timeout: 5000 },
+      ).trim() || undefined;
+    } catch {
+      // merge-base unavailable — fall through to HEAD~1
+    }
+
+    // 3. HEAD~1 fallback
+    try {
+      return nodeChildProcess.execSync("git rev-parse HEAD~1", {
+        cwd,
+        encoding: "utf-8",
+        timeout: 5000,
+      }).trim() || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   router.get("/tasks/:id/session-files", async (req, res) => {
     try {
       const scopedStore = await getScopedStore(req);
@@ -2078,29 +2131,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
 
       try {
         const fileSet = new Set<string>();
-        const baseBranch = task.baseBranch ?? "main";
-        let baseRef: string | undefined;
-
-        try {
-          baseRef = nodeChildProcess.execSync(
-            `git merge-base HEAD origin/${baseBranch} 2>/dev/null || git merge-base HEAD ${baseBranch}`,
-            {
-              cwd: task.worktree,
-              encoding: "utf-8",
-              timeout: 5000,
-            },
-          ).trim();
-        } catch {
-          try {
-            baseRef = nodeChildProcess.execSync("git rev-parse HEAD~1", {
-              cwd: task.worktree,
-              encoding: "utf-8",
-              timeout: 5000,
-            }).trim();
-          } catch {
-            baseRef = undefined;
-          }
-        }
+        const baseRef = resolveDiffBase(task, task.worktree);
 
         if (baseRef) {
           const committedOutput = nodeChildProcess.execSync(`git diff --name-only ${baseRef}..HEAD`, {
@@ -7075,8 +7106,9 @@ Output ONLY the prompt text (no markdown, no explanations).`;
   /**
    * GET /api/tasks/:id/file-diffs
    * Fetch changed files with individual git diffs for a task worktree.
-   * Uses the same merge-base resolution strategy as the session-files route
-   * so the board card count and the changed-files viewer always agree.
+   * Uses the shared resolveDiffBase() helper so the board card count and the
+   * changed-files viewer always agree. Prefers task.baseCommitSha when valid,
+   * falling back to branch merge-base / HEAD~1.
    * Returns: Array<{ path, status, diff, oldPath? }>
    */
   router.get("/tasks/:id/file-diffs", async (req, res) => {
@@ -7094,29 +7126,12 @@ Output ONLY the prompt text (no markdown, no explanations).`;
         return;
       }
 
-      const baseBranch = task.baseBranch ?? "main";
       const cwd = task.worktree;
 
-      // Resolve a diff base using the same merge-base strategy as session-files
-      // so both endpoints always agree on which files have changed.
-      let diffBase: string | undefined;
-
-      try {
-        diffBase = nodeChildProcess.execSync(
-          `git merge-base HEAD origin/${baseBranch} 2>/dev/null || git merge-base HEAD ${baseBranch}`,
-          { cwd, encoding: "utf-8", timeout: 5000 },
-        ).trim();
-      } catch {
-        try {
-          diffBase = nodeChildProcess.execSync("git rev-parse HEAD~1", {
-            cwd,
-            encoding: "utf-8",
-            timeout: 5000,
-          }).trim();
-        } catch {
-          diffBase = undefined;
-        }
-      }
+      // Resolve a diff base using the shared strategy so both endpoints
+      // always agree on which files have changed.  Prefer task-scoped
+      // baseCommitSha when it is still valid for the current HEAD.
+      const diffBase = resolveDiffBase(task, cwd);
 
       // Collect file statuses from both committed changes (against diffBase)
       // and working-tree changes, deduplicating by path to match session-files.
