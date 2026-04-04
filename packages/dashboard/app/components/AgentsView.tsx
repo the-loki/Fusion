@@ -612,7 +612,7 @@ export function AgentsView({ addToast, projectId }: AgentsViewProps) {
           margin-bottom: 16px;
           padding: 16px;
           background: var(--bg-secondary);
-          border-radius: 8px;
+          border-radius: var(--radius-sm);
         }
 
         .agent-create-form .input {

@@ -96,9 +96,9 @@ A persistent footer status bar at the bottom of the dashboard displays real-time
 Manage AI agents with a dedicated control surface accessible from the main dashboard navigation.
 
 **Features**:
-- **State Filter**: Styled dropdown to filter agents by state (All States, Idle, Active, Paused, Terminated) with icon and consistent dashboard styling
+- **State Filter**: Styled dropdown to filter agents by state (All States, Idle, Active, Paused, Terminated) with icon and consistent dashboard styling using design tokens
 - **View Modes**: Board (compact grid) and list (detailed card) layouts, persisted to localStorage
-- **Agent CRUD**: Create agents with name and role, change state, update roles inline, delete terminated agents
+- **Agent CRUD**: Create agents with name and role (create form uses dashboard radius tokens for consistent styling), change state, update roles inline, delete terminated agents
 - **Health Monitoring**: Heartbeat-based health status (Healthy, Unresponsive, Starting, Paused, Terminated)
 - **Agent Detail**: Click any agent card to open a detail modal with full agent information
 

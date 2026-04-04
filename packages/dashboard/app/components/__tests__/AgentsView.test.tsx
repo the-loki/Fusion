@@ -349,6 +349,33 @@ describe("AgentsView", () => {
         );
       });
     });
+
+    it("renders create form with dashboard token-based styling", async () => {
+      render(<AgentsView addToast={mockAddToast} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("New Agent")).toBeTruthy();
+      });
+
+      fireEvent.click(screen.getByText("New Agent"));
+
+      // The create form container is rendered
+      const createForm = document.querySelector(".agent-create-form");
+      expect(createForm).toBeTruthy();
+
+      // The inline style block should use var(--radius-sm) instead of hardcoded 8px
+      const styleElements = document.querySelectorAll("style");
+      let foundCreateFormRule = false;
+      styleElements.forEach(styleEl => {
+        const css = styleEl.textContent ?? "";
+        if (css.includes(".agent-create-form")) {
+          foundCreateFormRule = true;
+          // Must not contain hardcoded border-radius: 8px
+          expect(css).not.toMatch(/\.agent-create-form\s*\{[^}]*border-radius:\s*8px/);
+        }
+      });
+      expect(foundCreateFormRule).toBe(true);
+    });
   });
 
   describe("change agent state", () => {
