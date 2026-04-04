@@ -177,6 +177,42 @@ describe("useTheme", () => {
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
   });
 
+  it("applies nord theme attributes", () => {
+    localStorageMock["kb-dashboard-color-theme"] = "nord";
+
+    renderHook(() => useTheme());
+
+    expect(document.documentElement.getAttribute("data-color-theme")).toBe("nord");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+  });
+
+  it("applies dracula theme attributes", () => {
+    localStorageMock["kb-dashboard-color-theme"] = "dracula";
+
+    renderHook(() => useTheme());
+
+    expect(document.documentElement.getAttribute("data-color-theme")).toBe("dracula");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+  });
+
+  it("applies gruvbox theme attributes", () => {
+    localStorageMock["kb-dashboard-color-theme"] = "gruvbox";
+
+    renderHook(() => useTheme());
+
+    expect(document.documentElement.getAttribute("data-color-theme")).toBe("gruvbox");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+  });
+
+  it("applies tokyo-night theme attributes", () => {
+    localStorageMock["kb-dashboard-color-theme"] = "tokyo-night";
+
+    renderHook(() => useTheme());
+
+    expect(document.documentElement.getAttribute("data-color-theme")).toBe("tokyo-night");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+  });
+
   it("applies factory-specific design tokens from the stylesheet", () => {
     const style = document.createElement("style");
     style.textContent = readFileSync("app/styles.css", "utf8");

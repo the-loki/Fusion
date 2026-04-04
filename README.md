@@ -418,7 +418,7 @@ Built-in file browser for viewing and editing project files directly from the da
 ### Theme System
 
 - **Theme modes:** Dark, Light, System (follows OS preference)
-- **8+ color themes:** Default, Ocean, Forest, Sunset, Berry, Monochrome, High Contrast, Solarized, Factory
+- **17 color themes:** Default, Ocean, Forest, Sunset, Zen, Berry, Monochrome, High Contrast, Industrial, Solarized, Factory, Ayu, One Dark, Nord, Dracula, Gruvbox, Tokyo Night
 - Quick toggle in header, full selector in Settings > Appearance
 - Preferences persist to localStorage
 

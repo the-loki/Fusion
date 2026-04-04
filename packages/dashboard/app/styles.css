@@ -8557,6 +8557,186 @@ html .column.drag-over * {
   --shadow: var(--shadow-lg);
 }
 
+/* NORD - Arctic blue palette inspired by the Nord color scheme */
+[data-color-theme="nord"] {
+  --bg: #2e3440;
+  --surface: #3b4252;
+  --card: #434c5e;
+  --card-hover: #4c566a;
+  --border: #4c566a;
+  --text: #eceff4;
+  --text-muted: #d8dee9;
+  --text-dim: #81a1c1;
+
+  --todo: #88c0d0;
+  --in-progress: #81a1c1;
+  --in-progress-rgb: 129, 161, 193;
+  --in-review: #a3be8c;
+  --triage: #ebcb8b;
+  --done: #7b88a1;
+  --color-success: #a3be8c;
+  --color-error: #bf616a;
+  --shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.4);
+  --shadow: var(--shadow-lg);
+}
+
+[data-color-theme="nord"][data-theme="light"] {
+  --bg: #eceff4;
+  --surface: #e5e9f0;
+  --card: #d8dee9;
+  --card-hover: #cdd3e0;
+  --border: #b0b8c9;
+  --text: #2e3440;
+  --text-muted: #4c566a;
+  --text-dim: #7b88a1;
+
+  --todo: #5e81ac;
+  --in-progress: #5e81ac;
+  --in-progress-rgb: 94, 129, 172;
+  --in-review: #7ca373;
+  --triage: #c98530;
+  --done: #4c566a;
+  --color-success: #7ca373;
+  --color-error: #b54a52;
+  --shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.1);
+  --shadow: var(--shadow-lg);
+}
+
+/* DRACULA - Popular dark theme with deep purples and vivid accents */
+[data-color-theme="dracula"] {
+  --bg: #282a36;
+  --surface: #21222c;
+  --card: #2c2e3a;
+  --card-hover: #363848;
+  --border: #44475a;
+  --text: #f8f8f2;
+  --text-muted: #bd93f9;
+  --text-dim: #6272a4;
+
+  --todo: #8be9fd;
+  --in-progress: #bd93f9;
+  --in-progress-rgb: 189, 147, 249;
+  --in-review: #50fa7b;
+  --triage: #f1fa8c;
+  --done: #6272a4;
+  --color-success: #50fa7b;
+  --color-error: #ff5555;
+  --shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.5);
+  --shadow: var(--shadow-lg);
+}
+
+[data-color-theme="dracula"][data-theme="light"] {
+  --bg: #f8f8f2;
+  --surface: #efeefa;
+  --card: #e8e8f4;
+  --card-hover: #dddde8;
+  --border: #b0b0c0;
+  --text: #282a36;
+  --text-muted: #5a5a72;
+  --text-dim: #8888a0;
+
+  --todo: #0097a7;
+  --in-progress: #7c4dff;
+  --in-progress-rgb: 124, 77, 255;
+  --in-review: #2e8b57;
+  --triage: #c98600;
+  --done: #5a5a72;
+  --color-success: #2e8b57;
+  --color-error: #cc3333;
+  --shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.1);
+  --shadow: var(--shadow-lg);
+}
+
+/* GRUVBOX - Warm, retro earth-tone palette */
+[data-color-theme="gruvbox"] {
+  --bg: #282828;
+  --surface: #1d2021;
+  --card: #32302f;
+  --card-hover: #3c3836;
+  --border: #504945;
+  --text: #ebdbb2;
+  --text-muted: #bdae93;
+  --text-dim: #665c54;
+
+  --todo: #83a598;
+  --in-progress: #d3869b;
+  --in-progress-rgb: 211, 134, 155;
+  --in-review: #b8bb26;
+  --triage: #fabd2f;
+  --done: #928374;
+  --color-success: #b8bb26;
+  --color-error: #fb4934;
+  --shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.5);
+  --shadow: var(--shadow-lg);
+}
+
+[data-color-theme="gruvbox"][data-theme="light"] {
+  --bg: #fbf1c7;
+  --surface: #f2e5bc;
+  --card: #ebdbb2;
+  --card-hover: #e0d0a0;
+  --border: #bdae93;
+  --text: #3c3836;
+  --text-muted: #504945;
+  --text-dim: #7c7066;
+
+  --todo: #076678;
+  --in-progress: #8f3f71;
+  --in-progress-rgb: 143, 63, 113;
+  --in-review: #427b58;
+  --triage: #b57614;
+  --done: #504945;
+  --color-success: #427b58;
+  --color-error: #9d0006;
+  --shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.1);
+  --shadow: var(--shadow-lg);
+}
+
+/* TOKYO NIGHT - Deep blues and soft purples inspired by the VS Code theme */
+[data-color-theme="tokyo-night"] {
+  --bg: #1a1b26;
+  --surface: #16161e;
+  --card: #24283b;
+  --card-hover: #2e324e;
+  --border: #3b4261;
+  --text: #c0caf5;
+  --text-muted: #a9b1d6;
+  --text-dim: #565f89;
+
+  --todo: #7aa2f7;
+  --in-progress: #bb9af7;
+  --in-progress-rgb: 187, 154, 247;
+  --in-review: #9ece6a;
+  --triage: #e0af68;
+  --done: #565f89;
+  --color-success: #9ece6a;
+  --color-error: #f7768e;
+  --shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.5);
+  --shadow: var(--shadow-lg);
+}
+
+[data-color-theme="tokyo-night"][data-theme="light"] {
+  --bg: #e1e2e7;
+  --surface: #d5d6db;
+  --card: #e1e2e7;
+  --card-hover: #d0d1d8;
+  --border: #b4b5bc;
+  --text: #1a1b26;
+  --text-muted: #414868;
+  --text-dim: #68709a;
+
+  --todo: #3b5ea5;
+  --in-progress: #7755c0;
+  --in-progress-rgb: 119, 85, 192;
+  --in-review: #48703e;
+  --triage: #9a6b20;
+  --done: #414868;
+  --color-success: #48703e;
+  --color-error: #c53b53;
+  --shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.1);
+  --shadow: var(--shadow-lg);
+}
+
 /* ============================================================
    THEME SELECTOR COMPONENT STYLES
    ============================================================ */
@@ -8741,6 +8921,26 @@ html .column.drag-over * {
   --surface: #21252b;
 }
 
+.theme-swatch-nord {
+  --bg: #2e3440;
+  --surface: #3b4252;
+}
+
+.theme-swatch-dracula {
+  --bg: #282a36;
+  --surface: #21222c;
+}
+
+.theme-swatch-gruvbox {
+  --bg: #282828;
+  --surface: #1d2021;
+}
+
+.theme-swatch-tokyo-night {
+  --bg: #1a1b26;
+  --surface: #16161e;
+}
+
 /* Light mode swatch overrides */
 [data-theme="light"] .theme-swatch-factory {
   --bg: #f5f5f5;
@@ -8755,6 +8955,26 @@ html .column.drag-over * {
 [data-theme="light"] .theme-swatch-zen {
   --bg: #f5f5f5;
   --surface: #fafafa;
+}
+
+[data-theme="light"] .theme-swatch-nord {
+  --bg: #eceff4;
+  --surface: #e5e9f0;
+}
+
+[data-theme="light"] .theme-swatch-dracula {
+  --bg: #f8f8f2;
+  --surface: #efeefa;
+}
+
+[data-theme="light"] .theme-swatch-gruvbox {
+  --bg: #fbf1c7;
+  --surface: #f2e5bc;
+}
+
+[data-theme="light"] .theme-swatch-tokyo-night {
+  --bg: #e1e2e7;
+  --surface: #d5d6db;
 }
 
 /* Reset to defaults button */

@@ -89,6 +89,10 @@ describe("ThemeSelector", () => {
     expect(screen.getByLabelText("Factory theme")).toBeDefined();
     expect(screen.getByLabelText("Ayu theme")).toBeDefined();
     expect(screen.getByLabelText("One Dark theme")).toBeDefined();
+    expect(screen.getByLabelText("Nord theme")).toBeDefined();
+    expect(screen.getByLabelText("Dracula theme")).toBeDefined();
+    expect(screen.getByLabelText("Gruvbox theme")).toBeDefined();
+    expect(screen.getByLabelText("Tokyo Night theme")).toBeDefined();
   });
 
   it("marks current color theme as active", () => {
@@ -125,6 +129,95 @@ describe("ThemeSelector", () => {
 
     fireEvent.click(screen.getByLabelText("Zen theme"));
     expect(onColorThemeChange).toHaveBeenCalledWith("zen");
+  });
+
+  it("calls onColorThemeChange when a new color theme is clicked", () => {
+    const onColorThemeChange = vi.fn();
+    render(
+      <ThemeSelector
+        themeMode="dark"
+        colorTheme="default"
+        onThemeModeChange={vi.fn()}
+        onColorThemeChange={onColorThemeChange}
+      />
+    );
+
+    fireEvent.click(screen.getByLabelText("Nord theme"));
+    expect(onColorThemeChange).toHaveBeenCalledWith("nord");
+
+    fireEvent.click(screen.getByLabelText("Dracula theme"));
+    expect(onColorThemeChange).toHaveBeenCalledWith("dracula");
+
+    fireEvent.click(screen.getByLabelText("Gruvbox theme"));
+    expect(onColorThemeChange).toHaveBeenCalledWith("gruvbox");
+
+    fireEvent.click(screen.getByLabelText("Tokyo Night theme"));
+    expect(onColorThemeChange).toHaveBeenCalledWith("tokyo-night");
+  });
+
+  it("displays Nord in preview when selected", () => {
+    render(
+      <ThemeSelector
+        themeMode="dark"
+        colorTheme="nord"
+        onThemeModeChange={vi.fn()}
+        onColorThemeChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText(/Dark \/ Nord/)).toBeDefined();
+  });
+
+  it("displays Dracula in preview when selected", () => {
+    render(
+      <ThemeSelector
+        themeMode="dark"
+        colorTheme="dracula"
+        onThemeModeChange={vi.fn()}
+        onColorThemeChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText(/Dark \/ Dracula/)).toBeDefined();
+  });
+
+  it("displays Gruvbox in preview when selected", () => {
+    render(
+      <ThemeSelector
+        themeMode="dark"
+        colorTheme="gruvbox"
+        onThemeModeChange={vi.fn()}
+        onColorThemeChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText(/Dark \/ Gruvbox/)).toBeDefined();
+  });
+
+  it("displays Tokyo Night in preview when selected", () => {
+    render(
+      <ThemeSelector
+        themeMode="dark"
+        colorTheme="tokyo-night"
+        onThemeModeChange={vi.fn()}
+        onColorThemeChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText(/Dark \/ Tokyo Night/)).toBeDefined();
+  });
+
+  it("displays light Tokyo Night in preview when light mode", () => {
+    render(
+      <ThemeSelector
+        themeMode="light"
+        colorTheme="tokyo-night"
+        onThemeModeChange={vi.fn()}
+        onColorThemeChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText(/Light \/ Tokyo Night/)).toBeDefined();
   });
 
   it("displays current theme preview", () => {

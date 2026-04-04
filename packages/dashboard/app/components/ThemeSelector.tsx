@@ -29,6 +29,10 @@ const COLOR_THEMES: { value: ColorTheme; label: string; className: string }[] = 
   { value: "factory", label: "Factory", className: "theme-swatch-factory" },
   { value: "ayu", label: "Ayu", className: "theme-swatch-ayu" },
   { value: "one-dark", label: "One Dark", className: "theme-swatch-one-dark" },
+  { value: "nord", label: "Nord", className: "theme-swatch-nord" },
+  { value: "dracula", label: "Dracula", className: "theme-swatch-dracula" },
+  { value: "gruvbox", label: "Gruvbox", className: "theme-swatch-gruvbox" },
+  { value: "tokyo-night", label: "Tokyo Night", className: "theme-swatch-tokyo-night" },
 ];
 
 /**

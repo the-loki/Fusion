@@ -24,6 +24,10 @@ export const COLOR_THEMES = [
   "factory",
   "ayu",
   "one-dark",
+  "nord",
+  "dracula",
+  "gruvbox",
+  "tokyo-night",
 ] as const;
 export type ColorTheme = (typeof COLOR_THEMES)[number];
 
