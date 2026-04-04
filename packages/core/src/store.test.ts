@@ -4394,7 +4394,7 @@ Task with acceptance criteria
 
   describe("createTask with title summarization", () => {
     it("should use generated title when onSummarize returns a title", async () => {
-      const longDescription = "a".repeat(200);
+      const longDescription = "a".repeat(201);
       const mockOnSummarize = vi.fn().mockResolvedValue("AI Generated Title");
 
       const task = await store.createTask(
@@ -4410,7 +4410,7 @@ Task with acceptance criteria
       const mockOnSummarize = vi.fn().mockResolvedValue("AI Title");
 
       const task = await store.createTask(
-        { title: "User Title", description: "a".repeat(200) },
+        { title: "User Title", description: "a".repeat(201) },
         { onSummarize: mockOnSummarize, settings: { autoSummarizeTitles: true } }
       );
 
@@ -4435,7 +4435,7 @@ Task with acceptance criteria
       const mockOnSummarize = vi.fn().mockResolvedValue("AI Title");
 
       const task = await store.createTask(
-        { description: "a".repeat(200) },
+        { description: "a".repeat(201) },
         { onSummarize: mockOnSummarize, settings: { autoSummarizeTitles: false } }
       );
 
@@ -4447,7 +4447,7 @@ Task with acceptance criteria
       const mockOnSummarize = vi.fn().mockResolvedValue("AI Title");
 
       const task = await store.createTask(
-        { description: "a".repeat(200) },
+        { description: "a".repeat(201) },
         { onSummarize: mockOnSummarize }
       );
 
@@ -4459,7 +4459,7 @@ Task with acceptance criteria
       const mockOnSummarize = vi.fn().mockResolvedValue("AI Title");
 
       const task = await store.createTask(
-        { description: "a".repeat(200), summarize: true },
+        { description: "a".repeat(201), summarize: true },
         { onSummarize: mockOnSummarize }
       );
 
@@ -4471,7 +4471,7 @@ Task with acceptance criteria
       const mockOnSummarize = vi.fn().mockResolvedValue(null);
 
       const task = await store.createTask(
-        { description: "a".repeat(200) },
+        { description: "a".repeat(201) },
         { onSummarize: mockOnSummarize, settings: { autoSummarizeTitles: true } }
       );
 
@@ -4483,7 +4483,7 @@ Task with acceptance criteria
       const mockOnSummarize = vi.fn().mockRejectedValue(new Error("AI service failed"));
 
       const task = await store.createTask(
-        { description: "a".repeat(200) },
+        { description: "a".repeat(201) },
         { onSummarize: mockOnSummarize, settings: { autoSummarizeTitles: true } }
       );
 
@@ -4497,8 +4497,8 @@ Task with acceptance criteria
       consoleSpy.mockRestore();
     });
 
-    it("should trigger summarization at exactly 141 characters", async () => {
-      const boundaryDescription = "a".repeat(141);
+    it("should trigger summarization at exactly 201 characters", async () => {
+      const boundaryDescription = "a".repeat(201);
       const mockOnSummarize = vi.fn().mockResolvedValue("AI Title");
 
       const task = await store.createTask(
@@ -4509,8 +4509,8 @@ Task with acceptance criteria
       expect(mockOnSummarize).toHaveBeenCalled();
     });
 
-    it("should not trigger summarization at exactly 140 characters", async () => {
-      const boundaryDescription = "a".repeat(140);
+    it("should not trigger summarization at exactly 200 characters", async () => {
+      const boundaryDescription = "a".repeat(200);
       const mockOnSummarize = vi.fn().mockResolvedValue("AI Title");
 
       const task = await store.createTask(
@@ -4525,7 +4525,7 @@ Task with acceptance criteria
       const mockOnSummarize = vi.fn().mockResolvedValue("AI Title");
 
       const task = await store.createTask(
-        { title: "User Title", description: "a".repeat(200), summarize: true },
+        { title: "User Title", description: "a".repeat(201), summarize: true },
         { onSummarize: mockOnSummarize, settings: { autoSummarizeTitles: true } }
       );
 
@@ -4537,7 +4537,7 @@ Task with acceptance criteria
       const mockOnSummarize = vi.fn().mockResolvedValue("Generated Task Title");
 
       const task = await store.createTask(
-        { description: "a".repeat(200) },
+        { description: "a".repeat(201) },
         { onSummarize: mockOnSummarize, settings: { autoSummarizeTitles: true } }
       );
 
@@ -4545,6 +4545,22 @@ Task with acceptance criteria
 
       const detail = await store.getTask(task.id);
       expect(detail.prompt).toMatch(/^# FN-\d+: Generated Task Title\n/);
+    });
+
+    it("should preserve original description when generating a title", async () => {
+      const originalDescription = "a".repeat(201);
+      const mockOnSummarize = vi.fn().mockResolvedValue("AI Summary Title");
+
+      const task = await store.createTask(
+        { description: originalDescription },
+        { onSummarize: mockOnSummarize, settings: { autoSummarizeTitles: true } }
+      );
+
+      expect(task.title).toBe("AI Summary Title");
+      expect(task.description).toBe(originalDescription);
+
+      const detail = await store.getTask(task.id);
+      expect(detail.description).toBe(originalDescription);
     });
   });
 

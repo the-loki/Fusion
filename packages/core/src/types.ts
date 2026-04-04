@@ -776,7 +776,7 @@ export interface ProjectSettings {
   autoBackupRetention?: number;
   /** Directory for backup files, relative to project root. Default: ".fusion/backups". */
   autoBackupDir?: string;
-  /** When true, tasks created without titles but with descriptions longer than 140
+  /** When true, tasks created without titles but with descriptions longer than 200
    *  characters will automatically receive an AI-generated title (max 60 chars).
    *  Default: false. */
   autoSummarizeTitles?: boolean;

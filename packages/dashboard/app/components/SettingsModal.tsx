@@ -991,7 +991,7 @@ export function SettingsModal({
                 Auto-summarize long descriptions as titles
               </label>
               <small>
-                When enabled, tasks created without a title but with descriptions over 140 characters
+                When enabled, tasks created without a title but with descriptions over 200 characters
                 will automatically get an AI-generated title (max 60 characters).
               </small>
             </div>

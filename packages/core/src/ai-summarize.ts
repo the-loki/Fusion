@@ -3,12 +3,12 @@
  *
  * Provides AI-powered title generation from task descriptions.
  * Automatically generates concise titles (≤60 characters) from descriptions
- * longer than 140 characters.
+ * longer than 200 characters.
  *
  * Features:
  * - Rate limiting per IP (10 requests per hour)
  * - Dynamic import of @fusion/engine for AI agent creation
- * - Text length validation (141-2000 characters)
+ * - Text length validation (201-2000 characters)
  */
 
 // Dynamic import for @fusion/engine to avoid resolution issues in test environment
@@ -53,7 +53,7 @@ Your job is to create a concise title (max 60 characters) that summarizes the gi
 export const MAX_DESCRIPTION_LENGTH = 2000;
 
 /** Minimum description length for summarization in characters */
-export const MIN_DESCRIPTION_LENGTH = 141;
+export const MIN_DESCRIPTION_LENGTH = 201;
 
 /** Maximum title length in characters */
 export const MAX_TITLE_LENGTH = 60;
@@ -215,7 +215,7 @@ export function validateDescription(description: unknown): string {
 
 /**
  * Summarize a task description into a concise title using AI.
- * @param description - The task description to summarize (must be 141-2000 chars)
+ * @param description - The task description to summarize (must be 201-2000 chars)
  * @param rootDir - Project root directory for AI agent context
  * @param provider - Optional AI model provider (e.g., "anthropic")
  * @param modelId - Optional AI model ID (e.g., "claude-sonnet-4-5")
@@ -228,7 +228,7 @@ export async function summarizeTitle(
   modelId?: string
 ): Promise<string | null> {
   // Validate description length first
-  if (description.length <= 140) {
+  if (description.length <= 200) {
     return null; // Too short for summarization
   }
 

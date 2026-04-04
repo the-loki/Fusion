@@ -1718,7 +1718,7 @@ describe("summarizeTitle", () => {
     });
     global.fetch = mockFetch;
 
-    const result = await summarizeTitle("a".repeat(200));
+    const result = await summarizeTitle("a".repeat(201));
 
     expect(result).toBe("Generated Title");
     expect(mockFetch).toHaveBeenCalledWith(
@@ -1726,7 +1726,7 @@ describe("summarizeTitle", () => {
       expect.objectContaining({
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ description: "a".repeat(200), provider: undefined, modelId: undefined }),
+        body: JSON.stringify({ description: "a".repeat(201), provider: undefined, modelId: undefined }),
       })
     );
   });
@@ -1740,12 +1740,12 @@ describe("summarizeTitle", () => {
     });
     global.fetch = mockFetch;
 
-    await summarizeTitle("a".repeat(200), "anthropic", "claude-sonnet-4-5");
+    await summarizeTitle("a".repeat(201), "anthropic", "claude-sonnet-4-5");
 
     expect(mockFetch).toHaveBeenCalledWith(
       "/api/ai/summarize-title",
       expect.objectContaining({
-        body: JSON.stringify({ description: "a".repeat(200), provider: "anthropic", modelId: "claude-sonnet-4-5" }),
+        body: JSON.stringify({ description: "a".repeat(201), provider: "anthropic", modelId: "claude-sonnet-4-5" }),
       })
     );
   });
@@ -1771,7 +1771,7 @@ describe("summarizeTitle", () => {
     });
     global.fetch = mockFetch;
 
-    await expect(summarizeTitle("a".repeat(200))).rejects.toThrow("Rate limit exceeded: Rate limit exceeded");
+    await expect(summarizeTitle("a".repeat(201))).rejects.toThrow("Rate limit exceeded: Rate limit exceeded");
   });
 
   it("throws descriptive error on 503 response", async () => {
@@ -1783,7 +1783,7 @@ describe("summarizeTitle", () => {
     });
     global.fetch = mockFetch;
 
-    await expect(summarizeTitle("a".repeat(200))).rejects.toThrow("AI service temporarily unavailable: AI service unavailable");
+    await expect(summarizeTitle("a".repeat(201))).rejects.toThrow("AI service temporarily unavailable: AI service unavailable");
   });
 
   it("throws generic error on other failure responses", async () => {
@@ -1795,7 +1795,7 @@ describe("summarizeTitle", () => {
     });
     global.fetch = mockFetch;
 
-    await expect(summarizeTitle("a".repeat(200))).rejects.toThrow("Internal server error");
+    await expect(summarizeTitle("a".repeat(201))).rejects.toThrow("Internal server error");
   });
 
   it("throws error for non-JSON responses", async () => {
@@ -1807,7 +1807,7 @@ describe("summarizeTitle", () => {
     });
     global.fetch = mockFetch;
 
-    await expect(summarizeTitle("a".repeat(200))).rejects.toThrow("API returned non-JSON response");
+    await expect(summarizeTitle("a".repeat(201))).rejects.toThrow("API returned non-JSON response");
   });
 
   it("throws error when response has no title", async () => {
@@ -1819,7 +1819,7 @@ describe("summarizeTitle", () => {
     });
     global.fetch = mockFetch;
 
-    await expect(summarizeTitle("a".repeat(200))).rejects.toThrow("API returned empty title");
+    await expect(summarizeTitle("a".repeat(201))).rejects.toThrow("API returned empty title");
   });
 });
 

@@ -5135,7 +5135,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
    * Body: { description: string, provider?: string, modelId?: string }
    * Returns: { title: string }
    *
-   * Generates a concise title (≤60 characters) from descriptions longer than 140 characters.
+   * Generates a concise title (≤60 characters) from descriptions longer than 200 characters.
    * Rate limited: 10 requests per hour per IP
    */
   router.post("/ai/summarize-title", async (req, res) => {

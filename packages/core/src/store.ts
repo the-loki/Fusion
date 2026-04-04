@@ -672,7 +672,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
     let title = input.title?.trim() || undefined;
     const shouldSummarize =
       !title && // Only if no title provided
-      input.description.length > 140 && // Only if description is long enough
+      input.description.length > 200 && // Only if description is long enough
       (input.summarize === true || // Explicit request
         options?.settings?.autoSummarizeTitles === true); // Auto-enabled
 

@@ -29,7 +29,7 @@ describe("ai-summarize", () => {
     });
 
     it("should have correct length limits", () => {
-      expect(MIN_DESCRIPTION_LENGTH).toBe(141);
+      expect(MIN_DESCRIPTION_LENGTH).toBe(201);
       expect(MAX_DESCRIPTION_LENGTH).toBe(2000);
       expect(MAX_TITLE_LENGTH).toBe(60);
     });
@@ -43,7 +43,7 @@ describe("ai-summarize", () => {
 
   describe("validateDescription", () => {
     it("should accept valid description length", () => {
-      const desc = "a".repeat(200);
+      const desc = "a".repeat(201);
       expect(validateDescription(desc)).toBe(desc);
     });
 
@@ -64,7 +64,7 @@ describe("ai-summarize", () => {
     it("should throw for description too short", () => {
       const desc = "a".repeat(100);
       expect(() => validateDescription(desc)).toThrow(ValidationError);
-      expect(() => validateDescription(desc)).toThrow("at least 141 characters");
+      expect(() => validateDescription(desc)).toThrow("at least 201 characters");
     });
 
     it("should throw for description too long", () => {
@@ -74,7 +74,7 @@ describe("ai-summarize", () => {
     });
 
     it("should accept description at minimum boundary", () => {
-      const desc = "a".repeat(141);
+      const desc = "a".repeat(201);
       expect(validateDescription(desc)).toBe(desc);
     });
 
@@ -139,21 +139,21 @@ describe("ai-summarize", () => {
   // ── summarizeTitle ─────────────────────────────────────────────────────────
 
   describe("summarizeTitle", () => {
-    it("should return null for descriptions <= 140 characters", async () => {
+    it("should return null for descriptions <= 200 characters", async () => {
       const result = await summarizeTitle("Short description", "/tmp");
       expect(result).toBeNull();
     });
 
     it("should throw AiServiceError when engine not available", async () => {
       // In test environment, the dynamic import fails, so createKbAgent is undefined
-      const longDesc = "a".repeat(200);
+      const longDesc = "a".repeat(201);
       await expect(summarizeTitle(longDesc, "/tmp")).rejects.toThrow(AiServiceError);
       await expect(summarizeTitle(longDesc, "/tmp")).rejects.toThrow("AI engine not available");
     });
 
     it("should accept optional provider and modelId", async () => {
       // Since engine isn't available in tests, this will throw
-      const longDesc = "a".repeat(200);
+      const longDesc = "a".repeat(201);
       await expect(
         summarizeTitle(longDesc, "/tmp", "anthropic", "claude-sonnet-4-5")
       ).rejects.toThrow(AiServiceError);
