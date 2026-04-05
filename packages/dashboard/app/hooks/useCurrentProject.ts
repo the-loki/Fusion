@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { ProjectInfo } from "../api";
 
 const STORAGE_KEY = "kb-dashboard-current-project";
@@ -8,7 +8,7 @@ export interface UseCurrentProjectResult {
   currentProject: ProjectInfo | null;
   /** Set the current project */
   setCurrentProject: (project: ProjectInfo | null) => void;
-  /** Clear the current project selection */
+  /** Clear the current project selection (suppresses auto-select) */
   clearCurrentProject: () => void;
   /** Whether we're still loading from localStorage */
   loading: boolean;
@@ -21,6 +21,9 @@ export interface UseCurrentProjectResult {
 export function useCurrentProject(availableProjects: ProjectInfo[]): UseCurrentProjectResult {
   const [currentProject, setCurrentProjectState] = useState<ProjectInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  // When true, the user explicitly cleared the project (e.g. clicked "Projects")
+  // and we should not auto-select until they pick one manually.
+  const explicitlyClearedRef = useRef(false);
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -50,15 +53,16 @@ export function useCurrentProject(availableProjects: ProjectInfo[]): UseCurrentP
         setCurrentProjectState(firstActive || availableProjects[0] || null);
         return;
       }
-      
+
       // Persist to localStorage
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(currentProject));
       } catch {
         // Ignore localStorage errors
       }
-    } else if (availableProjects.length > 0) {
+    } else if (availableProjects.length > 0 && !explicitlyClearedRef.current) {
       // No selection but projects available - default to first active
+      // Skip if user explicitly cleared (navigated to overview)
       const firstActive = availableProjects.find((p) => p.status === "active");
       if (firstActive) {
         setCurrentProjectState(firstActive);
@@ -67,6 +71,7 @@ export function useCurrentProject(availableProjects: ProjectInfo[]): UseCurrentP
   }, [currentProject, availableProjects, loading]);
 
   const setCurrentProject = useCallback((project: ProjectInfo | null) => {
+    explicitlyClearedRef.current = false;
     setCurrentProjectState(project);
     if (project) {
       try {
@@ -84,6 +89,7 @@ export function useCurrentProject(availableProjects: ProjectInfo[]): UseCurrentP
   }, []);
 
   const clearCurrentProject = useCallback(() => {
+    explicitlyClearedRef.current = true;
     setCurrentProjectState(null);
     try {
       localStorage.removeItem(STORAGE_KEY);

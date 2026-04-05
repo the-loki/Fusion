@@ -364,7 +364,7 @@ describe("tablet header controls", () => {
     fireEvent.click(screen.getByTitle("More header actions"));
     const btn = screen.getByTestId("overflow-project-selector-btn");
     expect(btn).toBeDefined();
-    expect(btn.textContent).toContain("Project One");
+    expect(btn.textContent).toContain("Projects");
   });
 
   // ── Desktop still shows everything inline ──────────────────────

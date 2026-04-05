@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Settings, Pause, Play, Square, LayoutGrid, List, Terminal, Lightbulb, Search, X, Activity, MoreHorizontal, Clock, Folder, History, GitBranch, Workflow, Bot, ChevronLeft, Target, Building2, ChevronRight, FileCode, Loader2, Grid3X3 } from "lucide-react";
+import { Settings, Pause, Play, Square, LayoutGrid, List, Terminal, Lightbulb, Search, X, Activity, MoreHorizontal, Clock, Folder, History, GitBranch, Workflow, Bot, ChevronLeft, Target, ChevronRight, FileCode, Loader2, Grid3X3 } from "lucide-react";
 import type { ProjectInfo } from "../api";
 import { fetchScripts } from "../api";
 import { ProjectSelector } from "./ProjectSelector";
@@ -573,16 +573,16 @@ export function Header({
             role="menu"
             aria-label="Additional header actions"
           >
-            {/* Switch Project - in overflow on mobile */}
-            {projects.length > 1 && onViewAllProjects && (
+            {/* Projects - in overflow on mobile */}
+            {projects.length >= 1 && onViewAllProjects && (
               <button
                 className="mobile-overflow-item"
                 onClick={() => handleOverflowAction(onViewAllProjects)}
                 role="menuitem"
                 data-testid="overflow-project-selector-btn"
               >
-                <Building2 size={16} />
-                <span>{currentProject ? currentProject.name : "Switch Project"}</span>
+                <Grid3X3 size={16} />
+                <span>Projects</span>
               </button>
             )}
             {/* Files - in overflow on mobile */}

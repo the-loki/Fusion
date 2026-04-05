@@ -625,8 +625,7 @@ describe("Header", () => {
       fireEvent.click(screen.getByTitle("More header actions"));
       const btn = screen.getByTestId("overflow-project-selector-btn");
       expect(btn).toBeDefined();
-      // Should show the current project name
-      expect(btn.textContent).toContain("Project One");
+      expect(btn.textContent).toContain("Projects");
     });
 
     it("overflow project selector calls onViewAllProjects when clicked", () => {
@@ -679,7 +678,7 @@ describe("Header", () => {
       expect(projectSvg!.innerHTML).not.toBe(filesSvg!.innerHTML);
     });
 
-    it("does not show switch project in overflow menu with single project", () => {
+    it("shows projects in overflow menu with single project", () => {
       const projects = [
         { id: "proj_1", name: "Project One", path: "/path/1", status: "active" as const, isolationMode: "in-process" as const, createdAt: "", updatedAt: "" },
       ];
@@ -692,7 +691,7 @@ describe("Header", () => {
         />
       );
       fireEvent.click(screen.getByTitle("More header actions"));
-      expect(screen.queryByTestId("overflow-project-selector-btn")).toBeNull();
+      expect(screen.queryByTestId("overflow-project-selector-btn")).not.toBeNull();
     });
 
     it("missions overflow menu item calls onOpenMissions when clicked", () => {

@@ -143,13 +143,13 @@ describe("useCurrentProject", () => {
       result.current.clearCurrentProject();
     });
 
-    // With available projects, it re-defaults to first active and saves to localStorage
+    // After explicit clear, should stay null (no auto-select) so user can view overview
     await waitFor(() => {
-      expect(result.current.currentProject?.id).toBe("proj_1");
+      expect(result.current.currentProject).toBeNull();
     });
-    
-    // After re-defaulting, localStorage should have the default project
-    expect(localStorage.getItem("kb-dashboard-current-project")).toContain("proj_1");
+
+    // localStorage should be cleared
+    expect(localStorage.getItem("kb-dashboard-current-project")).toBeNull();
   });
 
   it("handles localStorage errors gracefully", async () => {
