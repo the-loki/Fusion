@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   isTransientError,
   classifyError,
+  isSilentTransientError,
   TRANSIENT_ERROR_PATTERNS,
 } from "./transient-error-detector.js";
 import { isUsageLimitError } from "./usage-limit-detector.js";
@@ -200,6 +201,39 @@ describe("Transient Error Detector", () => {
       TRANSIENT_ERROR_PATTERNS.forEach((pattern) => {
         expect(pattern.flags).toContain("i");
       });
+    });
+  });
+
+  describe("isSilentTransientError", () => {
+    it("returns true for 'request was aborted'", () => {
+      expect(isSilentTransientError("request was aborted")).toBe(true);
+      expect(isSilentTransientError("Request was aborted")).toBe(true);
+      expect(isSilentTransientError("REQUEST WAS ABORTED")).toBe(true);
+      expect(isSilentTransientError("Error: request was aborted")).toBe(true);
+    });
+
+    it("returns false for other transient errors", () => {
+      expect(isSilentTransientError("ECONNREFUSED")).toBe(false);
+      expect(isSilentTransientError("socket hang up")).toBe(false);
+      expect(isSilentTransientError("upstream connect error")).toBe(false);
+      expect(isSilentTransientError("connection reset")).toBe(false);
+    });
+
+    it("returns false for non-transient errors", () => {
+      expect(isSilentTransientError("SyntaxError: Unexpected token")).toBe(false);
+      expect(isSilentTransientError("Test failed")).toBe(false);
+    });
+
+    it("returns false for empty/invalid input", () => {
+      expect(isSilentTransientError("")).toBe(false);
+      expect(isSilentTransientError(null as unknown as string)).toBe(false);
+      expect(isSilentTransientError(undefined as unknown as string)).toBe(false);
+    });
+
+    it("returns false for partial matches like 'abort' alone", () => {
+      expect(isSilentTransientError("abort")).toBe(false);
+      expect(isSilentTransientError("Aborted")).toBe(false);
+      expect(isSilentTransientError("The operation was aborted by user")).toBe(false);
     });
   });
 });

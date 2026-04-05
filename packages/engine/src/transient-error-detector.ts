@@ -81,6 +81,42 @@ export function isTransientError(errorMessage: string): boolean {
 }
 
 /**
+ * Patterns for transient errors that should be silently retried without
+ * logging to task log entries. These errors are extremely noisy (high frequency)
+ * but harmless — the retry succeeds on the next attempt.
+ *
+ * Silent transient errors:
+ * - "request was aborted" — AI provider streaming cancellations (very noisy,
+ *   occurs frequently when providers drop in-flight requests)
+ */
+const SILENT_TRANSIENT_PATTERNS: RegExp[] = [
+  /request was aborted/i,
+];
+
+/**
+ * Check if an error message indicates a "silent" transient error that should
+ * NOT be logged to task log entries.
+ *
+ * Silent transient errors are a subset of transient errors (identified by
+ * {@link isTransientError}) that are extremely noisy in practice. While they
+ * still trigger the normal retry mechanism (task moves back to "todo"), they
+ * are suppressed from the task log to reduce noise in dashboard views.
+ *
+ * All silent transient errors are also transient errors — this function
+ * returns `true` only for errors that {@link isTransientError} would also
+ * match. The distinction is purely about logging behavior, not retry behavior.
+ *
+ * @param errorMessage - The error message to check
+ * @returns true if the error should be silently retried without logging
+ */
+export function isSilentTransientError(errorMessage: string): boolean {
+  if (!errorMessage || typeof errorMessage !== "string") {
+    return false;
+  }
+  return SILENT_TRANSIENT_PATTERNS.some((pattern) => pattern.test(errorMessage));
+}
+
+/**
  * Comprehensive error classification that distinguishes between:
  * - 'usage-limit': Rate limits, quota exceeded, billing issues → triggers global pause
  * - 'transient': Network blips, connection errors → move task to "todo" for retry

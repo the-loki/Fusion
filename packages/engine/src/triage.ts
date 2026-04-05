@@ -21,7 +21,7 @@ import {
   checkSessionError,
   type UsageLimitPauser,
 } from "./usage-limit-detector.js";
-import { isTransientError } from "./transient-error-detector.js";
+import { isTransientError, isSilentTransientError } from "./transient-error-detector.js";
 import { withRateLimitRetry } from "./rate-limit-retry.js";
 import { computeRecoveryDecision, formatDelay, MAX_RECOVERY_RETRIES } from "./recovery-policy.js";
 
@@ -714,8 +714,11 @@ export class TriageProcessor {
           if (decision.shouldRetry) {
             const attempt = decision.nextState.recoveryRetryCount;
             const delay = formatDelay(decision.delayMs);
-            triageLog.warn(`⚡ ${task.id} transient error during triage — retry ${attempt}/${MAX_RECOVERY_RETRIES} in ${delay}: ${err.message}`);
-            await this.store.logEntry(task.id, `Transient error during specification (retry ${attempt}/${MAX_RECOVERY_RETRIES} in ${delay}): ${err.message}`).catch(() => {});
+            // Silent transient errors (e.g., "request was aborted") are noisy — skip logging
+            if (!isSilentTransientError(err.message)) {
+              triageLog.warn(`⚡ ${task.id} transient error during triage — retry ${attempt}/${MAX_RECOVERY_RETRIES} in ${delay}: ${err.message}`);
+              await this.store.logEntry(task.id, `Transient error during specification (retry ${attempt}/${MAX_RECOVERY_RETRIES} in ${delay}): ${err.message}`).catch(() => {});
+            }
             const restoreStatus = task.status === "needs-respecify" ? "needs-respecify" : undefined;
             await this.store.updateTask(task.id, {
               status: restoreStatus,
