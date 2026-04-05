@@ -17,6 +17,12 @@ vi.mock("lucide-react", () => ({
   AlertCircle: () => null,
   GitCommit: () => null,
   WrapText: ({ size }: any) => <span data-testid="wrap-text-icon" />,
+  Maximize2: ({ size }: any) => <span data-testid="maximize-icon" />,
+}));
+
+vi.mock("../ChangesDiffModal", () => ({
+  ChangesDiffModal: ({ isOpen, onClose }: any) =>
+    isOpen ? <div data-testid="changes-diff-modal">Modal</div> : null,
 }));
 
 vi.mock("../../utils/highlightDiff", () => ({
@@ -733,5 +739,74 @@ describe("TaskChangesTab — word wrap toggle", () => {
     // Click to toggle OFF
     fireEvent.click(toggle);
     expect(toggle.getAttribute("title")).toBe("Enable word wrap");
+  });
+});
+
+describe("TaskChangesTab — expand button", () => {
+  it("renders the expand button", async () => {
+    mockFetchTaskDiff.mockResolvedValue(DONE_TASK_DIFF);
+
+    render(
+      <TaskChangesTab
+        taskId="FN-001"
+        worktree={undefined}
+        column="done"
+        mergeDetails={MERGE_DETAILS}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("src/app.ts")).toBeTruthy();
+    });
+
+    expect(screen.getByLabelText("Expand diff view")).toBeTruthy();
+  });
+
+  it("opens the ChangesDiffModal when expand button is clicked", async () => {
+    mockFetchTaskDiff.mockResolvedValue(DONE_TASK_DIFF);
+
+    render(
+      <TaskChangesTab
+        taskId="FN-001"
+        worktree={undefined}
+        column="done"
+        mergeDetails={MERGE_DETAILS}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("src/app.ts")).toBeTruthy();
+    });
+
+    // Modal should not be visible initially
+    expect(screen.queryByTestId("changes-diff-modal")).toBeNull();
+
+    // Click expand
+    fireEvent.click(screen.getByLabelText("Expand diff view"));
+
+    // Modal should now be visible
+    expect(screen.getByTestId("changes-diff-modal")).toBeTruthy();
+  });
+
+  it("does not render expand button when no files are loaded", async () => {
+    mockFetchTaskDiff.mockResolvedValue({
+      files: [],
+      stats: { filesChanged: 0, additions: 0, deletions: 0 },
+    });
+
+    render(
+      <TaskChangesTab
+        taskId="FN-001"
+        worktree={undefined}
+        column="done"
+        mergeDetails={MERGE_DETAILS}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("No files modified.")).toBeTruthy();
+    });
+
+    expect(screen.queryByLabelText("Expand diff view")).toBeNull();
   });
 });

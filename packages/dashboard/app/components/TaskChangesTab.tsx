@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
-import { FileCode, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, GitCommit, WrapText } from "lucide-react";
+import { FileCode, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, GitCommit, WrapText, Maximize2 } from "lucide-react";
 import type { MergeDetails, Column } from "@fusion/core";
 import { fetchTaskDiff, type TaskDiff } from "../api";
 import { highlightDiff } from "../utils/highlightDiff";
 import { truncateMiddle } from "../utils/truncatePath";
+import { ChangesDiffModal } from "./ChangesDiffModal";
 
 interface TaskChangesTabProps {
   taskId: string;
@@ -51,6 +52,7 @@ export function TaskChangesTab({ taskId, worktree, projectId, column, mergeDetai
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
   const [currentFileIndex, setCurrentFileIndex] = useState<number | null>(null);
   const [wordWrap, setWordWrap] = useState(true);
+  const [expandedViewOpen, setExpandedViewOpen] = useState(false);
 
   const canLoad = column === "in-progress" || column === "in-review" || column === "done";
 
@@ -243,6 +245,14 @@ export function TaskChangesTab({ taskId, worktree, projectId, column, mergeDetai
           >
             Refresh
           </button>
+          <button
+            className="btn btn-sm btn-icon"
+            onClick={() => setExpandedViewOpen(true)}
+            title="Expand to full-screen diff view"
+            aria-label="Expand diff view"
+          >
+            <Maximize2 size={14} />
+          </button>
         </div>
       </div>
 
@@ -290,6 +300,17 @@ export function TaskChangesTab({ taskId, worktree, projectId, column, mergeDetai
           );
         })}
       </div>
+
+      <ChangesDiffModal
+        isOpen={expandedViewOpen}
+        taskId={taskId}
+        files={files}
+        stats={stats}
+        mergeDetails={mergeDetails}
+        column={column}
+        onClose={() => setExpandedViewOpen(false)}
+        onRefresh={loadDiff}
+      />
     </div>
   );
 }
