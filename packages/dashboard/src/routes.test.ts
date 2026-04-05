@@ -6864,3 +6864,107 @@ describe("POST /workflow-step-templates/:id/create", () => {
     expect(res.body.error).toContain("already exists");
   });
 });
+
+describe("POST /api/agents/:id/runs", () => {
+  let tempDir: string;
+  let fusionDir: string;
+  let agentId: string;
+
+  beforeEach(async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "kb-routes-agent-runs-"));
+    fusionDir = join(tempDir, ".fusion");
+    mkdirSync(fusionDir, { recursive: true });
+
+    // Create a real agent in the temp directory so AgentStore can find it
+    const { AgentStore } = await import("@fusion/core");
+    const agentStore = new AgentStore({ rootDir: fusionDir });
+    await agentStore.init();
+    const agent = await agentStore.createAgent({
+      name: "Test Agent",
+      role: "executor",
+    });
+    agentId = agent.id;
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function buildApp() {
+    const store = createMockStore({
+      getFusionDir: vi.fn().mockReturnValue(fusionDir),
+    } as any);
+    const app = express();
+    app.use(express.json());
+    app.use("/api", createApiRoutes(store));
+    return app;
+  }
+
+  it("returns 201 with created run for valid agent", async () => {
+    const res = await REQUEST(buildApp(), "POST", `/api/agents/${agentId}/runs`);
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({
+      id: expect.stringMatching(/^run-/),
+      agentId,
+      status: "active",
+      endedAt: null,
+      invocationSource: "on_demand",
+    });
+    expect(res.body.startedAt).toBeTruthy();
+  });
+
+  it("persists the run via saveRun", async () => {
+    await REQUEST(buildApp(), "POST", `/api/agents/${agentId}/runs`);
+
+    // Verify run was persisted to filesystem
+    const { AgentStore } = await import("@fusion/core");
+    const agentStore = new AgentStore({ rootDir: fusionDir });
+    await agentStore.init();
+    const runs = await agentStore.getRecentRuns(agentId);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].invocationSource).toBe("on_demand");
+  });
+
+  it("returns 404 for non-existent agent", async () => {
+    const res = await REQUEST(buildApp(), "POST", "/api/agents/agent-nonexistent/runs");
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toContain("not found");
+  });
+
+  it("uses default invocationSource when no body provided", async () => {
+    const res = await REQUEST(buildApp(), "POST", `/api/agents/${agentId}/runs`);
+
+    expect(res.status).toBe(201);
+    expect(res.body.invocationSource).toBe("on_demand");
+  });
+
+  it("uses custom source and triggerDetail from body", async () => {
+    const res = await REQUEST(
+      buildApp(),
+      "POST",
+      `/api/agents/${agentId}/runs`,
+      JSON.stringify({ source: "timer", triggerDetail: "cron schedule" }),
+      { "Content-Type": "application/json" },
+    );
+
+    expect(res.status).toBe(201);
+    expect(res.body.invocationSource).toBe("timer");
+    expect(res.body.triggerDetail).toBe("cron schedule");
+  });
+
+  it("returns 500 on store error", async () => {
+    const store = createMockStore({
+      getFusionDir: vi.fn().mockReturnValue("/nonexistent/path/that/does/not/exist"),
+    } as any);
+    const app = express();
+    app.use(express.json());
+    app.use("/api", createApiRoutes(store));
+
+    // This should hit an error because the agent doesn't exist in that path
+    const res = await REQUEST(app, "POST", `/api/agents/${agentId}/runs`);
+
+    expect(res.status).toBe(500);
+  });
+});

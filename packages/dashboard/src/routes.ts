@@ -6674,6 +6674,43 @@ Output ONLY the prompt text (no markdown, no explanations).`;
   });
 
   /**
+   * POST /api/agents/:id/runs
+   * Manually start a heartbeat run for an agent.
+   * Body: { source?: HeartbeatInvocationSource, triggerDetail?: string }
+   */
+  router.post("/agents/:id/runs", async (req, res) => {
+    try {
+      const { source, triggerDetail } = req.body || {};
+
+      const scopedStore = await getScopedStore(req);
+      const { AgentStore } = await import("@fusion/core");
+      const agentStore = new AgentStore({ rootDir: scopedStore.getFusionDir() });
+      await agentStore.init();
+
+      const run = await agentStore.startHeartbeatRun(req.params.id);
+
+      // Enrich with invocation source and trigger detail
+      if (source) {
+        (run as any).invocationSource = source;
+      } else {
+        (run as any).invocationSource = "on_demand";
+      }
+      if (triggerDetail) {
+        (run as any).triggerDetail = triggerDetail;
+      }
+
+      await agentStore.saveRun(run);
+      res.status(201).json(run);
+    } catch (err: any) {
+      if (err.message?.includes("not found")) {
+        res.status(404).json({ error: err.message });
+      } else {
+        res.status(500).json({ error: err.message });
+      }
+    }
+  });
+
+  /**
    * GET /api/agents/:id/runs/:runId
    * Get detail for a specific agent run.
    */
