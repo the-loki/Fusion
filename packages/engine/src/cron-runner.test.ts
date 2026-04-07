@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { CronRunner } from "./cron-runner.js";
+import type { AiPromptExecutor } from "./cron-runner.js";
 import type { TaskStore, AutomationStore, ScheduledTask, AutomationRunResult, AutomationStep, Settings } from "@fusion/core";
 import { randomUUID } from "node:crypto";
 
@@ -532,8 +533,11 @@ describe("CronRunner", () => {
       expect(result.stepResults![0].error).toContain("timed out");
     }, 10000);
 
-    it("handles AI prompt step execution (mocked)", async () => {
+    it("handles AI prompt step execution with executor", async () => {
       const store = createMockStore();
+      const mockFn = vi.fn()
+        .mockResolvedValue("AI analysis complete: no issues found");
+      const mockExecutor = mockFn as unknown as AiPromptExecutor;
       const schedule = createMockSchedule({
         command: "",
         steps: [
@@ -548,15 +552,20 @@ describe("CronRunner", () => {
         ],
       });
       const automationStore = createMockAutomationStore([schedule]);
-      runner = new CronRunner(store, automationStore);
+      runner = new CronRunner(store, automationStore, { aiPromptExecutor: mockExecutor });
 
       const result = await runner.executeSchedule(schedule);
 
       expect(result.success).toBe(true);
       expect(result.stepResults).toHaveLength(1);
       expect(result.stepResults![0].success).toBe(true);
-      expect(result.stepResults![0].output).toContain("anthropic/claude-sonnet-4-5");
-      expect(result.stepResults![0].output).toContain("Analyze the codebase");
+      expect(result.stepResults![0].output).toContain("AI analysis complete");
+      // Verify executor was called with correct model params from step
+      expect(mockExecutor).toHaveBeenCalledWith(
+        "Analyze the codebase",
+        "anthropic",
+        "claude-sonnet-4-5",
+      );
     });
 
     it("fails AI prompt step when no prompt is provided", async () => {
@@ -664,6 +673,9 @@ describe("CronRunner", () => {
 
     it("mixed step types execute correctly", async () => {
       const store = createMockStore();
+      const mockFn = vi.fn()
+        .mockResolvedValue("Summary: all good");
+      const mockExecutor = mockFn as unknown as AiPromptExecutor;
       const schedule = createMockSchedule({
         command: "",
         steps: [
@@ -678,7 +690,7 @@ describe("CronRunner", () => {
         ],
       });
       const automationStore = createMockAutomationStore([schedule]);
-      runner = new CronRunner(store, automationStore);
+      runner = new CronRunner(store, automationStore, { aiPromptExecutor: mockExecutor });
 
       const result = await runner.executeSchedule(schedule);
 
@@ -687,6 +699,247 @@ describe("CronRunner", () => {
       expect(result.stepResults![0].stepName).toBe("Build");
       expect(result.stepResults![1].stepName).toBe("Summarize");
       expect(result.stepResults![2].stepName).toBe("Deploy");
+      expect(result.stepResults![1].output).toContain("Summary: all good");
+    });
+
+    // ── AI prompt step execution ────────────────────────────────────────
+
+    function createAiMockExecutor(
+      response: string = "mock AI response",
+    ): AiPromptExecutor {
+      const fn = vi.fn().mockResolvedValue(response);
+      return fn as unknown as AiPromptExecutor;
+    }
+
+    it("returns success with AI response when executor is configured", async () => {
+      const store = createMockStore();
+      const mockExecutor = createAiMockExecutor("Analysis complete: 3 findings");
+      const schedule = createMockSchedule({
+        command: "",
+        steps: [
+          makeStep({
+            type: "ai-prompt",
+            name: "Code Review",
+            prompt: "Review the code for issues",
+            command: undefined,
+          }),
+        ],
+      });
+      const automationStore = createMockAutomationStore([schedule]);
+      runner = new CronRunner(store, automationStore, { aiPromptExecutor: mockExecutor });
+
+      const result = await runner.executeSchedule(schedule);
+
+      expect(result.success).toBe(true);
+      expect(result.stepResults![0].success).toBe(true);
+      expect(result.stepResults![0].output).toContain("Analysis complete: 3 findings");
+    });
+
+    it("passes step model provider and model ID to executor", async () => {
+      const store = createMockStore();
+      const mockExecutor = createAiMockExecutor("response");
+      const schedule = createMockSchedule({
+        command: "",
+        steps: [
+          makeStep({
+            type: "ai-prompt",
+            name: "Step with model",
+            prompt: "Do something",
+            modelProvider: "openai",
+            modelId: "gpt-4o",
+            command: undefined,
+          }),
+        ],
+      });
+      const automationStore = createMockAutomationStore([schedule]);
+      runner = new CronRunner(store, automationStore, { aiPromptExecutor: mockExecutor });
+
+      await runner.executeSchedule(schedule);
+
+      expect(mockExecutor).toHaveBeenCalledWith("Do something", "openai", "gpt-4o");
+    });
+
+    it("falls back to settings defaults when step has no model", async () => {
+      const store = createMockStore({
+        defaultProvider: "anthropic",
+        defaultModelId: "claude-sonnet-4-5",
+      });
+      const mockExecutor = createAiMockExecutor("response");
+      const schedule = createMockSchedule({
+        command: "",
+        steps: [
+          makeStep({
+            type: "ai-prompt",
+            name: "Step without model",
+            prompt: "Use defaults",
+            command: undefined,
+          }),
+        ],
+      });
+      const automationStore = createMockAutomationStore([schedule]);
+      runner = new CronRunner(store, automationStore, { aiPromptExecutor: mockExecutor });
+
+      await runner.executeSchedule(schedule);
+
+      expect(mockExecutor).toHaveBeenCalledWith("Use defaults", "anthropic", "claude-sonnet-4-5");
+    });
+
+    it("returns configuration error when no executor is provided", async () => {
+      const store = createMockStore();
+      const schedule = createMockSchedule({
+        command: "",
+        steps: [
+          makeStep({
+            type: "ai-prompt",
+            name: "No executor",
+            prompt: "This should fail",
+            command: undefined,
+          }),
+        ],
+      });
+      const automationStore = createMockAutomationStore([schedule]);
+      runner = new CronRunner(store, automationStore);
+
+      const result = await runner.executeSchedule(schedule);
+
+      expect(result.success).toBe(false);
+      expect(result.stepResults![0].success).toBe(false);
+      expect(result.stepResults![0].error).toContain("AI execution is not configured");
+      expect(result.stepResults![0].output).toBe("");
+    });
+
+    it("fails early when prompt is empty even with executor configured", async () => {
+      const store = createMockStore();
+      const mockExecutor = createAiMockExecutor("should not be called");
+      const schedule = createMockSchedule({
+        command: "",
+        steps: [
+          makeStep({
+            type: "ai-prompt",
+            name: "Empty prompt",
+            prompt: "   ",
+            command: undefined,
+          }),
+        ],
+      });
+      const automationStore = createMockAutomationStore([schedule]);
+      runner = new CronRunner(store, automationStore, { aiPromptExecutor: mockExecutor });
+
+      const result = await runner.executeSchedule(schedule);
+
+      expect(result.success).toBe(false);
+      expect(result.stepResults![0].error).toContain("no prompt specified");
+      expect(mockExecutor).not.toHaveBeenCalled();
+    });
+
+    it("handles timeout by returning failure", async () => {
+      const store = createMockStore();
+      const mockFn = vi.fn()
+        .mockImplementation(() => new Promise((resolve) => {
+          setTimeout(() => resolve("too late"), 5000);
+        }));
+      const mockExecutor = mockFn as unknown as AiPromptExecutor;
+      const schedule = createMockSchedule({
+        command: "",
+        timeoutMs: 100,
+        steps: [
+          makeStep({
+            type: "ai-prompt",
+            name: "Slow AI",
+            prompt: "Take your time",
+            command: undefined,
+          }),
+        ],
+      });
+      const automationStore = createMockAutomationStore([schedule]);
+      runner = new CronRunner(store, automationStore, { aiPromptExecutor: mockExecutor });
+
+      const result = await runner.executeSchedule(schedule);
+
+      expect(result.success).toBe(false);
+      expect(result.stepResults![0].success).toBe(false);
+      expect(result.stepResults![0].error).toContain("timed out");
+    });
+
+    it("handles executor throwing an error", async () => {
+      const store = createMockStore();
+      const mockFn = vi.fn()
+        .mockRejectedValue(new Error("API rate limit exceeded"));
+      const mockExecutor = mockFn as unknown as AiPromptExecutor;
+      const schedule = createMockSchedule({
+        command: "",
+        steps: [
+          makeStep({
+            type: "ai-prompt",
+            name: "Failing AI",
+            prompt: "Cause an error",
+            command: undefined,
+          }),
+        ],
+      });
+      const automationStore = createMockAutomationStore([schedule]);
+      runner = new CronRunner(store, automationStore, { aiPromptExecutor: mockExecutor });
+
+      const result = await runner.executeSchedule(schedule);
+
+      expect(result.success).toBe(false);
+      expect(result.stepResults![0].success).toBe(false);
+      expect(result.stepResults![0].error).toContain("API rate limit exceeded");
+    });
+
+    it("truncates output when AI response exceeds MAX_OUTPUT_LENGTH", async () => {
+      const store = createMockStore();
+      const longResponse = "x".repeat(15_000);
+      const mockExecutor = createAiMockExecutor(longResponse);
+      const schedule = createMockSchedule({
+        command: "",
+        steps: [
+          makeStep({
+            type: "ai-prompt",
+            name: "Verbose AI",
+            prompt: "Give me lots of text",
+            command: undefined,
+          }),
+        ],
+      });
+      const automationStore = createMockAutomationStore([schedule]);
+      runner = new CronRunner(store, automationStore, { aiPromptExecutor: mockExecutor });
+
+      const result = await runner.executeSchedule(schedule);
+
+      expect(result.success).toBe(true);
+      expect(result.stepResults![0].success).toBe(true);
+      expect(result.stepResults![0].output).toContain("[output truncated]");
+      expect(result.stepResults![0].output.length).toBeLessThanOrEqual(10 * 1024 + 50);
+    });
+
+    it("uses per-step timeout override over schedule timeout", async () => {
+      const store = createMockStore();
+      const mockFn = vi.fn()
+        .mockImplementation(() => new Promise((resolve) => {
+          setTimeout(() => resolve("too late"), 5000);
+        }));
+      const mockExecutor = mockFn as unknown as AiPromptExecutor;
+      const schedule = createMockSchedule({
+        command: "",
+        timeoutMs: 30000,
+        steps: [
+          makeStep({
+            type: "ai-prompt",
+            name: "Slow AI",
+            prompt: "Take your time",
+            timeoutMs: 100,
+            command: undefined,
+          }),
+        ],
+      });
+      const automationStore = createMockAutomationStore([schedule]);
+      runner = new CronRunner(store, automationStore, { aiPromptExecutor: mockExecutor });
+
+      const result = await runner.executeSchedule(schedule);
+
+      expect(result.success).toBe(false);
+      expect(result.stepResults![0].error).toContain("timed out");
     });
   });
 });

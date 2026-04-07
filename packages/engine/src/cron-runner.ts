@@ -19,9 +19,21 @@ const DEFAULT_POLL_INTERVAL_MS = 60 * 1000;
 /** Minimum poll interval: 10 seconds. */
 const MIN_POLL_INTERVAL_MS = 10 * 1000;
 
+/**
+ * Function type for executing AI prompts.
+ * Injected into CronRunner to decouple it from agent session creation.
+ */
+export type AiPromptExecutor = (
+  prompt: string,
+  modelProvider?: string,
+  modelId?: string,
+) => Promise<string>;
+
 export interface CronRunnerOptions {
   /** Polling interval in milliseconds. Default: 60000 (60s). Minimum: 10000 (10s). */
   pollIntervalMs?: number;
+  /** Optional AI prompt executor. When not provided, ai-prompt steps return a configuration error. */
+  aiPromptExecutor?: AiPromptExecutor;
 }
 
 /**
@@ -37,6 +49,7 @@ export class CronRunner {
   private ticking = false;
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private pollIntervalMs: number;
+  private aiPromptExecutor?: AiPromptExecutor;
   /** Schedule IDs currently being executed — prevents concurrent runs of the same schedule. */
   private inFlight = new Set<string>();
 
@@ -49,6 +62,7 @@ export class CronRunner {
       MIN_POLL_INTERVAL_MS,
       options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS,
     );
+    this.aiPromptExecutor = options.aiPromptExecutor;
   }
 
   /** Start the polling loop. */
@@ -351,13 +365,13 @@ export class CronRunner {
 
   /**
    * Execute an AI prompt step.
-   * In a full implementation, this would create an agent session and run the prompt.
-   * For now, we log the prompt and model selection and return a placeholder result.
+   * Uses the injected aiPromptExecutor to create an agent session and run the prompt.
+   * When no executor is configured, returns a configuration error.
    */
   private async executeAiPromptStep(
     step: AutomationStep,
     stepIndex: number,
-    _timeoutMs: number,
+    timeoutMs: number,
     startedAt: string,
   ): Promise<AutomationStepResult> {
     if (!step.prompt?.trim()) {
@@ -373,23 +387,119 @@ export class CronRunner {
       };
     }
 
-    const model = step.modelProvider && step.modelId
-      ? `${step.modelProvider}/${step.modelId}`
+    // Check if AI execution is configured
+    if (!this.aiPromptExecutor) {
+      return {
+        stepId: step.id,
+        stepName: step.name,
+        stepIndex,
+        success: false,
+        output: "",
+        error: "AI execution is not configured — no aiPromptExecutor provided to CronRunner",
+        startedAt,
+        completedAt: new Date().toISOString(),
+      };
+    }
+
+    // Resolve model: step override → settings default
+    const settings = await this.store.getSettings();
+    const modelProvider = step.modelProvider?.trim() || settings.defaultProvider;
+    const modelId = step.modelId?.trim() || settings.defaultModelId;
+
+    const model = modelProvider && modelId
+      ? `${modelProvider}/${modelId}`
       : "default";
     log.log(`    AI prompt step "${step.name}" using model: ${model}`);
     log.log(`    Prompt: ${step.prompt.slice(0, 100)}${step.prompt.length > 100 ? "…" : ""}`);
 
-    // TODO: Integrate with actual agent session for AI prompt execution
-    return {
-      stepId: step.id,
-      stepName: step.name,
-      stepIndex,
-      success: true,
-      output: `[AI prompt step — model: ${model}]\nPrompt: ${step.prompt}\n\n(AI execution not yet implemented — prompt recorded for future integration)`,
-      startedAt,
-      completedAt: new Date().toISOString(),
-    };
+    try {
+      // Race between executor and timeout
+      const resultPromise = this.aiPromptExecutor(step.prompt, modelProvider, modelId);
+      const timeoutPromise = new Promise<never>((_resolve, reject) => {
+        setTimeout(() => reject(new Error(`AI prompt step timed out after ${timeoutMs / 1000}s`)), timeoutMs);
+      });
+
+      const response = await Promise.race([resultPromise, timeoutPromise]);
+
+      const output = response.length > MAX_OUTPUT_LENGTH
+        ? response.slice(0, MAX_OUTPUT_LENGTH) + "\n[output truncated]"
+        : response;
+
+      log.log(`    ✓ AI prompt step "${step.name}" completed (${response.length} chars)`);
+
+      return {
+        stepId: step.id,
+        stepName: step.name,
+        stepIndex,
+        success: true,
+        output,
+        startedAt,
+        completedAt: new Date().toISOString(),
+      };
+    } catch (err: any) {
+      const errorMessage = err.message ?? String(err);
+      log.warn(`    ✗ AI prompt step "${step.name}" failed: ${errorMessage}`);
+
+      return {
+        stepId: step.id,
+        stepName: step.name,
+        stepIndex,
+        success: false,
+        output: "",
+        error: errorMessage,
+        startedAt,
+        completedAt: new Date().toISOString(),
+      };
+    }
   }
+}
+
+const AI_AUTOMATION_SYSTEM_PROMPT = [
+  "You are an AI automation agent executing a scheduled task.",
+  "You have read-only access to the project files.",
+  "Execute the prompt precisely and return concise, structured results.",
+  "When analyzing code or data, provide actionable summaries.",
+].join("\n");
+
+/**
+ * Create an AiPromptExecutor that uses createKbAgent for real AI execution.
+ *
+ * Each call creates a fresh agent session, runs the prompt, collects the
+ * text response, and disposes the session.
+ *
+ * @param cwd — Project root directory (file access scope for the agent).
+ * @returns An AiPromptExecutor function suitable for CronRunnerOptions.
+ */
+export async function createAiPromptExecutor(cwd: string): Promise<AiPromptExecutor> {
+  // We import lazily to keep the factory self-contained and to avoid
+  // pulling pi.ts into the module graph when AI execution isn't used.
+  const { createKbAgent, promptWithFallback } = await import("./pi.js");
+
+  return async (prompt: string, modelProvider?: string, modelId?: string): Promise<string> => {
+    let responseText = "";
+
+    const { session } = await createKbAgent({
+      cwd,
+      systemPrompt: AI_AUTOMATION_SYSTEM_PROMPT,
+      tools: "readonly",
+      defaultProvider: modelProvider,
+      defaultModelId: modelId,
+      onText: (delta: string) => {
+        responseText += delta;
+      },
+    });
+
+    try {
+      await promptWithFallback(session, prompt);
+      return responseText;
+    } finally {
+      try {
+        session.dispose();
+      } catch {
+        // Best-effort disposal — don't mask the original error
+      }
+    }
+  };
 }
 
 /** Combine and truncate stdout/stderr to stay within storage limits. */

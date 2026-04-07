@@ -122,6 +122,7 @@ vi.mock("@fusion/engine", async (importOriginal) => {
     })),
     scanIdleWorktrees: vi.fn().mockResolvedValue([]),
     cleanupOrphanedWorktrees: vi.fn().mockResolvedValue(0),
+    createAiPromptExecutor: vi.fn().mockResolvedValue(vi.fn().mockResolvedValue("mock AI response")),
   };
 });
 

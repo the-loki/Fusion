@@ -4,7 +4,7 @@ import { createInterface } from "node:readline";
 import { TaskStore, AutomationStore, CentralCore, AgentStore, getTaskMergeBlocker } from "@fusion/core";
 import type { Settings, TaskDetail, PrInfo } from "@fusion/core";
 import { createServer, GitHubClient } from "@fusion/dashboard";
-import { TriageProcessor, TaskExecutor, Scheduler, AgentSemaphore, WorktreePool, aiMergeTask, UsageLimitPauser, PRIORITY_MERGE, scanIdleWorktrees, cleanupOrphanedWorktrees, NtfyNotifier, PrMonitor, PrCommentHandler, CronRunner, StuckTaskDetector, SelfHealingManager, MissionAutopilot } from "@fusion/engine";
+import { TriageProcessor, TaskExecutor, Scheduler, AgentSemaphore, WorktreePool, aiMergeTask, UsageLimitPauser, PRIORITY_MERGE, scanIdleWorktrees, cleanupOrphanedWorktrees, NtfyNotifier, PrMonitor, PrCommentHandler, CronRunner, StuckTaskDetector, SelfHealingManager, MissionAutopilot, createAiPromptExecutor } from "@fusion/engine";
 import { AuthStorage, DefaultPackageManager, ModelRegistry, SettingsManager, discoverAndLoadExtensions, getAgentDir, createExtensionRuntime } from "@mariozechner/pi-coding-agent";
 
 /**
@@ -653,7 +653,8 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
     missionAutopilot.setScheduler(scheduler);
 
     // ── CronRunner: scheduled task execution ──────────────────────────
-    const cronRunner = new CronRunner(store, automationStore);
+    const aiPromptExecutor = await createAiPromptExecutor(cwd);
+    const cronRunner = new CronRunner(store, automationStore, { aiPromptExecutor });
     cronRunner.start();
 
     triage.start();
