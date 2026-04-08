@@ -85,6 +85,7 @@ export function InlineCreateCard({
   const [executorModelId, setExecutorModelId] = useState<string | undefined>(undefined);
   const [validatorProvider, setValidatorProvider] = useState<string | undefined>(undefined);
   const [validatorModelId, setValidatorModelId] = useState<string | undefined>(undefined);
+  const [browserVerification, setBrowserVerification] = useState(false);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [loadedModels, setLoadedModels] = useState<ModelInfo[]>(availableModels ?? []);
@@ -281,7 +282,7 @@ export function InlineCreateCard({
         modelId: hasExecutorOverride ? executorModelId : undefined,
         validatorModelProvider: hasValidatorOverride ? validatorProvider : undefined,
         validatorModelId: hasValidatorOverride ? validatorModelId : undefined,
-        enabledWorkflowSteps: undefined,
+        enabledWorkflowSteps: browserVerification ? ["browser-verification"] : undefined,
       });
 
       // Upload pending images as attachments
@@ -312,6 +313,7 @@ export function InlineCreateCard({
       setExecutorModelId(undefined);
       setValidatorProvider(undefined);
       setValidatorModelId(undefined);
+      setBrowserVerification(false);
       setDependencies([]);
       setShowDeps(false);
       setIsModelModalOpen(false);
@@ -338,6 +340,7 @@ export function InlineCreateCard({
     hasValidatorOverride,
     validatorProvider,
     validatorModelId,
+    browserVerification,
     submitting,
     pendingImages,
     onSubmit,
@@ -471,6 +474,7 @@ export function InlineCreateCard({
     setExecutorModelId(undefined);
     setValidatorProvider(undefined);
     setValidatorModelId(undefined);
+    setBrowserVerification(false);
     setSelectedPresetId(undefined);
     setShowDeps(false);
     setIsModelModalOpen(false);
@@ -492,6 +496,7 @@ export function InlineCreateCard({
     setExecutorModelId(undefined);
     setValidatorProvider(undefined);
     setValidatorModelId(undefined);
+    setBrowserVerification(false);
     setSelectedPresetId(undefined);
     setShowDeps(false);
     setIsModelModalOpen(false);
@@ -641,6 +646,17 @@ export function InlineCreateCard({
                 );
               })()}
             </div>
+
+            <button
+              type="button"
+              className="btn btn-sm"
+              data-testid="inline-create-browser-verification-toggle"
+              aria-pressed={browserVerification}
+              onClick={() => setBrowserVerification((prev) => !prev)}
+              title="Enable browser verification workflow step"
+            >
+              {browserVerification ? "Browser Verify ✓" : "Browser Verify"}
+            </button>
 
             <div className="inline-create-model-wrap">
               <button

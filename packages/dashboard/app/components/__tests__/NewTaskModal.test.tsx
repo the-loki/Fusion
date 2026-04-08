@@ -350,6 +350,33 @@ describe("NewTaskModal", () => {
 
   // Workflow step ordering tests (FN-836)
   describe("workflow step ordering", () => {
+    it("sends selected enabledWorkflowSteps in create payload", async () => {
+      const { fetchWorkflowSteps } = await import("../../api");
+      vi.mocked(fetchWorkflowSteps).mockResolvedValueOnce([
+        { id: "WS-001", name: "QA Check", description: "Run tests", prompt: "Check tests", enabled: true, createdAt: "", updatedAt: "" },
+      ]);
+
+      const { props } = renderNewTaskModal();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("workflow-step-checkbox-WS-001")).toBeTruthy();
+      });
+
+      const checkbox = screen.getByTestId("workflow-step-checkbox-WS-001").querySelector('input[type="checkbox"]') as HTMLInputElement;
+      fireEvent.click(checkbox);
+
+      fireEvent.change(screen.getByLabelText(/Description/i), { target: { value: "Task with workflow step" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
+
+      await waitFor(() => {
+        expect(props.onCreateTask).toHaveBeenCalledWith(
+          expect.objectContaining({
+            enabledWorkflowSteps: ["WS-001"],
+          }),
+        );
+      });
+    });
+
     it("sends ordered enabledWorkflowSteps in create payload when steps are selected in order", async () => {
       const { fetchWorkflowSteps } = await import("../../api");
       vi.mocked(fetchWorkflowSteps).mockResolvedValueOnce([

@@ -828,6 +828,27 @@ describe("InlineCreateCard button visibility when collapsed", () => {
     });
   });
 
+  it("submits browser-verification workflow step when browser verification is enabled", async () => {
+    const mockOnSubmit = vi.fn().mockResolvedValue(createMockTask());
+    renderCard([], { onSubmit: mockOnSubmit });
+    expandCard();
+
+    fireEvent.change(screen.getByPlaceholderText("What needs to be done?"), {
+      target: { value: "Verify login flow in browser" },
+    });
+
+    fireEvent.click(screen.getByTestId("inline-create-browser-verification-toggle"));
+    fireEvent.click(screen.getByTestId("save-button"));
+
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enabledWorkflowSteps: ["browser-verification"],
+        }),
+      );
+    });
+  });
+
   describe("Description-adjacent actions layout (FN-781)", () => {
     it("renders Plan and Subtask in description-actions area when expanded", () => {
       renderCard();
