@@ -92,6 +92,7 @@ function createMockMissionStore(missions: Mission[] = []) {
     listSlices: vi.fn(),
     getFeatureByTaskId: vi.fn(),
     listFeatures: vi.fn(),
+    updateFeatureStatus: vi.fn(),
     getMissionWithHierarchy: vi.fn(),
     on: vi.fn(),
     off: vi.fn(),
@@ -103,6 +104,14 @@ function createMockTaskStore() {
   return {
     on: vi.fn(),
     off: vi.fn(),
+    getSettings: vi.fn().mockResolvedValue({
+      missionStaleThresholdMs: 600_000,
+      missionMaxTaskRetries: 3,
+      missionHealthCheckIntervalMs: 300_000,
+    }),
+    getTask: vi.fn().mockResolvedValue({ id: "FN-001", column: "in-progress" }),
+    moveTask: vi.fn().mockResolvedValue({ id: "FN-001", column: "todo" }),
+    updateTask: vi.fn().mockResolvedValue({}),
   };
 }
 
@@ -356,6 +365,106 @@ describe("MissionAutopilot", () => {
     });
   });
 
+  describe("handleTaskFailure", () => {
+    function wireMissionTask(taskId = "FN-001") {
+      const feature = createMockFeature({ id: "F-001", taskId, sliceId: "SL-001", status: "in-progress" });
+      const slice = createMockSlice({ id: "SL-001", milestoneId: "MS-001" });
+      const milestone = createMockMilestone({ id: "MS-001", missionId: "M-TEST1" });
+
+      missionStore.getFeatureByTaskId.mockReturnValue(feature);
+      missionStore.getSlice.mockReturnValue(slice);
+      missionStore.getMilestone.mockReturnValue(milestone);
+
+      return { feature, slice, milestone };
+    }
+
+    it("increments retries and requeues failed tasks", async () => {
+      wireMissionTask();
+      autopilot.watchMission("M-TEST1");
+
+      await autopilot.handleTaskFailure("FN-001");
+
+      expect(taskStore.moveTask).toHaveBeenCalledWith("FN-001", "todo");
+      expect(taskStore.updateTask).toHaveBeenCalledWith(
+        "FN-001",
+        expect.objectContaining({ error: null, status: null, paused: false }),
+      );
+      expect(missionStore.updateFeatureStatus).not.toHaveBeenCalled();
+    });
+
+    it("marks feature blocked after max retries and does not retry again", async () => {
+      const { feature } = wireMissionTask();
+      autopilot.watchMission("M-TEST1");
+      taskStore.getSettings.mockResolvedValue({
+        missionStaleThresholdMs: 600_000,
+        missionMaxTaskRetries: 1,
+        missionHealthCheckIntervalMs: 300_000,
+      });
+
+      await autopilot.handleTaskFailure("FN-001");
+      await autopilot.handleTaskFailure("FN-001");
+
+      expect(missionStore.updateFeatureStatus).toHaveBeenCalledWith(feature.id, "blocked");
+      expect(taskStore.moveTask).toHaveBeenCalledTimes(1);
+      expect(taskStore.updateTask).toHaveBeenCalledWith(
+        "FN-001",
+        expect.objectContaining({ status: "failed", paused: true }),
+      );
+    });
+
+    it("clears retry budget for a task after successful completion", async () => {
+      wireMissionTask();
+      autopilot.watchMission("M-TEST1");
+      taskStore.getSettings.mockResolvedValue({
+        missionStaleThresholdMs: 600_000,
+        missionMaxTaskRetries: 1,
+        missionHealthCheckIntervalMs: 300_000,
+      });
+
+      await autopilot.handleTaskFailure("FN-001");
+
+      missionStore.listFeatures.mockReturnValue([
+        createMockFeature({ id: "F-001", taskId: "FN-001", sliceId: "SL-001", status: "in-progress" }),
+      ]);
+      await autopilot.handleTaskCompletion("FN-001");
+      await autopilot.handleTaskFailure("FN-001");
+
+      expect(missionStore.updateFeatureStatus).not.toHaveBeenCalledWith("F-001", "blocked");
+      expect(taskStore.moveTask).toHaveBeenCalledTimes(2);
+    });
+
+    it("is a no-op when task is not linked to a feature", async () => {
+      missionStore.getFeatureByTaskId.mockReturnValue(undefined);
+
+      await autopilot.handleTaskFailure("FN-001");
+
+      expect(taskStore.moveTask).not.toHaveBeenCalled();
+      expect(taskStore.updateTask).not.toHaveBeenCalled();
+    });
+
+    it("is a no-op for missions that are not being watched", async () => {
+      wireMissionTask();
+
+      await autopilot.handleTaskFailure("FN-001");
+
+      expect(taskStore.moveTask).not.toHaveBeenCalled();
+      expect(taskStore.updateTask).not.toHaveBeenCalled();
+      expect(missionStore.updateFeatureStatus).not.toHaveBeenCalled();
+    });
+
+    it("clears task error when retrying", async () => {
+      wireMissionTask();
+      autopilot.watchMission("M-TEST1");
+
+      await autopilot.handleTaskFailure("FN-001");
+
+      expect(taskStore.updateTask).toHaveBeenCalledWith(
+        "FN-001",
+        expect.objectContaining({ error: null, status: null }),
+      );
+    });
+  });
+
   // ── Advance to Next Slice ────────────────────────────────────────
 
   describe("advanceToNextSlice", () => {
@@ -500,30 +609,361 @@ describe("MissionAutopilot", () => {
     });
   });
 
+  describe("health check", () => {
+    it("fixes feature status when linked task is done", async () => {
+      autopilot.start();
+      autopilot.watchMission("M-TEST1");
+      missionStore.getMissionWithHierarchy.mockReturnValue({
+        ...createMockMission(),
+        milestones: [{
+          ...createMockMilestone(),
+          slices: [{
+            ...createMockSlice({ status: "active" }),
+            features: [createMockFeature({ id: "F-001", status: "triaged", taskId: "FN-001" })],
+          }],
+        }],
+      });
+      taskStore.getTask.mockResolvedValue({ id: "FN-001", column: "done" });
+
+      await (autopilot as any).runHealthCheck();
+
+      expect(missionStore.updateFeatureStatus).toHaveBeenCalledWith("F-001", "done");
+      autopilot.stop();
+    });
+
+    it("fixes feature status when task is in-progress but feature is triaged", async () => {
+      autopilot.start();
+      autopilot.watchMission("M-TEST1");
+      missionStore.getMissionWithHierarchy.mockReturnValue({
+        ...createMockMission(),
+        milestones: [{
+          ...createMockMilestone(),
+          slices: [{
+            ...createMockSlice({ status: "active" }),
+            features: [createMockFeature({ id: "F-001", status: "triaged", taskId: "FN-001" })],
+          }],
+        }],
+      });
+      taskStore.getTask.mockResolvedValue({ id: "FN-001", column: "in-progress" });
+
+      await (autopilot as any).runHealthCheck();
+
+      expect(missionStore.updateFeatureStatus).toHaveBeenCalledWith("F-001", "in-progress");
+      autopilot.stop();
+    });
+
+    it("fixes feature status when task regresses to todo/triage", async () => {
+      autopilot.start();
+      autopilot.watchMission("M-TEST1");
+      missionStore.getMissionWithHierarchy.mockReturnValue({
+        ...createMockMission(),
+        milestones: [{
+          ...createMockMilestone(),
+          slices: [{
+            ...createMockSlice({ status: "active" }),
+            features: [createMockFeature({ id: "F-001", status: "in-progress", taskId: "FN-001" })],
+          }],
+        }],
+      });
+      taskStore.getTask.mockResolvedValue({ id: "FN-001", column: "todo" });
+
+      await (autopilot as any).runHealthCheck();
+
+      expect(missionStore.updateFeatureStatus).toHaveBeenCalledWith("F-001", "triaged");
+      autopilot.stop();
+    });
+
+    it("triggers failure recovery for failed in-progress tasks", async () => {
+      autopilot.start();
+      autopilot.watchMission("M-TEST1");
+      missionStore.getMissionWithHierarchy.mockReturnValue({
+        ...createMockMission(),
+        milestones: [{
+          ...createMockMilestone(),
+          slices: [{
+            ...createMockSlice({ status: "active" }),
+            features: [createMockFeature({ id: "F-001", status: "in-progress", taskId: "FN-001" })],
+          }],
+        }],
+      });
+      taskStore.getTask.mockResolvedValue({ id: "FN-001", column: "in-progress", status: "failed" });
+      const failureSpy = vi.spyOn(autopilot, "handleTaskFailure").mockResolvedValue();
+
+      await (autopilot as any).runHealthCheck();
+
+      expect(failureSpy).toHaveBeenCalledWith("FN-001");
+      autopilot.stop();
+    });
+
+    it("leaves consistent feature/task states unchanged", async () => {
+      autopilot.start();
+      autopilot.watchMission("M-TEST1");
+      missionStore.getMissionWithHierarchy.mockReturnValue({
+        ...createMockMission(),
+        milestones: [{
+          ...createMockMilestone(),
+          slices: [{
+            ...createMockSlice({ status: "active" }),
+            features: [createMockFeature({ id: "F-001", status: "in-progress", taskId: "FN-001" })],
+          }],
+        }],
+      });
+      taskStore.getTask.mockResolvedValue({ id: "FN-001", column: "in-progress" });
+
+      await (autopilot as any).runHealthCheck();
+
+      expect(missionStore.updateFeatureStatus).not.toHaveBeenCalled();
+      autopilot.stop();
+    });
+
+    it("skips features that do not have linked tasks", async () => {
+      autopilot.start();
+      autopilot.watchMission("M-TEST1");
+      missionStore.getMissionWithHierarchy.mockReturnValue({
+        ...createMockMission(),
+        milestones: [{
+          ...createMockMilestone(),
+          slices: [{
+            ...createMockSlice({ status: "active" }),
+            features: [createMockFeature({ id: "F-001", status: "in-progress", taskId: undefined })],
+          }],
+        }],
+      });
+
+      await (autopilot as any).runHealthCheck();
+
+      expect(taskStore.getTask).not.toHaveBeenCalled();
+      expect(missionStore.updateFeatureStatus).not.toHaveBeenCalled();
+      autopilot.stop();
+    });
+
+    it("does not create a health-check timer when disabled", async () => {
+      taskStore.getSettings.mockResolvedValue({
+        missionStaleThresholdMs: 600_000,
+        missionMaxTaskRetries: 3,
+        missionHealthCheckIntervalMs: 0,
+      });
+
+      autopilot.start();
+      await vi.runOnlyPendingTimersAsync();
+
+      expect((autopilot as any).healthCheckTimer).toBeNull();
+    });
+
+    it("uses default health-check interval when setting is undefined", async () => {
+      taskStore.getSettings.mockResolvedValue({
+        missionStaleThresholdMs: 600_000,
+        missionMaxTaskRetries: 3,
+        missionHealthCheckIntervalMs: undefined,
+      });
+
+      autopilot.start();
+      await vi.runOnlyPendingTimersAsync();
+
+      expect((autopilot as any).healthCheckTimer).not.toBeNull();
+    });
+  });
+
   // ── Poll / stale detection ──────────────────────────────────────
 
   describe("poll stale detection", () => {
-    it("logs warning events for stale watched missions", () => {
+    it("recovers stale activating missions back to watching and advances slices", async () => {
       const staleMission = createMockMission({
-        lastAutopilotActivityAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+        autopilotState: "activating",
+        lastAutopilotActivityAt: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
       });
       const store = createMockMissionStore([staleMission]);
-      const ap = new MissionAutopilot(taskStore as any, store as any, { scheduler });
+      const localScheduler = createMockScheduler();
+      localScheduler.activateNextPendingSlice.mockResolvedValue(
+        createMockSlice({ id: "SL-002", status: "active" }),
+      );
+
+      store.getMissionWithHierarchy.mockReturnValue({
+        ...staleMission,
+        milestones: [{
+          ...createMockMilestone({ missionId: staleMission.id }),
+          slices: [{
+            ...createMockSlice({ id: "SL-001", status: "active" }),
+            features: [createMockFeature({ status: "done" })],
+          }],
+        }],
+      });
+
+      const ap = new MissionAutopilot(taskStore as any, store as any, { scheduler: localScheduler });
+      ap.start();
+      ap.watchMission("M-TEST1");
+      store.updateMission("M-TEST1", {
+        autopilotState: "activating",
+        lastAutopilotActivityAt: staleMission.lastAutopilotActivityAt,
+      });
+      store.updateMission.mockClear();
+      store.logMissionEvent.mockClear();
+
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(store.updateMission).toHaveBeenCalledWith(
+        "M-TEST1",
+        expect.objectContaining({ autopilotState: "watching" }),
+      );
+      expect(localScheduler.activateNextPendingSlice).toHaveBeenCalledWith("M-TEST1");
+      expect(store.logMissionEvent).toHaveBeenCalledWith(
+        "M-TEST1",
+        "autopilot_stale",
+        expect.stringContaining("stale"),
+        expect.objectContaining({ staleThresholdMs: 600_000 }),
+      );
+
+      ap.stop();
+    });
+
+    it("does not recover missions that are not in activating state", async () => {
+      const staleWatchingMission = createMockMission({
+        autopilotState: "watching",
+        lastAutopilotActivityAt: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
+      });
+      const store = createMockMissionStore([staleWatchingMission]);
+      const localScheduler = createMockScheduler();
+      const ap = new MissionAutopilot(taskStore as any, store as any, { scheduler: localScheduler });
 
       ap.start();
       ap.watchMission("M-TEST1");
       store.logMissionEvent.mockClear();
 
-      vi.advanceTimersByTime(60_000);
+      await vi.advanceTimersByTimeAsync(60_000);
 
-      expect(store.logMissionEvent).toHaveBeenCalledWith(
+      expect(localScheduler.activateNextPendingSlice).not.toHaveBeenCalled();
+      expect(store.logMissionEvent).not.toHaveBeenCalledWith(
         "M-TEST1",
-        "warning",
-        expect.stringContaining("stale"),
-        expect.objectContaining({ category: "autopilot_stale" }),
+        "autopilot_stale",
+        expect.any(String),
+        expect.anything(),
       );
 
       ap.stop();
+    });
+  });
+
+  describe("recoverStaleMission", () => {
+    it("activates pending work when active slice is complete", async () => {
+      const mission = createMockMission();
+      const store = createMockMissionStore([mission]);
+      const localScheduler = createMockScheduler();
+      localScheduler.activateNextPendingSlice.mockResolvedValue(
+        createMockSlice({ id: "SL-002", status: "active" }),
+      );
+      const ap = new MissionAutopilot(taskStore as any, store as any, { scheduler: localScheduler });
+
+      store.getMissionWithHierarchy.mockReturnValue({
+        ...mission,
+        milestones: [{
+          ...createMockMilestone({ missionId: mission.id }),
+          slices: [{
+            ...createMockSlice({ id: "SL-001", status: "active" }),
+            features: [createMockFeature({ status: "done" })],
+          }],
+        }],
+      });
+
+      ap.watchMission("M-TEST1");
+      await ap.recoverStaleMission("M-TEST1");
+
+      expect(localScheduler.activateNextPendingSlice).toHaveBeenCalledWith("M-TEST1");
+    });
+
+    it("handles mission not found gracefully", async () => {
+      missionStore.getMissionWithHierarchy.mockReturnValue(undefined);
+
+      await expect(autopilot.recoverStaleMission("M-TEST1")).resolves.toBeUndefined();
+      expect(scheduler.activateNextPendingSlice).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("recoverMissions", () => {
+    it("watches eligible missions and skips complete/archived missions", async () => {
+      const missions = [
+        createMockMission({ id: "M-ONE", status: "active", autopilotEnabled: true }),
+        createMockMission({ id: "M-TWO", status: "complete", autopilotEnabled: true }),
+        createMockMission({ id: "M-THREE", status: "archived", autopilotEnabled: true }),
+        createMockMission({ id: "M-FOUR", status: "active", autopilotEnabled: false }),
+      ];
+      const store = createMockMissionStore(missions);
+      const ap = new MissionAutopilot(taskStore as any, store as any, { scheduler });
+
+      store.getMissionWithHierarchy.mockReturnValue(undefined);
+      await ap.recoverMissions(store as any);
+
+      expect(ap.isWatching("M-ONE")).toBe(true);
+      expect(ap.isWatching("M-TWO")).toBe(false);
+      expect(ap.isWatching("M-THREE")).toBe(false);
+      expect(ap.isWatching("M-FOUR")).toBe(false);
+    });
+
+    it("recovers missions stuck in activating state", async () => {
+      const mission = createMockMission({ autopilotState: "activating" });
+      const store = createMockMissionStore([mission]);
+      const ap = new MissionAutopilot(taskStore as any, store as any, { scheduler });
+      const recoverStaleSpy = vi.spyOn(ap, "recoverStaleMission").mockResolvedValue();
+
+      store.getMissionWithHierarchy.mockReturnValue(undefined);
+      await ap.recoverMissions(store as any);
+
+      expect(recoverStaleSpy).toHaveBeenCalledWith(mission.id);
+    });
+
+    it("fixes feature/task inconsistencies during recovery", async () => {
+      const mission = createMockMission();
+      const store = createMockMissionStore([mission]);
+      const ap = new MissionAutopilot(taskStore as any, store as any, { scheduler });
+
+      store.getMissionWithHierarchy.mockReturnValue({
+        ...mission,
+        milestones: [{
+          ...createMockMilestone({ missionId: mission.id }),
+          slices: [{
+            ...createMockSlice({ status: "active" }),
+            features: [createMockFeature({ id: "F-001", status: "triaged", taskId: "FN-001" })],
+          }],
+        }],
+      });
+      taskStore.getTask.mockResolvedValue({ id: "FN-001", column: "done" });
+
+      await ap.recoverMissions(store as any);
+
+      expect(store.updateFeatureStatus).toHaveBeenCalledWith("F-001", "done");
+    });
+
+    it("advances slices when active slice features are already done", async () => {
+      const mission = createMockMission();
+      const store = createMockMissionStore([mission]);
+      const localScheduler = createMockScheduler();
+      localScheduler.activateNextPendingSlice.mockResolvedValue(
+        createMockSlice({ id: "SL-002", status: "active" }),
+      );
+      const ap = new MissionAutopilot(taskStore as any, store as any, { scheduler: localScheduler });
+
+      const hierarchy = {
+        ...mission,
+        milestones: [{
+          ...createMockMilestone({ missionId: mission.id }),
+          slices: [{
+            ...createMockSlice({ id: "SL-001", status: "active" }),
+            features: [createMockFeature({ id: "F-001", status: "done", taskId: "FN-001" })],
+          }],
+        }],
+      };
+      store.getMissionWithHierarchy.mockReturnValue(hierarchy);
+      taskStore.getTask.mockResolvedValue({ id: "FN-001", column: "done" });
+
+      await ap.recoverMissions(store as any);
+
+      expect(localScheduler.activateNextPendingSlice).toHaveBeenCalledWith(mission.id);
+    });
+
+    it("handles empty mission lists", async () => {
+      const store = createMockMissionStore([]);
+      const ap = new MissionAutopilot(taskStore as any, store as any, { scheduler });
+
+      await expect(ap.recoverMissions(store as any)).resolves.toBeUndefined();
     });
   });
 

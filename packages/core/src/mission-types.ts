@@ -24,7 +24,7 @@ export const SLICE_STATUSES = ["pending", "active", "complete"] as const;
 export type SliceStatus = (typeof SLICE_STATUSES)[number];
 
 /** Status values for a Feature within a slice */
-export const FEATURE_STATUSES = ["defined", "triaged", "in-progress", "done"] as const;
+export const FEATURE_STATUSES = ["defined", "triaged", "in-progress", "done", "blocked"] as const;
 export type FeatureStatus = (typeof FEATURE_STATUSES)[number];
 
 /** Interview state for AI-assisted specification */

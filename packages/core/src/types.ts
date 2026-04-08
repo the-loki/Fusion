@@ -967,6 +967,18 @@ export interface ProjectSettings {
    *  enabled and steps have non-overlapping file scopes. Range: 1–4.
    *  Default: 2. */
   maxParallelSteps?: number;
+  /** Time in milliseconds after which a mission in `activating` state is
+   *  considered stale and eligible for self-healing recovery.
+   *  Default: 600000 (10 minutes). */
+  missionStaleThresholdMs?: number;
+  /** Maximum automatic retry attempts for a failed mission-linked task before
+   *  its feature is marked as blocked for manual intervention.
+   *  Default: 3. */
+  missionMaxTaskRetries?: number;
+  /** Interval in milliseconds between mission feature/task consistency checks.
+   *  Set to 0 to disable periodic health checks.
+   *  Default: 300000 (5 minutes). */
+  missionHealthCheckIntervalMs?: number;
   /** Configurable agent role prompt templates and assignments.
    *  When set, allows per-project customization of system prompts
    *  for different agent roles (executor, triage, reviewer, merger). */
@@ -1071,6 +1083,9 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   tokenCap: undefined,
   runStepsInNewSessions: false,
   maxParallelSteps: 2,
+  missionStaleThresholdMs: 600_000,
+  missionMaxTaskRetries: 3,
+  missionHealthCheckIntervalMs: 300_000,
   agentPrompts: undefined,
   reflectionEnabled: false,
   reflectionIntervalMs: 3_600_000,
@@ -1160,6 +1175,9 @@ export const PROJECT_SETTINGS_KEYS: ReadonlyArray<keyof ProjectSettings> = [
   "maxSpawnedAgentsGlobal",
   "runStepsInNewSessions",
   "maxParallelSteps",
+  "missionStaleThresholdMs",
+  "missionMaxTaskRetries",
+  "missionHealthCheckIntervalMs",
   "agentPrompts",
   "reflectionEnabled",
   "reflectionIntervalMs",

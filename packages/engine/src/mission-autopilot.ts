@@ -39,8 +39,14 @@ const RETRY_BASE_DELAY_MS = 1000;
 /** Background poll interval for checking mission health (ms). */
 const POLL_INTERVAL_MS = 60_000;
 
-/** Time after which a mission is considered stale (5 minutes). */
-const STALE_THRESHOLD_MS = 5 * 60 * 1000;
+/** Default time after which a mission activation is considered stale (10 minutes). */
+const DEFAULT_STALE_THRESHOLD_MS = 10 * 60 * 1000;
+
+/** Default per-task retry budget before a feature is marked blocked. */
+const DEFAULT_MAX_TASK_RETRIES = 3;
+
+/** Default cadence for mission consistency sweeps (5 minutes). */
+const DEFAULT_HEALTH_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
 /** Per-mission tracking state. */
 interface WatchedMissionState {
@@ -65,8 +71,10 @@ export interface MissionAutopilotOptions {
  */
 export class MissionAutopilot {
   private watchedMissions = new Map<string, WatchedMissionState>();
+  private perMissionTaskRetries = new Map<string, Map<string, number>>();
   private running = false;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private healthCheckTimer: ReturnType<typeof setInterval> | null = null;
   private scheduler: MissionAutopilotOptions["scheduler"];
 
   constructor(
@@ -95,7 +103,12 @@ export class MissionAutopilot {
   start(): void {
     if (this.running) return;
     this.running = true;
-    this.pollTimer = setInterval(() => this.poll(), POLL_INTERVAL_MS);
+    this.pollTimer = setInterval(() => {
+      void this.poll().catch((err) => {
+        autopilotLog.error("Error during autopilot poll:", err);
+      });
+    }, POLL_INTERVAL_MS);
+    void this.startHealthCheck();
     autopilotLog.log("Started");
   }
 
@@ -111,6 +124,7 @@ export class MissionAutopilot {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
+    this.stopHealthCheck();
 
     // Unwatch all missions
     for (const [missionId] of this.watchedMissions) {
@@ -121,6 +135,7 @@ export class MissionAutopilot {
       }
     }
     this.watchedMissions.clear();
+    this.perMissionTaskRetries.clear();
     autopilotLog.log("Stopped");
   }
 
@@ -176,6 +191,7 @@ export class MissionAutopilot {
     }
 
     this.watchedMissions.delete(missionId);
+    this.perMissionTaskRetries.delete(missionId);
     try {
       this.setAutopilotState(missionId, "inactive");
     } catch {
@@ -252,6 +268,9 @@ export class MissionAutopilot {
       // Only proceed if we're watching this mission
       if (!this.isWatching(missionId)) return;
 
+      // Successful completion resets retry budget for this specific task.
+      this.perMissionTaskRetries.get(missionId)?.delete(taskId);
+
       // Check if all features in the slice are done
       const features = this.missionStore.listFeatures(slice.id);
       const allDone = features.length > 0 && features.every((f) => f.status === "done");
@@ -262,6 +281,72 @@ export class MissionAutopilot {
       }
     } catch (err) {
       autopilotLog.error(`Error handling task completion for ${taskId}:`, err);
+    }
+  }
+
+  /**
+   * Called when a mission-linked task fails execution.
+   * Applies retry budgets per mission/task and blocks features that exceed the budget.
+   */
+  async handleTaskFailure(taskId: string): Promise<void> {
+    try {
+      const feature = this.missionStore.getFeatureByTaskId(taskId);
+      if (!feature) {
+        return;
+      }
+
+      const slice = this.missionStore.getSlice(feature.sliceId);
+      if (!slice) {
+        autopilotLog.warn(`Task failure ${taskId}: slice ${feature.sliceId} not found`);
+        return;
+      }
+
+      const milestone = this.missionStore.getMilestone(slice.milestoneId);
+      if (!milestone) {
+        autopilotLog.warn(`Task failure ${taskId}: milestone ${slice.milestoneId} not found`);
+        return;
+      }
+
+      const missionId = milestone.missionId;
+      if (!this.isWatching(missionId)) {
+        return;
+      }
+
+      const settings = await this.taskStore.getSettings();
+      const maxRetries = settings.missionMaxTaskRetries ?? DEFAULT_MAX_TASK_RETRIES;
+      const missionRetries = this.perMissionTaskRetries.get(missionId) ?? new Map<string, number>();
+      this.perMissionTaskRetries.set(missionId, missionRetries);
+
+      const retryCount = (missionRetries.get(taskId) ?? 0) + 1;
+      missionRetries.set(taskId, retryCount);
+
+      if (retryCount > maxRetries) {
+        this.missionStore.updateFeatureStatus(feature.id, "blocked");
+        await this.taskStore.updateTask(taskId, { status: "failed", paused: true });
+        this.logMissionEventSafe(
+          missionId,
+          "error",
+          `Feature ${feature.id} blocked after max retries (${retryCount}/${maxRetries})`,
+          { taskId, featureId: feature.id, retryCount, maxRetries },
+        );
+        return;
+      }
+
+      this.logMissionEventSafe(
+        missionId,
+        "autopilot_retry",
+        `Retrying failed mission task ${taskId} (${retryCount}/${maxRetries})`,
+        { taskId, featureId: feature.id, retryCount, maxRetries },
+      );
+
+      const task = await this.taskStore.getTask(taskId);
+      if (task?.column !== "todo") {
+        await this.taskStore.moveTask(taskId, "todo");
+      }
+
+      await this.taskStore.updateTask(taskId, { error: null, status: null, paused: false });
+    } catch (err) {
+      autopilotLog.error(`Error handling task failure for ${taskId}:`, err);
     }
   }
 
@@ -398,6 +483,7 @@ export class MissionAutopilot {
       this.updateActivity(missionId);
       this.setAutopilotState(missionId, "inactive");
       this.watchedMissions.delete(missionId);
+      this.perMissionTaskRetries.delete(missionId);
       return true;
     }
 
@@ -410,9 +496,9 @@ export class MissionAutopilot {
    * Periodic health check for watched missions.
    * - Re-watches missions with `autopilotEnabled: true` that aren't being tracked
    * - Starts missions in `planning` with autopilot enabled
-   * - Flags stale missions
+   * - Recovers stale missions stuck in `activating`
    */
-  private poll(): void {
+  private async poll(): Promise<void> {
     if (!this.running) return;
 
     try {
@@ -427,9 +513,12 @@ export class MissionAutopilot {
 
         // Start planning missions with autopilot
         if (mission.autopilotEnabled && mission.status === "planning" && this.isWatching(mission.id)) {
-          void this.checkAndStartMission(mission.id);
+          await this.checkAndStartMission(mission.id);
         }
       }
+
+      const settings = await this.taskStore.getSettings();
+      const staleThresholdMs = settings.missionStaleThresholdMs ?? DEFAULT_STALE_THRESHOLD_MS;
 
       // Check for stale missions
       const now = Date.now();
@@ -438,32 +527,271 @@ export class MissionAutopilot {
         if (!mission) {
           // Mission deleted — unwatch
           this.watchedMissions.delete(missionId);
+          this.perMissionTaskRetries.delete(missionId);
           continue;
         }
 
-        if (mission.lastAutopilotActivityAt) {
-          const lastActivity = new Date(mission.lastAutopilotActivityAt).getTime();
-          if (now - lastActivity > STALE_THRESHOLD_MS) {
-            const staleMinutes = Math.round((now - lastActivity) / 60_000);
-            this.logMissionEventSafe(
-              missionId,
-              "warning",
-              `Mission autopilot appears stale (no activity for ${staleMinutes} minutes)`,
-              {
-                staleMinutes,
-                staleThresholdMs: STALE_THRESHOLD_MS,
-                lastActivityAt: mission.lastAutopilotActivityAt,
-                retryCount: state.retryCount,
-                category: "autopilot_stale",
-              },
-            );
-            autopilotLog.warn(`Mission ${missionId} is stale (no activity for ${staleMinutes} minutes)`);
-          }
+        if (!mission.lastAutopilotActivityAt || mission.autopilotState !== "activating") {
+          continue;
         }
+
+        const lastActivity = new Date(mission.lastAutopilotActivityAt).getTime();
+        if (now - lastActivity <= staleThresholdMs) {
+          continue;
+        }
+
+        const staleMinutes = Math.round((now - lastActivity) / 60_000);
+        this.logMissionEventSafe(
+          missionId,
+          "autopilot_stale",
+          `Mission autopilot is stale and will be recovered (${staleMinutes} minutes inactive)` ,
+          {
+            staleMinutes,
+            staleThresholdMs,
+            lastActivityAt: mission.lastAutopilotActivityAt,
+            retryCount: state.retryCount,
+            previousState: mission.autopilotState,
+          },
+        );
+        autopilotLog.warn(`Mission ${missionId} stale while activating (inactive ${staleMinutes}m) — recovering`);
+
+        this.setAutopilotState(missionId, "watching");
+        state.retryCount = 0;
+        await this.recoverStaleMission(missionId);
+        this.updateActivity(missionId);
       }
     } catch (err) {
       autopilotLog.error("Error during autopilot poll:", err);
     }
+  }
+
+  /**
+   * Attempt to recover a mission that appears stalled in the activating state.
+   * Re-evaluates active/pending slices and advances when progression is possible.
+   */
+  async recoverStaleMission(missionId: string): Promise<void> {
+    try {
+      const mission = this.missionStore.getMissionWithHierarchy(missionId);
+      if (!mission) {
+        autopilotLog.warn(`recoverStaleMission: mission ${missionId} not found`);
+        return;
+      }
+
+      const activeSlices = mission.milestones.flatMap((milestone) => milestone.slices)
+        .filter((slice) => slice.status === "active");
+
+      let advanced = false;
+
+      if (activeSlices.length > 0) {
+        const hasCompletedActiveSlice = activeSlices.some((slice) =>
+          slice.features.length > 0 && slice.features.every((feature) => feature.status === "done"),
+        );
+
+        if (hasCompletedActiveSlice) {
+          await this.advanceToNextSlice(missionId);
+          advanced = true;
+        }
+      } else {
+        const hasPendingSlice = mission.milestones.some((milestone) =>
+          milestone.slices.some((slice) => slice.status === "pending"),
+        );
+
+        if (hasPendingSlice) {
+          await this.advanceToNextSlice(missionId);
+          advanced = true;
+        }
+      }
+
+      this.logMissionEventSafe(
+        missionId,
+        "autopilot_stale",
+        advanced
+          ? `Recovered stale mission ${missionId} and resumed slice progression`
+          : `Recovered stale mission ${missionId}; no immediate slice progression needed`,
+        {
+          source: "recoverStaleMission",
+          activeSliceCount: activeSlices.length,
+          advanced,
+        },
+      );
+    } catch (err) {
+      autopilotLog.error(`recoverStaleMission failed for ${missionId}:`, err);
+    }
+  }
+
+  private async startHealthCheck(): Promise<void> {
+    this.stopHealthCheck();
+
+    let intervalMs = DEFAULT_HEALTH_CHECK_INTERVAL_MS;
+    try {
+      const settings = await this.taskStore.getSettings();
+      intervalMs = settings.missionHealthCheckIntervalMs ?? DEFAULT_HEALTH_CHECK_INTERVAL_MS;
+    } catch (err) {
+      autopilotLog.warn("Failed to read mission health check settings; using defaults", err);
+    }
+
+    if (!this.running) {
+      return;
+    }
+
+    if (intervalMs <= 0) {
+      autopilotLog.log("Mission health checks disabled (missionHealthCheckIntervalMs=0)");
+      return;
+    }
+
+    this.healthCheckTimer = setInterval(() => {
+      void this.runHealthCheck();
+    }, intervalMs);
+    autopilotLog.log(`Mission health checks started (every ${intervalMs}ms)`);
+  }
+
+  private stopHealthCheck(): void {
+    if (!this.healthCheckTimer) {
+      return;
+    }
+
+    clearInterval(this.healthCheckTimer);
+    this.healthCheckTimer = null;
+  }
+
+  private async runHealthCheck(): Promise<void> {
+    if (!this.running || this.watchedMissions.size === 0) {
+      return;
+    }
+
+    try {
+      let fixedCount = 0;
+
+      for (const missionId of this.watchedMissions.keys()) {
+        const mission = this.missionStore.getMissionWithHierarchy(missionId);
+        if (!mission) {
+          continue;
+        }
+
+        fixedCount += await this.reconcileMissionConsistency(mission);
+      }
+
+      autopilotLog.log(`Mission health check complete: fixed ${fixedCount} inconsistenc${fixedCount === 1 ? "y" : "ies"}`);
+    } catch (err) {
+      autopilotLog.error("Mission health check failed:", err);
+    }
+  }
+
+  /**
+   * Recover autopilot state after process restart.
+   * Watches active missions and performs a one-time consistency sweep.
+   */
+  async recoverMissions(missionStore: MissionStore): Promise<void> {
+    try {
+      const missions = missionStore.listMissions();
+      let watchedCount = 0;
+      let recoveredActivatingCount = 0;
+      let inconsistencyFixes = 0;
+
+      for (const mission of missions) {
+        if (!mission.autopilotEnabled || mission.status === "complete" || mission.status === "archived") {
+          continue;
+        }
+
+        if (!this.isWatching(mission.id)) {
+          this.watchMission(mission.id);
+          watchedCount++;
+        }
+
+        if (mission.autopilotState === "activating") {
+          await this.recoverStaleMission(mission.id);
+          recoveredActivatingCount++;
+        }
+
+        const hierarchy = missionStore.getMissionWithHierarchy(mission.id);
+        if (!hierarchy) {
+          continue;
+        }
+
+        inconsistencyFixes += await this.reconcileMissionConsistency(hierarchy);
+
+        const refreshedHierarchy = missionStore.getMissionWithHierarchy(mission.id);
+        if (!refreshedHierarchy) {
+          continue;
+        }
+
+        const hasCompletedActiveSlice = refreshedHierarchy.milestones
+          .flatMap((milestone) => milestone.slices)
+          .filter((slice) => slice.status === "active")
+          .some((slice) => slice.features.length > 0 && slice.features.every((feature) => feature.status === "done"));
+
+        if (hasCompletedActiveSlice) {
+          await this.advanceToNextSlice(mission.id);
+        }
+      }
+
+      autopilotLog.log(
+        `Mission recovery complete: watched ${watchedCount}, recovered ${recoveredActivatingCount} activating missions, fixed ${inconsistencyFixes} inconsistenc${inconsistencyFixes === 1 ? "y" : "ies"}`,
+      );
+    } catch (err) {
+      autopilotLog.error("Mission recovery failed:", err);
+    }
+  }
+
+  private async reconcileMissionConsistency(
+    mission: ReturnType<MissionStore["getMissionWithHierarchy"]>,
+  ): Promise<number> {
+    if (!mission) {
+      return 0;
+    }
+
+    const activeSlices = mission.milestones
+      .flatMap((milestone) => milestone.slices)
+      .filter((slice) => slice.status === "active");
+    if (activeSlices.length === 0) {
+      return 0;
+    }
+
+    let fixedCount = 0;
+
+    for (const slice of activeSlices) {
+      for (const feature of slice.features) {
+        if (!feature.taskId) {
+          continue;
+        }
+
+        const task = await this.taskStore.getTask(feature.taskId);
+        if (!task) {
+          continue;
+        }
+
+        if (task.status === "failed" && feature.status === "in-progress") {
+          await this.handleTaskFailure(feature.taskId);
+          fixedCount++;
+          continue;
+        }
+
+        if (task.column === "done" && feature.status !== "done") {
+          this.missionStore.updateFeatureStatus(feature.id, "done");
+          fixedCount++;
+          continue;
+        }
+
+        if (
+          task.column === "in-progress"
+          && (feature.status === "triaged" || feature.status === "defined")
+        ) {
+          this.missionStore.updateFeatureStatus(feature.id, "in-progress");
+          fixedCount++;
+          continue;
+        }
+
+        if (
+          (task.column === "triage" || task.column === "todo")
+          && feature.status === "in-progress"
+        ) {
+          this.missionStore.updateFeatureStatus(feature.id, "triaged");
+          fixedCount++;
+        }
+      }
+    }
+
+    return fixedCount;
   }
 
   // ── Helpers ────────────────────────────────────────────────────────
@@ -477,8 +805,25 @@ export class MissionAutopilot {
     description: string,
     metadata?: Record<string, unknown>,
   ): void {
+    const missionStoreWithEvents = this.missionStore as MissionStore & {
+      logMissionEvent?: (
+        missionId: string,
+        eventType: MissionEventType,
+        description: string,
+        metadata?: Record<string, unknown>,
+      ) => unknown;
+    };
+
+    if (typeof missionStoreWithEvents.logMissionEvent !== "function") {
+      autopilotLog.warn(
+        `[${eventType}] ${missionId}: ${description}`,
+        metadata ?? {},
+      );
+      return;
+    }
+
     try {
-      this.missionStore.logMissionEvent(missionId, eventType, description, metadata);
+      missionStoreWithEvents.logMissionEvent(missionId, eventType, description, metadata);
     } catch (err) {
       autopilotLog.error(
         `Failed to persist mission event (${eventType}) for ${missionId}:`,

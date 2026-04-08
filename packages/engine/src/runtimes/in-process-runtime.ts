@@ -23,6 +23,7 @@ import { runtimeLog } from "../logger.js";
 import type { StuckTaskDetector } from "../stuck-task-detector.js";
 import type { UsageLimitPauser } from "../usage-limit-detector.js";
 import { SelfHealingManager } from "../self-healing.js";
+import { MissionAutopilot } from "../mission-autopilot.js";
 
 /**
  * InProcessRuntime runs a project within the main process.
@@ -137,11 +138,21 @@ export class InProcessRuntime
 
       // 4. Initialize Scheduler
       const missionStore = this.taskStore.getMissionStore();
+      const missionAutopilot = missionStore
+        ? new MissionAutopilot(this.taskStore, missionStore)
+        : undefined;
+
       this.scheduler = new Scheduler(this.taskStore, {
         maxConcurrent: this.config.maxConcurrent,
         maxWorktrees: this.config.maxWorktrees,
         semaphore: this.globalSemaphore,
         missionStore,
+        missionAutopilot,
+        onTaskFailed: (taskId) => {
+          if (missionAutopilot) {
+            void missionAutopilot.handleTaskFailure(taskId);
+          }
+        },
         onSchedule: (task) => {
           this.recordActivity();
           runtimeLog.log(`Scheduled task ${task.id}`);
@@ -193,6 +204,22 @@ export class InProcessRuntime
           this.recordActivity();
           runtimeLog.error(`Task ${task.id} failed:`, error.message);
           this.recordTaskCompletion(task.id, false);
+
+          // Mission-linked failures should be re-queued to todo so autopilot retry
+          // policies can decide whether to retry or block the feature.
+          if (task.sliceId) {
+            void (async () => {
+              try {
+                const latest = await this.taskStore.getTask(task.id);
+                if (latest?.column === "in-progress") {
+                  await this.taskStore.moveTask(task.id, "todo");
+                }
+              } catch (moveErr) {
+                runtimeLog.warn(`Failed to requeue mission task ${task.id} after error:`, moveErr);
+              }
+            })();
+          }
+
           // Update agent state to terminated (failed)
           const agentId = this.taskAgentMap.get(task.id);
           if (agentId && this.agentStore) {
@@ -287,6 +314,13 @@ export class InProcessRuntime
 
       // 10. Start scheduler
       this.scheduler.start();
+
+      // Mission crash recovery: restore autopilot state for missions that were active before crash
+      const activeMissionStore = this.taskStore.getMissionStore();
+      const activeMissionAutopilot = this.scheduler.getMissionAutopilot?.();
+      if (activeMissionStore && activeMissionAutopilot) {
+        void activeMissionAutopilot.recoverMissions(activeMissionStore);
+      }
 
       this.setStatus("active");
       runtimeLog.log(`InProcessRuntime started for project ${this.config.projectId}`);

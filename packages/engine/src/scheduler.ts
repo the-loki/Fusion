@@ -59,6 +59,8 @@ export interface SchedulerOptions {
   onSchedule?: (task: Task) => void;
   /** Called when a task is blocked by deps */
   onBlocked?: (task: Task, blockedBy: string[]) => void;
+  /** Called when a mission-linked task fails and is queued for retry handling. */
+  onTaskFailed?: (taskId: string) => void | Promise<void>;
   /** Optional PR monitor for tracking in-review PRs */
   prMonitor?: PrMonitor;
   /** Optional MissionStore for slice activation and auto-advance */
@@ -105,6 +107,8 @@ export class Scheduler {
   private activePollMs: number | null = null;
   /** Tracks which task IDs are currently paused, to detect unpause transitions. */
   private pausedTaskIds = new Set<string>();
+  /** Tracks mission-linked tasks observed with status=failed before moveTask clears status/error. */
+  private failedTaskIds = new Set<string>();
 
   constructor(
     private store: TaskStore,
@@ -194,6 +198,17 @@ export class Scheduler {
         void this.handleMissionTaskCompletion(task.id, task.sliceId);
       }
 
+      // Mission failure tracking: status/error are cleared during moveTask(in-progress → todo),
+      // so we pair this with failedTaskIds captured from task:updated events.
+      if (task.sliceId && to === "todo" && this.options.onTaskFailed) {
+        if (task.status === "failed" || this.failedTaskIds.has(task.id)) {
+          this.failedTaskIds.delete(task.id);
+          void Promise.resolve(this.options.onTaskFailed(task.id)).catch((err) => {
+            schedulerLog.error(`Error in onTaskFailed for ${task.id}:`, err);
+          });
+        }
+      }
+
       // Event-driven scheduling: when a task moves to "done" (completion) or "todo" (retry/manual move),
       // trigger scheduling immediately so waiting tasks can start without waiting
       // for the next poll interval (up to 15 seconds).
@@ -208,6 +223,13 @@ export class Scheduler {
      * Also detects task-level unpause transitions and triggers immediate scheduling.
      */
     this.store.on("task:updated", (task) => {
+      // Track mission failure signals before moveTask clears failure metadata.
+      if (task.sliceId && task.column === "in-progress" && task.status === "failed") {
+        this.failedTaskIds.add(task.id);
+      } else if (task.status !== "failed") {
+        this.failedTaskIds.delete(task.id);
+      }
+
       // Track pause state transitions for event-driven scheduling on unpause.
       // When a previously-paused task is unpaused in a schedulable column,
       // trigger a scheduling pass immediately instead of waiting for the next
@@ -313,6 +335,7 @@ export class Scheduler {
     if (this.options.missionAutopilot) {
       this.options.missionAutopilot.stop();
     }
+    this.failedTaskIds.clear();
     schedulerLog.log("Stopped");
   }
 
@@ -330,6 +353,10 @@ export class Scheduler {
     this.activePollMs = newIntervalMs;
     this.pollInterval = setInterval(() => this.schedule(), newIntervalMs);
     schedulerLog.log(`Poll interval updated to ${newIntervalMs}ms`);
+  }
+
+  getMissionAutopilot(): import("./mission-autopilot.js").MissionAutopilot | undefined {
+    return this.options.missionAutopilot;
   }
 
   /**

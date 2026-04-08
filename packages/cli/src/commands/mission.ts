@@ -30,6 +30,7 @@ const FEATURE_STATUS_LABELS: Record<FeatureStatus, string> = {
   triaged: "Triaged",
   "in-progress": "In Progress",
   done: "Done",
+  blocked: "Blocked",
 };
 
 async function promptForTitleAndDescription(
