@@ -2025,6 +2025,7 @@ describe("SettingsModal", () => {
     // Switch to Appearance → should show global banner
     fireEvent.click(screen.getByText("Appearance"));
     expect(container.querySelector(".settings-scope-global")).toBeTruthy();
+    expect(container.querySelector(".settings-scope-global")?.textContent).toContain("Fusion");
     expect(container.querySelector(".settings-scope-project")).toBeNull();
 
     // Switch to Models → should show project banner

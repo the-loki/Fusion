@@ -105,7 +105,7 @@ describe("SettingsModal mobile adaptations", () => {
     expect(getByText("These settings only affect this project.")).toBeTruthy();
 
     await user.click(getByText("Appearance"));
-    expect(getByText("These settings are shared across all your fn projects.")).toBeTruthy();
+    expect(getByText("These settings are shared across all your Fusion projects.")).toBeTruthy();
   });
 
   it("contains required mobile settings CSS overrides", () => {

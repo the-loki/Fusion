@@ -572,7 +572,7 @@ export function SettingsModal({
       return (
         <div className="settings-scope-banner settings-scope-global">
           <span>🌐</span>
-          <span>These settings are shared across all your fn projects.</span>
+          <span>These settings are shared across all your Fusion projects.</span>
         </div>
       );
     }
@@ -1355,7 +1355,7 @@ export function SettingsModal({
                 disabled={form.recycleWorktrees}
               >
                 <option value="random">Random names (e.g., swift-falcon)</option>
-                <option value="task-id">Task ID (e.g., fn-042)</option>
+                <option value="task-id">Task ID (e.g., FN-042)</option>
                 <option value="task-title">Task title (e.g., fix-login-bug)</option>
               </select>
               <small>
@@ -1467,7 +1467,7 @@ export function SettingsModal({
                 <option value="pull-request">Create, monitor, and merge a GitHub pull request</option>
               </select>
               <small>
-                Controls what happens after a task reaches In Review. Direct mode preserves fn&apos;s current local squash-merge behavior. Pull request mode keeps the task in In Review while fn waits for GitHub reviews and required checks before merging the PR.
+                Controls what happens after a task reaches In Review. Direct mode preserves Fusion&apos;s current local squash-merge behavior. Pull request mode keeps the task in In Review while Fusion waits for GitHub reviews and required checks before merging the PR.
               </small>
             </div>
             <div className="form-group">
