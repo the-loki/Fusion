@@ -93,6 +93,18 @@ describe("ModelOnboardingModal", () => {
       expect(screen.getByTestId("onboarding-apikey-save-openai")).toBeTruthy();
     });
 
+    it("renders OAuth and API key providers at the same time", async () => {
+      render(<ModelOnboardingModal onComplete={vi.fn()} addToast={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Anthropic")).toBeTruthy();
+        expect(screen.getByText("OpenAI")).toBeTruthy();
+      });
+
+      expect(screen.getByText("Login")).toBeTruthy();
+      expect(screen.getByTestId("onboarding-apikey-save-openai")).toBeTruthy();
+    });
+
     it("disables Continue button when no providers are authenticated", async () => {
       render(<ModelOnboardingModal onComplete={vi.fn()} addToast={vi.fn()} />);
 
@@ -101,6 +113,30 @@ describe("ModelOnboardingModal", () => {
       });
 
       expect(screen.getByText("Continue →").closest("button")?.disabled).toBe(true);
+    });
+
+    it("supports mixed auth states across OAuth and API key providers", async () => {
+      mockFetchAuthStatus.mockResolvedValueOnce({
+        providers: [
+          { id: "anthropic", name: "Anthropic", authenticated: false, type: "oauth" },
+          { id: "openrouter", name: "OpenRouter", authenticated: true, type: "api_key" },
+          { id: "openai", name: "OpenAI", authenticated: false, type: "api_key" },
+        ],
+      });
+
+      render(<ModelOnboardingModal onComplete={vi.fn()} addToast={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("onboarding-auth-status-openrouter")).toBeTruthy();
+        expect(screen.getByTestId("onboarding-auth-status-openai")).toBeTruthy();
+      });
+
+      expect(screen.getByTestId("onboarding-auth-status-openrouter").textContent).toContain("Key saved");
+      expect(screen.getByTestId("onboarding-auth-status-openai").textContent).toContain("No API key");
+
+      await waitFor(() => {
+        expect(screen.getByText("Choose Default Model")).toBeTruthy();
+      }, { timeout: 3000 });
     });
 
     it("initiates OAuth login when Login is clicked", async () => {
@@ -135,6 +171,41 @@ describe("ModelOnboardingModal", () => {
       await waitFor(() => {
         expect(mockSaveApiKey).toHaveBeenCalledWith("openai", "sk-test-key-123");
       });
+    });
+
+    it("auto-advances to model selection after API key authentication", async () => {
+      mockFetchAuthStatus
+        .mockResolvedValueOnce({
+          providers: [
+            { id: "anthropic", name: "Anthropic", authenticated: false, type: "oauth" },
+            { id: "openai", name: "OpenAI", authenticated: false, type: "api_key" },
+          ],
+        })
+        .mockResolvedValueOnce({
+          providers: [
+            { id: "anthropic", name: "Anthropic", authenticated: false, type: "oauth" },
+            { id: "openai", name: "OpenAI", authenticated: true, type: "api_key" },
+          ],
+        });
+
+      render(<ModelOnboardingModal onComplete={vi.fn()} addToast={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("onboarding-apikey-input-openai")).toBeTruthy();
+      });
+
+      fireEvent.change(screen.getByTestId("onboarding-apikey-input-openai"), {
+        target: { value: "sk-api-key" },
+      });
+      fireEvent.click(screen.getByTestId("onboarding-apikey-save-openai"));
+
+      await waitFor(() => {
+        expect(mockSaveApiKey).toHaveBeenCalledWith("openai", "sk-api-key");
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText("Choose Default Model")).toBeTruthy();
+      }, { timeout: 3000 });
     });
 
     it("shows Save button as disabled when API key input is empty", async () => {

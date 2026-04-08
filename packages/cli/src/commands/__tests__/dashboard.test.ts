@@ -128,9 +128,22 @@ vi.mock("@fusion/engine", async (importOriginal) => {
 
 // ── Mock @mariozechner/pi-coding-agent ──────────────────────────────
 
-const mockAuthStorage = { getAuth: vi.fn(), setAuth: vi.fn(), getApiKey: vi.fn() };
+const mockAuthStorage = {
+  getAuth: vi.fn(),
+  setAuth: vi.fn(),
+  getApiKey: vi.fn(),
+  reload: vi.fn(),
+  getOAuthProviders: vi.fn().mockReturnValue([{ id: "anthropic", name: "Anthropic" }]),
+  hasAuth: vi.fn().mockReturnValue(false),
+  login: vi.fn(),
+  logout: vi.fn(),
+  set: vi.fn(),
+  remove: vi.fn(),
+  get: vi.fn(),
+};
 const mockModelRegistry = {
   getModels: vi.fn().mockResolvedValue([]),
+  getAll: vi.fn().mockReturnValue([]),
   registerProvider: vi.fn(),
   refresh: vi.fn(),
 };
@@ -173,15 +186,20 @@ describe("runDashboard — AuthStorage & ModelRegistry wiring", () => {
     (TaskStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => makeMockStore());
   });
 
-  it("passes authStorage and modelRegistry to createServer", async () => {
+  it("passes wrapped authStorage and modelRegistry to createServer", async () => {
     const { createServer } = await import("@fusion/dashboard");
 
     await runDashboard(0, {});
 
     expect(createServer).toHaveBeenCalledTimes(1);
     const serverOpts = (createServer as ReturnType<typeof vi.fn>).mock.calls[0][1];
-    expect(serverOpts).toHaveProperty("authStorage", mockAuthStorage);
     expect(serverOpts).toHaveProperty("modelRegistry", mockModelRegistry);
+    expect(serverOpts.authStorage).toBeDefined();
+    expect(serverOpts.authStorage).not.toBe(mockAuthStorage);
+    expect(serverOpts.authStorage.getApiKeyProviders).toBeTypeOf("function");
+    expect(serverOpts.authStorage.setApiKey).toBeTypeOf("function");
+    expect(serverOpts.authStorage.clearApiKey).toBeTypeOf("function");
+    expect(serverOpts.authStorage.hasApiKey).toBeTypeOf("function");
   });
 
   it("creates AuthStorage via AuthStorage.create()", async () => {

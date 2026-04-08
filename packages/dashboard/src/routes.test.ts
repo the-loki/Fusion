@@ -2440,6 +2440,31 @@ describe("GET /auth/status", () => {
     expect(authStorage.reload).toHaveBeenCalled();
   });
 
+  it("includes oauth and model-registry-derived API key providers in one response", async () => {
+    (authStorage.getOAuthProviders as ReturnType<typeof vi.fn>).mockReturnValue([
+      { id: "anthropic", name: "Anthropic" },
+      { id: "github-copilot", name: "GitHub Copilot" },
+    ]);
+    (authStorage.getApiKeyProviders as ReturnType<typeof vi.fn>).mockReturnValue([
+      { id: "openrouter", name: "OpenRouter" },
+      { id: "kimi-coding", name: "Kimi" },
+      { id: "acme-extension", name: "Acme Extension" },
+    ]);
+    (authStorage.hasAuth as ReturnType<typeof vi.fn>).mockImplementation((provider: string) => provider === "anthropic");
+    (authStorage.hasApiKey as ReturnType<typeof vi.fn>).mockImplementation((provider: string) => provider === "acme-extension");
+
+    const res = await GET(buildApp(), "/api/auth/status");
+
+    expect(res.status).toBe(200);
+    expect(res.body.providers).toEqual([
+      { id: "anthropic", name: "Anthropic", authenticated: true, type: "oauth" },
+      { id: "github-copilot", name: "GitHub Copilot", authenticated: false, type: "oauth" },
+      { id: "openrouter", name: "OpenRouter", authenticated: false, type: "api_key" },
+      { id: "kimi-coding", name: "Kimi", authenticated: false, type: "api_key" },
+      { id: "acme-extension", name: "Acme Extension", authenticated: true, type: "api_key" },
+    ]);
+  });
+
   it("returns unauthenticated status", async () => {
     (authStorage.hasAuth as ReturnType<typeof vi.fn>).mockReturnValue(false);
 
@@ -2644,6 +2669,21 @@ describe("POST /auth/api-key", () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error).toContain("apiKey is required");
+  });
+
+  it("accepts API key providers discovered from model registry-backed auth storage", async () => {
+    (authStorage.getApiKeyProviders as ReturnType<typeof vi.fn>).mockReturnValue([
+      { id: "acme-extension", name: "Acme Extension" },
+    ]);
+
+    const res = await REQUEST(buildApp(), "POST", "/api/auth/api-key", JSON.stringify({
+      provider: "acme-extension",
+      apiKey: "acme-secret-key",
+    }), { "Content-Type": "application/json" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(authStorage.setApiKey).toHaveBeenCalledWith("acme-extension", "acme-secret-key");
   });
 
   it("returns 400 for unknown provider", async () => {

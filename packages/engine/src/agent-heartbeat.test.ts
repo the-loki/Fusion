@@ -2438,10 +2438,11 @@ describe("HeartbeatTriggerScheduler", () => {
 
       eventStore.emit("agent:assigned", agent, "FN-001");
 
-      // Wait for async event handler
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      // Allow asynchronous assignment listeners to run in heavily loaded test environments.
+      await vi.waitFor(() => {
+        expect(callback).toHaveBeenCalledOnce();
+      }, { timeout: 1000 });
 
-      expect(callback).toHaveBeenCalledOnce();
       expect(callback).toHaveBeenCalledWith("agent-test", "assignment", {
         taskId: "FN-001",
         wakeReason: "assignment",

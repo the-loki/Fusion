@@ -113,6 +113,82 @@ function cleanupMergedTaskArtifacts(cwd: string, task: Pick<TaskDetail, "id" | "
   }
 }
 
+type LoginCallbacks = Parameters<AuthStorage["login"]>[1];
+
+interface DashboardAuthStorage {
+  reload(): void;
+  getOAuthProviders(): Array<{ id: string; name: string }>;
+  hasAuth(provider: string): boolean;
+  login(providerId: string, callbacks: LoginCallbacks): Promise<void>;
+  logout(provider: string): void;
+  getApiKeyProviders(): Array<{ id: string; name: string }>;
+  setApiKey(providerId: string, apiKey: string): void;
+  clearApiKey(providerId: string): void;
+  hasApiKey(providerId: string): boolean;
+}
+
+function getProviderDisplayName(providerId: string): string {
+  const knownProviderNames: Record<string, string> = {
+    openrouter: "OpenRouter",
+    "kimi-coding": "Kimi",
+  };
+
+  if (knownProviderNames[providerId]) {
+    return knownProviderNames[providerId];
+  }
+
+  return providerId
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function wrapAuthStorageWithApiKeyProviders(
+  authStorage: AuthStorage,
+  modelRegistry: ModelRegistry,
+): DashboardAuthStorage {
+  return {
+    reload: () => authStorage.reload(),
+    getOAuthProviders: () =>
+      authStorage
+        .getOAuthProviders()
+        .map((provider) => ({ id: provider.id, name: provider.name })),
+    hasAuth: (provider) => authStorage.hasAuth(provider),
+    login: (providerId, callbacks) =>
+      authStorage.login(providerId as Parameters<AuthStorage["login"]>[0], callbacks),
+    logout: (provider) => authStorage.logout(provider),
+    getApiKeyProviders: () => {
+      const oauthProviderIds = new Set(
+        authStorage.getOAuthProviders().map((provider) => provider.id),
+      );
+      const providers = new Map<string, string>();
+
+      for (const model of modelRegistry.getAll()) {
+        const providerId = model.provider;
+        if (!providerId || oauthProviderIds.has(providerId) || providers.has(providerId)) {
+          continue;
+        }
+        providers.set(providerId, getProviderDisplayName(providerId));
+      }
+
+      return Array.from(providers, ([id, name]) => ({ id, name })).sort((a, b) =>
+        a.name.localeCompare(b.name),
+      );
+    },
+    setApiKey: (providerId, apiKey) => {
+      authStorage.set(providerId, { type: "api_key", key: apiKey });
+    },
+    clearApiKey: (providerId) => {
+      authStorage.remove(providerId);
+    },
+    hasApiKey: (providerId) => {
+      const credential = authStorage.get(providerId);
+      return credential?.type === "api_key" || authStorage.hasAuth(providerId);
+    },
+  };
+}
+
 export async function processPullRequestMergeTask(
   store: TaskStore,
   cwd: string,
@@ -606,8 +682,16 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
   //
   const missionAutopilot = new MissionAutopilot(store, store.getMissionStore());
 
+  const dashboardAuthStorage = wrapAuthStorageWithApiKeyProviders(authStorage, modelRegistry);
+
   // Start the web server with AI merge, auth, and model registry wired in
-  const app = createServer(store, { onMerge, authStorage, modelRegistry, automationStore, missionAutopilot });
+  const app = createServer(store, {
+    onMerge,
+    authStorage: dashboardAuthStorage,
+    modelRegistry,
+    automationStore,
+    missionAutopilot,
+  });
 
   function dispose(): void {
     if (disposed) return;

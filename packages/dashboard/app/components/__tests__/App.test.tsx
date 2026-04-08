@@ -584,6 +584,27 @@ describe("App auto-open Settings on unauthenticated", () => {
     expect(screen.queryByText("Set Up AI Provider")).toBeNull();
   });
 
+  it("treats authenticated API-key providers as valid auth for onboarding checks", async () => {
+    (fetchAuthStatus as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      providers: [
+        { id: "openrouter", name: "OpenRouter", authenticated: true, type: "api_key" },
+        { id: "anthropic", name: "Anthropic", authenticated: false, type: "oauth" },
+      ],
+    });
+    (fetchGlobalSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      defaultProvider: "openrouter",
+      defaultModelId: "gpt-4o",
+    });
+
+    render(<App />);
+
+    await waitFor(() => expect(fetchAuthStatus).toHaveBeenCalled());
+    await waitFor(() => expect(fetchSettings).toHaveBeenCalledTimes(1));
+
+    expect(screen.queryByText("Settings")).toBeNull();
+    expect(screen.queryByText("Set Up AI Provider")).toBeNull();
+  });
+
   it("auto-opens onboarding when providers are authenticated but default model is missing", async () => {
     (fetchAuthStatus as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       providers: [
