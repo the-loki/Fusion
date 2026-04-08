@@ -166,7 +166,6 @@ export function AgentGenerationModal({
         role="dialog"
         aria-modal="true"
         aria-label="Generate agent with AI"
-        style={{ width: 520, maxWidth: "90vw" }}
       >
         {/* Header */}
         <div className="agent-dialog-header">

@@ -986,6 +986,22 @@ export function AgentListModal({ isOpen, onClose, addToast, projectId }: AgentLi
 
           .agent-modal-content {
             padding: var(--space-lg, 16px) var(--space-lg, 16px);
+            padding-bottom: max(var(--space-lg, 16px), env(safe-area-inset-bottom, 0px));
+          }
+
+          .agent-state-filter-select {
+            font-size: 16px;
+            min-height: 44px;
+          }
+
+          .agent-board-actions .btn {
+            min-height: 44px;
+            min-width: 44px;
+          }
+
+          .view-toggle-btn {
+            min-height: 44px;
+            min-width: 44px;
           }
 
           /* Header actions wrap safely */
@@ -1030,8 +1046,15 @@ export function AgentListModal({ isOpen, onClose, addToast, projectId }: AgentLi
             align-items: stretch;
           }
 
+          .agent-create-form .input,
           .agent-create-form .select {
             width: 100%;
+            font-size: 16px;
+            min-height: 44px;
+          }
+
+          .agent-create-form .btn {
+            min-height: 44px;
           }
 
           /* Board goes to single-column */
