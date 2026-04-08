@@ -203,6 +203,23 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
   await store.init();
   await store.watch();
 
+  const handlers: Array<{
+    target: NodeJS.EventEmitter;
+    event: string | symbol;
+    handler: (...args: any[]) => void;
+  }> = [];
+  let disposed = false;
+  let mergeRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function registerHandler(
+    target: NodeJS.EventEmitter,
+    event: string | symbol,
+    handler: (...args: any[]) => void,
+  ): void {
+    target.on(event, handler);
+    handlers.push({ target, event, handler });
+  }
+
   // ── AutomationStore: scheduled task persistence ──────────────────────
   const automationStore = new AutomationStore(cwd);
   await automationStore.init();
@@ -323,7 +340,7 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
   const onMerge = (taskId: string) => semaphore.run(() => rawMerge(taskId), PRIORITY_MERGE);
 
   // When globalPause transitions from false → true, terminate the active merge session.
-  store.on("settings:updated", ({ settings, previous }) => {
+  registerHandler(store, "settings:updated", ({ settings, previous }) => {
     if (settings.globalPause && !previous.globalPause) {
       if (activeMergeSession) {
         console.log("[auto-merge] Global pause — terminating active merge session");
@@ -477,7 +494,7 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
 
   // Auto-merge: when a task lands in "in-review" and autoMerge is enabled,
   // enqueue it for serialized merge processing.
-  store.on("task:moved", async ({ task, to }) => {
+  registerHandler(store, "task:moved", async ({ task, to }) => {
     if (to !== "in-review") return;
     if (!canAutoMergeTask(task as any)) return;
     try {
@@ -591,6 +608,21 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
 
   // Start the web server with AI merge, auth, and model registry wired in
   const app = createServer(store, { onMerge, authStorage, modelRegistry, automationStore, missionAutopilot });
+
+  function dispose(): void {
+    if (disposed) return;
+    disposed = true;
+
+    for (const { target, event, handler } of handlers) {
+      target.off(event, handler);
+    }
+    handlers.length = 0;
+
+    if (mergeRetryTimer) {
+      clearTimeout(mergeRetryTimer);
+      mergeRetryTimer = null;
+    }
+  }
 
   // Start the AI engine (unless in dev mode)
   if (!opts.dev) {
@@ -710,7 +742,7 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
     // 1. Refresh cachedMaxConcurrent so the semaphore picks up live changes
     // 2. Resume orphaned in-progress tasks whose agents were killed by pause
     // 3. Sweep the merge queue for in-review tasks that need merging
-    store.on("settings:updated", async ({ settings: s, previous: prev }) => {
+    registerHandler(store, "settings:updated", async ({ settings: s, previous: prev }) => {
       if (prev.globalPause && !s.globalPause) {
         console.log("[engine] Global unpause — resuming agentic activity");
         cachedMaxConcurrent = s.maxConcurrent ?? cachedMaxConcurrent;
@@ -735,7 +767,7 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
     // ── Immediate engine-unpause: resume orphans + merge sweep ────────
     // When enginePaused transitions from true → false, same resume logic
     // as globalPause unpause: pick up orphaned tasks and sweep merge queue.
-    store.on("settings:updated", async ({ settings: s, previous: prev }) => {
+    registerHandler(store, "settings:updated", async ({ settings: s, previous: prev }) => {
       if (prev.enginePaused && !s.enginePaused) {
         console.log("[engine] Engine unpaused — resuming agentic activity");
         cachedMaxConcurrent = s.maxConcurrent ?? cachedMaxConcurrent;
@@ -760,7 +792,7 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
     // ── Stuck task timeout change: immediate check ────────────────────
     // When taskStuckTimeoutMs is changed (e.g., user reduces timeout),
     // immediately check for stuck tasks under the new timer value.
-    store.on("settings:updated", async ({ settings: s, previous: prev }) => {
+    registerHandler(store, "settings:updated", async ({ settings: s, previous: prev }) => {
       if (s.taskStuckTimeoutMs !== prev.taskStuckTimeoutMs) {
         console.log(`[stuck-detector] Timeout changed to ${s.taskStuckTimeoutMs}ms — running immediate check`);
         await stuckTaskDetector.checkNow();
@@ -770,11 +802,12 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
     // ── Periodic retry: catch failed merges on each poll cycle ────────
     // Uses a setTimeout chain so the interval dynamically follows
     // settings.pollIntervalMs without requiring an engine restart.
-    let mergeRetryTimer: ReturnType<typeof setTimeout> | null = null;
     async function scheduleMergeRetry(): Promise<void> {
+      if (disposed) return;
       const currentSettings = await store.getSettings().catch(() => settings);
       const interval = currentSettings.pollIntervalMs ?? 15_000;
       mergeRetryTimer = setTimeout(async () => {
+        if (disposed) return;
         try {
           const s = await store.getSettings();
           // Refresh the cached limit so the semaphore picks up live changes
@@ -788,13 +821,16 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
             }
           }
         } catch { /* ignore errors in periodic sweep */ }
-        scheduleMergeRetry();
+        if (!disposed) {
+          scheduleMergeRetry();
+        }
       }, interval);
     }
     // Kick off the first retry after the current poll interval
     scheduleMergeRetry();
 
     const shutdown = () => {
+      dispose();
       selfHealing.stop();
       stuckTaskDetector.stop();
       missionAutopilot.stop();
@@ -802,23 +838,23 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
       scheduler.stop();
       cronRunner.stop();
       notifier.stop();
-      if (mergeRetryTimer) clearTimeout(mergeRetryTimer);
       store.close();
       process.exit(0);
     };
-    process.on("SIGINT", shutdown);
-    process.on("SIGTERM", shutdown);
+    registerHandler(process, "SIGINT", shutdown);
+    registerHandler(process, "SIGTERM", shutdown);
   }
 
   // Dev mode: simplified shutdown handlers (no engine components)
   if (opts.dev) {
     const devShutdown = () => {
+      dispose();
       notifier.stop();
       store.close();
       process.exit(0);
     };
-    process.on("SIGINT", devShutdown);
-    process.on("SIGTERM", devShutdown);
+    registerHandler(process, "SIGINT", devShutdown);
+    registerHandler(process, "SIGTERM", devShutdown);
   }
 
   const server = app.listen(selectedPort);
@@ -858,4 +894,6 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
     console.log(`  Press Ctrl+C to stop`);
     console.log();
   });
+
+  return { dispose };
 }

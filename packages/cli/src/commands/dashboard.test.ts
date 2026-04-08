@@ -1691,6 +1691,77 @@ describe("runDashboard — PR feedback follow-up wiring", () => {
   });
 });
 
+describe("runDashboard — lifecycle listener cleanup", () => {
+  let mockStore: ReturnType<typeof makeMockStore>;
+
+  beforeEach(async () => {
+    mockStore = makeMockStore();
+    const { TaskStore } = await import("@fusion/core");
+    (TaskStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => mockStore);
+  });
+
+  it("returns a dispose function", async () => {
+    const { dispose } = await runDashboard(0, { open: false });
+    expect(typeof dispose).toBe("function");
+    expect(() => dispose()).not.toThrow();
+  });
+
+  it("dispose removes all registered store listeners", async () => {
+    const { dispose } = await runDashboard(0, { open: false });
+    const offCallsBefore = mockStore.off.mock.calls.length;
+
+    dispose();
+
+    const offCalls = mockStore.off.mock.calls.slice(offCallsBefore);
+    expect(offCalls.filter(([event]) => event === "settings:updated")).toHaveLength(4);
+    expect(offCalls.filter(([event]) => event === "task:moved")).toHaveLength(1);
+  });
+
+  it("dispose is idempotent — calling twice does not throw", async () => {
+    const { dispose } = await runDashboard(0, { open: false });
+
+    expect(() => dispose()).not.toThrow();
+    expect(() => dispose()).not.toThrow();
+  });
+
+  it("does not accumulate process listeners across repeated invocations", async () => {
+    const baselineSigint = process.listenerCount("SIGINT");
+    const baselineSigterm = process.listenerCount("SIGTERM");
+
+    for (let i = 0; i < 5; i += 1) {
+      const { dispose } = await runDashboard(0, { open: false });
+      dispose();
+    }
+
+    expect(process.listenerCount("SIGINT")).toBe(baselineSigint);
+    expect(process.listenerCount("SIGTERM")).toBe(baselineSigterm);
+  });
+
+  it("does not emit MaxListenersExceededWarning after 12 rapid invocations", async () => {
+    const { TaskStore } = await import("@fusion/core");
+    (TaskStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => makeMockStore());
+
+    const warnings: string[] = [];
+    const warningHandler = (warning: unknown) => {
+      warnings.push(String(warning));
+    };
+
+    process.on("warning", warningHandler);
+
+    try {
+      for (let i = 0; i < 12; i += 1) {
+        const { dispose } = await runDashboard(0, { open: false });
+        dispose();
+      }
+      await new Promise((resolve) => setImmediate(resolve));
+    } finally {
+      process.removeListener("warning", warningHandler);
+    }
+
+    expect(warnings.some((warning) => warning.includes("MaxListenersExceededWarning"))).toBe(false);
+  });
+});
+
 // ── promptForPort tests ───────────────────────────────────────────────
 
 import { promptForPort } from "./dashboard.js";
