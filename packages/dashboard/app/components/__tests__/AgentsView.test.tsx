@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { AgentsView } from "../AgentsView";
 import * as apiModule from "../../api";
-import type { Agent, AgentState, AgentCapability } from "../../api";
+import type { Agent, AgentState, AgentCapability, OrgTreeNode } from "../../api";
 import { scopedKey } from "../../utils/projectStorage";
 
 // Mock the API module
@@ -14,7 +14,12 @@ vi.mock("../../api", () => ({
   updateAgentState: vi.fn(),
   deleteAgent: vi.fn(),
   startAgentRun: vi.fn(),
+  fetchOrgTree: vi.fn(),
   fetchModels: vi.fn().mockResolvedValue({ models: [] }),
+}));
+
+vi.mock("../AgentDetailView", () => ({
+  AgentDetailView: ({ agentId }: { agentId: string }) => <div data-testid="agent-detail-view">Agent detail: {agentId}</div>,
 }));
 
 const mockFetchAgents = vi.mocked(apiModule.fetchAgents);
@@ -22,6 +27,7 @@ const mockCreateAgent = vi.mocked(apiModule.createAgent);
 const mockUpdateAgentState = vi.mocked(apiModule.updateAgentState);
 const mockDeleteAgent = vi.mocked(apiModule.deleteAgent);
 const mockStartAgentRun = vi.mocked(apiModule.startAgentRun);
+const mockFetchOrgTree = vi.mocked((apiModule as any).fetchOrgTree);
 const mockFetchAgentStats = vi.mocked((apiModule as any).fetchAgentStats);
 
 describe("AgentsView", () => {
@@ -84,6 +90,7 @@ describe("AgentsView", () => {
       endedAt: null,
       status: "active",
     });
+    mockFetchOrgTree.mockResolvedValue([]);
   });
 
   describe("rendering", () => {
@@ -227,6 +234,151 @@ describe("AgentsView", () => {
       await waitFor(() => {
         expect(boardBtn.className).toContain("active");
         expect(boardBtn.getAttribute("aria-pressed")).toBe("true");
+      });
+    });
+  });
+
+  describe("Org Chart view", () => {
+    const orgTree: OrgTreeNode[] = [
+      {
+        agent: {
+          id: "agent-root-1",
+          name: "Chief Agent",
+          role: "scheduler",
+          state: "active",
+          lastHeartbeatAt: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          metadata: {},
+        },
+        children: [
+          {
+            agent: {
+              id: "agent-child-1",
+              name: "Director One",
+              role: "executor",
+              state: "running",
+              lastHeartbeatAt: new Date().toISOString(),
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              metadata: {},
+            },
+            children: [
+              {
+                agent: {
+                  id: "agent-grandchild-1",
+                  name: "Manager Alpha",
+                  role: "reviewer",
+                  state: "idle",
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                  metadata: {},
+                },
+                children: [],
+              },
+            ],
+          },
+          {
+            agent: {
+              id: "agent-child-2",
+              name: "Director Two",
+              role: "triage",
+              state: "paused",
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              metadata: {},
+            },
+            children: [],
+          },
+        ],
+      },
+      {
+        agent: {
+          id: "agent-root-2",
+          name: "Independent Lead",
+          role: "engineer",
+          state: "error",
+          lastError: "Agent stalled",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          metadata: {},
+        },
+        children: [],
+      },
+    ];
+
+    it("renders org chart toggle with aria attributes and activates org view", async () => {
+      mockFetchOrgTree.mockResolvedValue(orgTree);
+      render(<AgentsView addToast={mockAddToast} projectId={projectId} />);
+
+      const orgButton = screen.getByRole("button", { name: "Org Chart view" });
+      expect(orgButton.getAttribute("aria-pressed")).toBe("false");
+
+      fireEvent.click(orgButton);
+
+      await waitFor(() => {
+        expect(orgButton.className).toContain("active");
+        expect(orgButton.getAttribute("aria-pressed")).toBe("true");
+      });
+
+      await waitFor(() => {
+        expect(mockFetchOrgTree).toHaveBeenCalledWith(projectId);
+      });
+    });
+
+    it("renders org chart nodes and opens detail view when clicking a node", async () => {
+      mockFetchOrgTree.mockResolvedValue(orgTree);
+      render(<AgentsView addToast={mockAddToast} />);
+
+      fireEvent.click(screen.getByRole("button", { name: "Org Chart view" }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Chief Agent")).toBeTruthy();
+        expect(screen.getByText("Director One")).toBeTruthy();
+        expect(screen.getByText("Manager Alpha")).toBeTruthy();
+        expect(screen.getByText("Independent Lead")).toBeTruthy();
+        expect(screen.getAllByText(/Healthy|Idle|Paused|Unresponsive|Agent stalled/).length).toBeGreaterThan(0);
+      });
+
+      fireEvent.click(screen.getByText("Director One"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("agent-detail-view")).toHaveTextContent("agent-child-1");
+      });
+    });
+
+    it("shows org chart empty state when API returns no nodes", async () => {
+      mockFetchOrgTree.mockResolvedValue([]);
+      render(<AgentsView addToast={mockAddToast} />);
+
+      fireEvent.click(screen.getByRole("button", { name: "Org Chart view" }));
+
+      await waitFor(() => {
+        expect(screen.getByText("No agents found")).toBeTruthy();
+        expect(screen.getByText("Create an agent to get started")).toBeTruthy();
+      });
+    });
+
+    it("shows loading state while org chart request is in flight", async () => {
+      let resolveOrgTree: ((value: OrgTreeNode[]) => void) | undefined;
+      mockFetchOrgTree.mockImplementation(
+        () =>
+          new Promise<OrgTreeNode[]>((resolve) => {
+            resolveOrgTree = resolve;
+          }),
+      );
+
+      render(<AgentsView addToast={mockAddToast} />);
+      fireEvent.click(screen.getByRole("button", { name: "Org Chart view" }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Loading org chart...")).toBeTruthy();
+      });
+
+      resolveOrgTree?.([]);
+
+      await waitFor(() => {
+        expect(screen.queryByText("Loading org chart...")).toBeNull();
       });
     });
   });

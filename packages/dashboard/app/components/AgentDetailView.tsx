@@ -6,7 +6,7 @@ import {
   ChevronDown, ChevronRight
 } from "lucide-react";
 import type { AgentDetail, AgentState, AgentHeartbeatRun } from "../api";
-import { fetchAgent, updateAgent, updateAgentState, deleteAgent, fetchAgentLogs, fetchAgentRunLogs, fetchAgentChildren, fetchAgentRuns, fetchAgentRunDetail, startAgentRun, updateAgentInstructions, fetchAgentTasks } from "../api";
+import { fetchAgent, updateAgent, updateAgentState, deleteAgent, fetchAgentLogs, fetchAgentRunLogs, fetchAgentChildren, fetchAgentRuns, fetchAgentRunDetail, startAgentRun, updateAgentInstructions, fetchAgentTasks, fetchChainOfCommand } from "../api";
 import type { Agent } from "../api";
 import type { AgentLogEntry, Task } from "@fusion/core";
 import { AgentLogViewer } from "./AgentLogViewer";
@@ -361,7 +361,12 @@ export function AgentDetailView({ agentId, projectId, onClose, addToast, onChild
         {/* Tab Content */}
         <div className="agent-detail-content">
           {activeTab === "dashboard" && (
-            <DashboardTab agent={agent} health={health} />
+            <DashboardTab
+              agent={agent}
+              health={health}
+              onChildClick={onChildClick}
+              projectId={projectId}
+            />
           )}
           
           {activeTab === "logs" && (
@@ -437,13 +442,47 @@ export function AgentDetailView({ agentId, projectId, onClose, addToast, onChild
 
 function DashboardTab({ 
   agent, 
-  health 
+  health,
+  onChildClick,
+  projectId,
 }: { 
   agent: AgentDetail; 
   health: { label: string; color: string };
+  onChildClick?: (childId: string) => void;
+  projectId?: string;
 }) {
   const stateStyle = STATE_COLORS[agent.state];
-  
+  const [chainOfCommand, setChainOfCommand] = useState<Agent[]>([]);
+  const [isLoadingChainOfCommand, setIsLoadingChainOfCommand] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoadingChainOfCommand(true);
+
+    void fetchChainOfCommand(agent.id, projectId)
+      .then((chain) => {
+        if (cancelled) return;
+        const normalized = chain.length > 0 && chain[0]?.id === agent.id
+          ? [...chain].reverse()
+          : chain;
+        setChainOfCommand(normalized);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setChainOfCommand([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingChainOfCommand(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [agent.id, projectId]);
+
   const stats = useMemo(() => {
     const runs = (agent as any).completedRuns || [];
     const today = new Date();
@@ -512,6 +551,44 @@ function DashboardTab({
             </span>
           </div>
         </div>
+      </div>
+
+      <div className="dashboard-section">
+        <h3>
+          <GitBranch size={16} style={{ marginRight: "6px", verticalAlign: "-2px" }} />
+          Chain of Command
+        </h3>
+        {isLoadingChainOfCommand ? (
+          <div className="chain-of-command-loading" role="status" aria-live="polite">
+            <Loader2 size={14} className="animate-spin" />
+            <span>Loading reporting chain...</span>
+          </div>
+        ) : chainOfCommand.length <= 1 ? (
+          <p className="text-muted">No reporting chain</p>
+        ) : (
+          <div className="chain-of-command-path" aria-label="Chain of command">
+            {chainOfCommand.map((chainAgent, index) => {
+              const isCurrent = index === chainOfCommand.length - 1;
+              const isAncestor = !isCurrent;
+              return (
+                <div key={chainAgent.id} className="chain-of-command-item">
+                  <button
+                    type="button"
+                    className={`chain-of-command-node${isCurrent ? " chain-of-command-node--current" : ""}`}
+                    onClick={() => isAncestor && onChildClick?.(chainAgent.id)}
+                    disabled={!isAncestor || !onChildClick}
+                    title={isCurrent ? "Current agent" : `View ${chainAgent.name}`}
+                  >
+                    {chainAgent.name}
+                  </button>
+                  {!isCurrent && (
+                    <span className="chain-of-command-separator" aria-hidden="true">→</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Stats Cards */}

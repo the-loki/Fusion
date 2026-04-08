@@ -24885,3 +24885,188 @@ body[data-color-theme="terminal"][data-theme="light"]::before {
     padding: var(--space-xs);
   }
 }
+
+/* === FN-1167: Agent Org Chart + Chain of Command === */
+.agent-org-chart {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 1.5rem;
+  padding: 1rem;
+  overflow-x: auto;
+  overflow-y: visible;
+  min-height: 220px;
+}
+
+.agent-org-chart__loading,
+.chain-of-command-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-secondary);
+}
+
+.org-chart-node {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 220px;
+  flex: 0 0 auto;
+}
+
+.org-chart-node-card {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 0.75rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease, transform 120ms ease;
+  position: relative;
+}
+
+.org-chart-node-card:hover,
+.org-chart-node-card:focus-visible {
+  border-color: var(--accent);
+  background: var(--card-hover);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.org-chart-node__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.org-chart-node__icon {
+  font-size: 1rem;
+}
+
+.org-chart-node__name {
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.org-chart-node__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.org-chart-node__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  text-transform: capitalize;
+}
+
+.org-chart-node__health {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+}
+
+.org-chart-node--has-children > .org-chart-node-card::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: -16px;
+  width: 1px;
+  height: 16px;
+  background: var(--border-color);
+}
+
+.org-chart-children {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1rem;
+  padding-top: 1.5rem;
+  margin-top: 0.25rem;
+}
+
+.org-chart-children::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 24px;
+  right: 24px;
+  height: 1px;
+  background: var(--border-color);
+}
+
+.org-chart-children > .org-chart-node::before {
+  content: "";
+  position: absolute;
+  top: -24px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 1px;
+  height: 24px;
+  background: var(--border-color);
+}
+
+.chain-of-command-path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+}
+
+.chain-of-command-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.chain-of-command-node {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.chain-of-command-node:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.chain-of-command-node:disabled {
+  cursor: default;
+  opacity: 0.9;
+}
+
+.chain-of-command-node--current {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.chain-of-command-separator {
+  color: var(--text-muted);
+}
+
+@media (max-width: 768px) {
+  .agent-org-chart {
+    padding-bottom: 1.5rem;
+  }
+
+  .org-chart-node {
+    min-width: 200px;
+  }
+}

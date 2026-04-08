@@ -17,6 +17,7 @@ vi.mock("../../api", () => ({
   fetchAgentRunDetail: vi.fn(),
   startAgentRun: vi.fn(),
   fetchAgentTasks: vi.fn(),
+  fetchChainOfCommand: vi.fn(),
 }));
 
 vi.mock("../AgentLogViewer", () => ({
@@ -27,7 +28,7 @@ vi.mock("../AgentLogViewer", () => ({
   ),
 }));
 
-import { fetchAgent, updateAgent, updateAgentState, fetchAgentRunLogs, fetchAgentRuns, fetchAgentRunDetail, fetchAgentTasks } from "../../api";
+import { fetchAgent, updateAgent, updateAgentState, fetchAgentRunLogs, fetchAgentRuns, fetchAgentRunDetail, fetchAgentTasks, fetchChainOfCommand } from "../../api";
 
 const mockFetchAgent = vi.mocked(fetchAgent);
 const mockUpdateAgent = vi.mocked(updateAgent);
@@ -36,6 +37,7 @@ const mockFetchAgentRunLogs = vi.mocked(fetchAgentRunLogs);
 const mockFetchAgentRuns = vi.mocked(fetchAgentRuns);
 const mockFetchAgentRunDetail = vi.mocked(fetchAgentRunDetail);
 const mockFetchAgentTasks = vi.mocked(fetchAgentTasks);
+const mockFetchChainOfCommand = vi.mocked(fetchChainOfCommand);
 
 describe("AgentDetailView", () => {
   const createMockAgent = (overrides: Partial<{
@@ -89,6 +91,7 @@ describe("AgentDetailView", () => {
     ]);
     mockFetchAgentRunDetail.mockResolvedValue(mockAgent.completedRuns[0]);
     mockFetchAgentTasks.mockResolvedValue([]);
+    mockFetchChainOfCommand.mockResolvedValue([mockAgent]);
   });
 
   it("shows loading state initially", () => {
@@ -390,6 +393,122 @@ describe("AgentDetailView", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Total Runs")).toBeInTheDocument();
+    });
+  });
+
+  describe("Chain of Command", () => {
+    it("renders chain-of-command section and displays agents in order", async () => {
+      mockFetchChainOfCommand.mockResolvedValue([
+        { id: "agent-root", name: "CEO Agent" } as AgentDetail,
+        { id: "agent-middle", name: "Director Agent" } as AgentDetail,
+        { id: "agent-001", name: "Test Agent" } as AgentDetail,
+      ] as any);
+
+      render(
+        <AgentDetailView
+          agentId="agent-001"
+          onClose={vi.fn()}
+          addToast={vi.fn()}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Chain of Command")).toBeInTheDocument();
+      });
+
+      await waitFor(() => {
+        const nodes = Array.from(document.querySelectorAll(".chain-of-command-node"));
+        expect(nodes).toHaveLength(3);
+        expect(nodes.map((node) => node.textContent?.trim())).toEqual([
+          "CEO Agent",
+          "Director Agent",
+          "Test Agent",
+        ]);
+        expect(nodes[2].className).toContain("chain-of-command-node--current");
+      });
+    });
+
+    it("navigates to ancestor agent when chain node is clicked", async () => {
+      const onChildClick = vi.fn();
+      mockFetchChainOfCommand.mockResolvedValue([
+        { id: "agent-root", name: "CEO Agent" } as AgentDetail,
+        { id: "agent-middle", name: "Director Agent" } as AgentDetail,
+        { id: "agent-001", name: "Test Agent" } as AgentDetail,
+      ] as any);
+
+      render(
+        <AgentDetailView
+          agentId="agent-001"
+          onClose={vi.fn()}
+          addToast={vi.fn()}
+          onChildClick={onChildClick}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("CEO Agent")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "CEO Agent" }));
+      expect(onChildClick).toHaveBeenCalledWith("agent-root");
+    });
+
+    it("shows no reporting chain for empty or single-element chains", async () => {
+      mockFetchChainOfCommand.mockResolvedValue([]);
+
+      const { rerender } = render(
+        <AgentDetailView
+          agentId="agent-001"
+          onClose={vi.fn()}
+          addToast={vi.fn()}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("No reporting chain")).toBeInTheDocument();
+      });
+
+      mockFetchChainOfCommand.mockResolvedValue([{ id: "agent-001", name: "Test Agent" } as AgentDetail] as any);
+
+      rerender(
+        <AgentDetailView
+          agentId="agent-001"
+          onClose={vi.fn()}
+          addToast={vi.fn()}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("No reporting chain")).toBeInTheDocument();
+      });
+    });
+
+    it("shows loading state while fetching chain of command", async () => {
+      let resolveChain: ((agents: AgentDetail[]) => void) | undefined;
+      mockFetchChainOfCommand.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveChain = resolve;
+          }) as any,
+      );
+
+      render(
+        <AgentDetailView
+          agentId="agent-001"
+          onClose={vi.fn()}
+          addToast={vi.fn()}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Loading reporting chain...")).toBeInTheDocument();
+      });
+
+      resolveChain?.([{ id: "agent-001", name: "Test Agent" } as AgentDetail]);
+
+      await waitFor(() => {
+        expect(screen.queryByText("Loading reporting chain...")).not.toBeInTheDocument();
+      });
     });
   });
 

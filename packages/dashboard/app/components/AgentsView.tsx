@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { JSX } from "react";
-import { Plus, Play, Pause, Square, Activity, Heart, Trash2, RefreshCw, Bot, LayoutGrid, List, ChevronRight, ChevronDown, GitBranch, Filter, Upload } from "lucide-react";
-import type { Agent, AgentCapability, AgentState } from "../api";
-import { fetchAgents, updateAgent, updateAgentState, deleteAgent, startAgentRun } from "../api";
+import { Plus, Play, Pause, Square, Activity, Heart, Trash2, RefreshCw, Bot, LayoutGrid, List, ChevronRight, ChevronDown, GitBranch, Filter, Upload, Network } from "lucide-react";
+import type { Agent, AgentCapability, AgentState, OrgTreeNode } from "../api";
+import { fetchAgents, updateAgent, updateAgentState, deleteAgent, startAgentRun, fetchOrgTree } from "../api";
 import { AgentDetailView } from "./AgentDetailView";
 import { ActiveAgentsPanel } from "./ActiveAgentsPanel";
 import { AgentMetricsBar } from "./AgentMetricsBar";
@@ -125,6 +125,68 @@ function AgentTreeNode({
   );
 }
 
+function OrgChartNode({
+  node,
+  onSelect,
+  getHealthStatus,
+  getRoleIcon,
+}: {
+  node: OrgTreeNode;
+  onSelect: (id: string) => void;
+  getHealthStatus: (agent: Agent) => { label: string; icon: JSX.Element; color: string };
+  getRoleIcon: (role: AgentCapability) => string;
+}) {
+  const { agent, children } = node;
+  const health = getHealthStatus(agent);
+  const stateStyle = STATE_COLORS[agent.state];
+
+  return (
+    <div className={`org-chart-node${children.length > 0 ? " org-chart-node--has-children" : ""}`}>
+      <div
+        className="org-chart-node-card"
+        onClick={() => onSelect(agent.id)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => e.key === "Enter" && onSelect(agent.id)}
+      >
+        <div className="org-chart-node__header">
+          <span className="org-chart-node__icon">{getRoleIcon(agent.role)}</span>
+          <span className="org-chart-node__name">{agent.name}</span>
+        </div>
+        <div className="org-chart-node__meta">
+          <span
+            className="org-chart-node__badge"
+            style={{
+              background: stateStyle.bg,
+              color: stateStyle.text,
+              border: `1px solid ${stateStyle.border}`,
+            }}
+          >
+            {agent.state}
+          </span>
+          <span className="org-chart-node__health" style={{ color: health.color }} title={health.label}>
+            {health.icon}
+            <span className="text-secondary">{health.label}</span>
+          </span>
+        </div>
+      </div>
+      {children.length > 0 && (
+        <div className="org-chart-children" role="group" aria-label={`${agent.name} reports`}>
+          {children.map((child) => (
+            <OrgChartNode
+              key={child.agent.id}
+              node={child}
+              onSelect={onSelect}
+              getHealthStatus={getHealthStatus}
+              getRoleIcon={getRoleIcon}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AgentsView({ addToast, projectId }: AgentsViewProps) {
   const { activeAgents, stats } = useAgents(projectId);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -133,15 +195,17 @@ export function AgentsView({ addToast, projectId }: AgentsViewProps) {
   const [isImporting, setIsImporting] = useState(false);
   const [filterState, setFilterState] = useState<AgentState | "all">("all");
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
-  const [agentView, setAgentView] = useState<"board" | "list" | "tree">(() => {
+  const [agentView, setAgentView] = useState<"board" | "list" | "tree" | "org">(() => {
     if (typeof window === "undefined") return "list";
     const saved = getScopedItem("kb-agent-view", projectId);
-    return (saved === "board" || saved === "list" || saved === "tree") ? saved : "list";
+    return (saved === "board" || saved === "list" || saved === "tree" || saved === "org") ? saved : "list";
   });
+  const [orgTree, setOrgTree] = useState<OrgTreeNode[]>([]);
+  const [isOrgTreeLoading, setIsOrgTreeLoading] = useState(false);
 
   useEffect(() => {
     const saved = getScopedItem("kb-agent-view", projectId);
-    if (saved === "board" || saved === "list" || saved === "tree") {
+    if (saved === "board" || saved === "list" || saved === "tree" || saved === "org") {
       setAgentView(saved);
       return;
     }
@@ -174,6 +238,34 @@ export function AgentsView({ addToast, projectId }: AgentsViewProps) {
   useEffect(() => {
     void loadAgents();
   }, [loadAgents]);
+
+  useEffect(() => {
+    if (agentView !== "org") return;
+
+    let cancelled = false;
+    setIsOrgTreeLoading(true);
+    fetchOrgTree(projectId)
+      .then((data) => {
+        if (!cancelled) {
+          setOrgTree(data);
+        }
+      })
+      .catch((err: any) => {
+        if (!cancelled) {
+          addToast(`Failed to load org chart: ${err.message}`, "error");
+          setOrgTree([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsOrgTreeLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [agentView, projectId, addToast]);
 
   // Refresh agent list on SSE events (independent from useAgents hook state)
   useEffect(() => {
@@ -328,6 +420,15 @@ export function AgentsView({ addToast, projectId }: AgentsViewProps) {
             >
               <GitBranch size={16} />
             </button>
+            <button
+              className={`view-toggle-btn${agentView === "org" ? " active" : ""}`}
+              onClick={() => setAgentView("org")}
+              title="Org Chart view"
+              aria-label="Org Chart view"
+              aria-pressed={agentView === "org"}
+            >
+              <Network size={16} />
+            </button>
           </div>
           <button
             className="btn-icon"
@@ -417,6 +518,31 @@ export function AgentsView({ addToast, projectId }: AgentsViewProps) {
                   onToggle={hierarchy.toggleExpand}
                   isExpanded={hierarchy.isExpanded}
                   getChildCount={(id) => hierarchy.getChildren(id).length}
+                  getHealthStatus={getHealthStatus}
+                  getRoleIcon={getRoleIcon}
+                />
+              ))
+            )}
+          </div>
+        ) : agentView === "org" ? (
+          <div className="agent-org-chart" data-testid="agent-org-chart">
+            {isOrgTreeLoading ? (
+              <div className="agent-org-chart__loading" role="status" aria-live="polite">
+                <RefreshCw size={18} className="spin" />
+                <span>Loading org chart...</span>
+              </div>
+            ) : orgTree.length === 0 ? (
+              <div className="agent-empty">
+                <Bot size={48} opacity={0.3} />
+                <p>No agents found</p>
+                <p className="text-secondary">Create an agent to get started</p>
+              </div>
+            ) : (
+              orgTree.map((node) => (
+                <OrgChartNode
+                  key={node.agent.id}
+                  node={node}
+                  onSelect={setSelectedAgentId}
                   getHealthStatus={getHealthStatus}
                   getRoleIcon={getRoleIcon}
                 />
