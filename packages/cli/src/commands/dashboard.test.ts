@@ -94,6 +94,11 @@ vi.mock("@fusion/core", () => ({
     listAgents: vi.fn().mockResolvedValue([]),
     getAgent: vi.fn().mockResolvedValue(null),
     deleteAgent: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+    getActiveHeartbeatRun: vi.fn().mockResolvedValue(null),
+    getBudgetStatus: vi.fn().mockResolvedValue({ isOverBudget: false, isOverThreshold: false, usagePercent: 0 }),
+    getRecentRuns: vi.fn().mockResolvedValue([]),
   })),
   getTaskMergeBlocker: vi.fn((task: any) => {
     if (task.column !== "in-review") return `task is in '${task.column}', must be in 'in-review'`;
@@ -1773,7 +1778,7 @@ describe("runDashboard — lifecycle listener cleanup", () => {
     dispose();
 
     const offCalls = mockStore.off.mock.calls.slice(offCallsBefore);
-    expect(offCalls.filter(([event]) => event === "settings:updated")).toHaveLength(4);
+    expect(offCalls.filter(([event]) => event === "settings:updated")).toHaveLength(5);
     expect(offCalls.filter(([event]) => event === "task:moved")).toHaveLength(1);
   });
 
