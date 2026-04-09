@@ -61,10 +61,14 @@ const commandMocks = vi.hoisted(() => ({
   runProjectDetect: vi.fn(),
 
   runNodeList: vi.fn(),
-  runNodeAdd: vi.fn(),
-  runNodeRemove: vi.fn(),
+  runNodeConnect: vi.fn(),
+  runNodeDisconnect: vi.fn(),
   runNodeShow: vi.fn(),
   runNodeHealth: vi.fn(),
+  runMeshStatus: vi.fn(),
+  // Legacy aliases
+  runNodeAdd: vi.fn(),
+  runNodeRemove: vi.fn(),
 
   runAgentStop: vi.fn(),
   runAgentStart: vi.fn(),
@@ -151,10 +155,14 @@ vi.mock("./commands/project.js", () => ({
 
 vi.mock("./commands/node.js", () => ({
   runNodeList: commandMocks.runNodeList,
-  runNodeAdd: commandMocks.runNodeAdd,
-  runNodeRemove: commandMocks.runNodeRemove,
+  runNodeConnect: commandMocks.runNodeConnect,
+  runNodeDisconnect: commandMocks.runNodeDisconnect,
   runNodeShow: commandMocks.runNodeShow,
   runNodeHealth: commandMocks.runNodeHealth,
+  runMeshStatus: commandMocks.runMeshStatus,
+  // Legacy aliases
+  runNodeAdd: commandMocks.runNodeAdd,
+  runNodeRemove: commandMocks.runNodeRemove,
 }));
 
 vi.mock("./commands/agent.js", () => ({
@@ -435,7 +443,7 @@ describe("bin command routing and fallbacks", () => {
       "4",
     ]);
 
-    expect(commandMocks.runNodeAdd).toHaveBeenCalledWith("worker-a", {
+    expect(commandMocks.runNodeConnect).toHaveBeenCalledWith("worker-a", {
       url: "http://x",
       apiKey: "key",
       maxConcurrent: 4,

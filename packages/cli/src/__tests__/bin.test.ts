@@ -20,10 +20,14 @@ const runProjectInfo = vi.fn();
 const runProjectSetDefault = vi.fn();
 const runProjectDetect = vi.fn();
 const runNodeList = vi.fn();
-const runNodeAdd = vi.fn();
-const runNodeRemove = vi.fn();
+const runNodeConnect = vi.fn();
+const runNodeDisconnect = vi.fn();
 const runNodeShow = vi.fn();
 const runNodeHealth = vi.fn();
+const runMeshStatus = vi.fn();
+// Legacy aliases
+const runNodeAdd = vi.fn();
+const runNodeRemove = vi.fn();
 const runAgentStop = vi.fn();
 const runAgentStart = vi.fn();
 const runAgentMailbox = vi.fn();
@@ -107,10 +111,14 @@ vi.mock("../commands/project.js", () => ({
 
 vi.mock("../commands/node.js", () => ({
   runNodeList,
-  runNodeAdd,
-  runNodeRemove,
+  runNodeConnect,
+  runNodeDisconnect,
   runNodeShow,
   runNodeHealth,
+  runMeshStatus,
+  // Legacy aliases
+  runNodeAdd,
+  runNodeRemove,
 }));
 
 vi.mock("../commands/agent.js", () => ({
@@ -258,28 +266,54 @@ describe("bin", () => {
     expect(runNodeList).toHaveBeenNthCalledWith(1, { json: false });
     expect(runNodeList).toHaveBeenNthCalledWith(2, { json: true });
 
-    await runBin(["node", "add", "my-node", "--url", "https://node.example.com", "--api-key", "abc", "--max-concurrent", "3"]);
-    expect(runNodeAdd).toHaveBeenCalledWith("my-node", {
+    // connect is the primary command
+    await runBin(["node", "connect", "my-node", "--url", "https://node.example.com", "--api-key", "abc", "--max-concurrent", "3"]);
+    expect(runNodeConnect).toHaveBeenCalledWith("my-node", {
       url: "https://node.example.com",
       apiKey: "abc",
       maxConcurrent: 3,
     });
 
+    // add is a legacy alias for connect
+    await runBin(["node", "add", "my-node2", "--url", "https://node2.example.com"]);
+    expect(runNodeConnect).toHaveBeenCalledWith("my-node2", {
+      url: "https://node2.example.com",
+    });
+
+    await runBin(["node", "disconnect", "my-node", "--force"]);
+    expect(runNodeDisconnect).toHaveBeenCalledWith("my-node", { force: true });
+
     await runBin(["node", "remove", "my-node", "--force"]);
     await runBin(["node", "rm", "my-node", "--force"]);
-    expect(runNodeRemove).toHaveBeenCalledWith("my-node", { force: true });
+    expect(runNodeDisconnect).toHaveBeenCalledWith("my-node", { force: true });
 
     await runBin(["node", "show", "my-node"]);
     await runBin(["node", "info", "my-node"]);
-    expect(runNodeShow).toHaveBeenCalledWith("my-node");
+    expect(runNodeShow).toHaveBeenCalledWith("my-node", { json: false });
+
+    await runBin(["node", "show", "my-node", "--json"]);
+    expect(runNodeShow).toHaveBeenCalledWith("my-node", { json: true });
 
     await runBin(["node", "health", "my-node"]);
     expect(runNodeHealth).toHaveBeenCalledWith("my-node");
   });
 
+  it("routes mesh status command", async () => {
+    await runBin(["mesh", "status"]);
+    expect(runMeshStatus).toHaveBeenCalledWith({ json: false });
+
+    await runBin(["mesh", "status", "--json"]);
+    expect(runMeshStatus).toHaveBeenCalledWith({ json: true });
+  });
+
   it("rejects unknown node subcommands", async () => {
     await expect(runBin(["node", "wat"])).rejects.toThrow("process.exit:1");
     expect(errorSpy).toHaveBeenCalledWith("Unknown subcommand: node wat");
+  });
+
+  it("rejects unknown mesh subcommands", async () => {
+    await expect(runBin(["mesh", "wat"])).rejects.toThrow("process.exit:1");
+    expect(errorSpy).toHaveBeenCalledWith("Unknown subcommand: mesh wat");
   });
 
   it("routes serve command with port, host, paused, and interactive flags", async () => {

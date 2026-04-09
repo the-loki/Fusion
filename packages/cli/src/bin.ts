@@ -49,7 +49,7 @@ const { runGitStatus, runGitFetch, runGitPull, runGitPush } = await import("./co
 const { runBackupCreate, runBackupList, runBackupRestore, runBackupCleanup } = await import("./commands/backup.js");
 const { runMissionCreate, runMissionList, runMissionShow, runMissionDelete, runMissionActivateSlice } = await import("./commands/mission.js");
 const { runProjectList, runProjectAdd, runProjectRemove, runProjectShow, runProjectInfo, runProjectSetDefault, runProjectDetect } = await import("./commands/project.js");
-const { runNodeList, runNodeAdd, runNodeRemove, runNodeShow, runNodeHealth } = await import("./commands/node.js");
+const { runNodeList, runNodeConnect, runNodeDisconnect, runNodeShow, runNodeHealth, runMeshStatus } = await import("./commands/node.js");
 const { runInit } = await import("./commands/init.js");
 const { runAgentStop, runAgentStart } = await import("./commands/agent.js");
 const { runAgentImport } = await import("./commands/agent-import.js");
@@ -109,13 +109,13 @@ Usage:
   fn project set-default | default <name>
                                       Set default project
   fn project detect                    Detect project from current directory
-  fn node list | ls [--json]          List all nodes
-  fn node add <name> [--url <url>] [--api-key <key>] [--max-concurrent <n>]
-                                      Register a new node
-  fn node remove | rm <name> [--force]
-                                      Unregister a node
-  fn node show | info [name]          Show node details
-  fn node health <name>               Check node health
+  fn node list | ls [--json]          List all nodes with status and type
+  fn node connect <name> --url <url> [--api-key <key>] [--max-concurrent <n>]
+                                      Connect to a remote node
+  fn node disconnect <name> [--force]  Remove a node connection
+  fn node show | info [name] [--json] Show node details
+  fn node health <name>               Health check a node
+  fn mesh status [--json]              Show full mesh state
   fn settings                          Show current Fusion configuration
   fn settings set <key> <value>        Update a configuration setting
   fn settings export [opts]              Export settings to a JSON file
@@ -391,24 +391,51 @@ async function main() {
             await runNodeList({ json: args.includes("--json") });
             break;
           }
-          case "add": {
+          case "connect": {
             const name = args[2];
-            await runNodeAdd(name, {
-              url: getFlagValue(args, "--url"),
+            const url = getFlagValue(args, "--url");
+            if (!url) {
+              console.error("Usage: fn node connect <name> --url <url> [--api-key <key>] [--max-concurrent <n>]");
+              process.exit(1);
+            }
+            await runNodeConnect(name, {
+              url,
               apiKey: getFlagValue(args, "--api-key"),
               maxConcurrent: getFlagValueNumber(args, "--max-concurrent"),
             });
             break;
           }
+          case "disconnect": {
+            const name = args[2];
+            await runNodeDisconnect(name, { force: args.includes("--force") });
+            break;
+          }
+          case "add": {
+            // Legacy alias for connect
+            const name = args[2];
+            const url = getFlagValue(args, "--url");
+            if (url) {
+              await runNodeConnect(name, {
+                url,
+                apiKey: getFlagValue(args, "--api-key"),
+                maxConcurrent: getFlagValueNumber(args, "--max-concurrent"),
+              });
+            } else {
+              console.error("Usage: fn node add <name> --url <url> [--api-key <key>] [--max-concurrent <n>]");
+              process.exit(1);
+            }
+            break;
+          }
           case "remove":
           case "rm": {
+            // Legacy alias for disconnect
             const name = args[2];
-            await runNodeRemove(name, { force: args.includes("--force") });
+            await runNodeDisconnect(name, { force: args.includes("--force") });
             break;
           }
           case "show":
           case "info": {
-            await runNodeShow(args[2]);
+            await runNodeShow(args[2], { json: args.includes("--json") });
             break;
           }
           case "health": {
@@ -417,7 +444,22 @@ async function main() {
           }
           default:
             console.error(`Unknown subcommand: node ${subcommand || ""}`);
-            console.log("Try: fn node list | add | remove | show | health");
+            console.log("Try: fn node list | connect | disconnect | show | health");
+            process.exit(1);
+        }
+        break;
+      }
+
+      case "mesh": {
+        const subcommand = args[1];
+        switch (subcommand) {
+          case "status": {
+            await runMeshStatus({ json: args.includes("--json") });
+            break;
+          }
+          default:
+            console.error(`Unknown subcommand: mesh ${subcommand || ""}`);
+            console.log("Try: fn mesh status");
             process.exit(1);
         }
         break;
