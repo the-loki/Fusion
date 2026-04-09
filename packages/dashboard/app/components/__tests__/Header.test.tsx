@@ -343,7 +343,7 @@ describe("Header", () => {
     expect(screen.getByPlaceholderText("Search tasks...")).toBeDefined();
   });
 
-  it("hides search input when view is 'list'", () => {
+  it("shows search input when view is 'list'", () => {
     const onSearchChange = vi.fn();
     render(
       <Header
@@ -353,7 +353,7 @@ describe("Header", () => {
         onSearchChange={onSearchChange}
       />
     );
-    expect(screen.queryByPlaceholderText("Search tasks...")).toBeNull();
+    expect(screen.getByPlaceholderText("Search tasks...")).toBeDefined();
   });
 
   it("hides search input when view is 'agents'", () => {

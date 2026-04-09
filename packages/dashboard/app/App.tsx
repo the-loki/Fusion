@@ -360,6 +360,7 @@ function AppInner() {
           onToggleFavorite={handleToggleFavorite}
           onToggleModelFavorite={handleToggleModelFavorite}
           taskStuckTimeoutMs={taskStuckTimeoutMs}
+          searchQuery={searchQuery}
         />
       </PageErrorBoundary>
     );

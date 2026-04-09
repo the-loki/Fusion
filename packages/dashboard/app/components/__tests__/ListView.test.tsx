@@ -103,7 +103,8 @@ describe("ListView", () => {
 
   it("renders without crashing", () => {
     renderListView();
-    expect(screen.getByPlaceholderText("Filter by ID or title...")).toBeDefined();
+    // The search/filter is now in the header, not in the list view toolbar
+    expect(screen.getByText("Columns")).toBeDefined();
   });
 
   it("displays tasks in table format", () => {
@@ -128,10 +129,7 @@ describe("ListView", () => {
   it("shows empty state when filter matches nothing", () => {
     const tasks = [createMockTask({ id: "FN-001", title: "Test Task" })];
 
-    renderListView({ tasks });
-
-    const filterInput = screen.getByPlaceholderText("Filter by ID or title...");
-    fireEvent.change(filterInput, { target: { value: "nonexistent" } });
+    renderListView({ tasks, searchQuery: "nonexistent" });
 
     expect(screen.getByText("No tasks match your filter")).toBeDefined();
   });
@@ -142,10 +140,7 @@ describe("ListView", () => {
       createMockTask({ id: "FN-002", title: "Second Task" }),
     ];
 
-    renderListView({ tasks });
-
-    const filterInput = screen.getByPlaceholderText("Filter by ID or title...");
-    fireEvent.change(filterInput, { target: { value: "FN-001" } });
+    renderListView({ tasks, searchQuery: "FN-001" });
 
     expect(screen.getByText("FN-001")).toBeDefined();
     expect(screen.queryByText("FN-002")).toBeNull();
@@ -157,10 +152,7 @@ describe("ListView", () => {
       createMockTask({ id: "FN-002", title: "Second Task" }),
     ];
 
-    renderListView({ tasks });
-
-    const filterInput = screen.getByPlaceholderText("Filter by ID or title...");
-    fireEvent.change(filterInput, { target: { value: "Second" } });
+    renderListView({ tasks, searchQuery: "Second" });
 
     expect(screen.queryByText("FN-001")).toBeNull();
     expect(screen.getByText("FN-002")).toBeDefined();
@@ -172,32 +164,27 @@ describe("ListView", () => {
       createMockTask({ id: "FN-002", title: undefined, description: "Beta description" }),
     ];
 
-    renderListView({ tasks });
-
-    const filterInput = screen.getByPlaceholderText("Filter by ID or title...");
-    fireEvent.change(filterInput, { target: { value: "Alpha" } });
+    renderListView({ tasks, searchQuery: "Alpha" });
 
     expect(screen.getByText("FN-001")).toBeDefined();
     expect(screen.queryByText("FN-002")).toBeNull();
   });
 
-  it("clears filter when clear button is clicked", () => {
+  it("clears filter when searchQuery is empty", () => {
     const tasks = [
       createMockTask({ id: "FN-001", title: "First Task" }),
       createMockTask({ id: "FN-002", title: "Second Task" }),
     ];
 
-    renderListView({ tasks });
+    // First render with search query
+    const { rerender } = renderListView({ tasks, searchQuery: "FN-001" });
 
-    const filterInput = screen.getByPlaceholderText("Filter by ID or title...");
-    fireEvent.change(filterInput, { target: { value: "FN-001" } });
-
-    // Wait for filter to apply
+    // Only FN-001 should be visible
+    expect(screen.getByText("FN-001")).toBeDefined();
     expect(screen.queryByText("FN-002")).toBeNull();
 
-    // Click clear button (×)
-    const clearButton = screen.getByText("×");
-    fireEvent.click(clearButton);
+    // Re-render with empty searchQuery
+    rerender(<ListView {...renderListView} tasks={tasks} searchQuery="" />);
 
     // Both tasks should be visible again
     expect(screen.getByText("FN-001")).toBeDefined();
@@ -501,10 +488,7 @@ describe("ListView", () => {
       createMockTask({ id: "FN-003", title: "Gamma" }),
     ];
 
-    renderListView({ tasks });
-
-    const filterInput = screen.getByPlaceholderText("Filter by ID or title...");
-    fireEvent.change(filterInput, { target: { value: "Alpha" } });
+    renderListView({ tasks, searchQuery: "Alpha" });
 
     expect(screen.getByText("1 of 3 tasks")).toBeDefined();
   });
@@ -739,11 +723,7 @@ describe("ListView", () => {
       createMockTask({ id: "FN-002", title: "Beta Task", column: "todo" }),
     ];
 
-    renderListView({ tasks });
-
-    // Apply filter that only matches triage task
-    const filterInput = screen.getByPlaceholderText("Filter by ID or title...");
-    fireEvent.change(filterInput, { target: { value: "Alpha" } });
+    renderListView({ tasks, searchQuery: "Alpha" });
 
     // Only triage section should be visible (todo section should be hidden)
     const sectionHeaders = screen.getAllByRole("row").filter(r => r.className.includes("list-section-header"));
@@ -916,22 +896,13 @@ describe("ListView Column Filtering", () => {
       createMockTask({ id: "FN-003", column: "todo", title: "Alpha Todo Task" }),
     ];
 
-    renderListView({ tasks });
+    renderListView({ tasks, searchQuery: "Alpha" });
 
     // Click on the triage drop zone to filter by column
     const triageZone = document.querySelector('[data-column="triage"].list-drop-zone')!;
     fireEvent.click(triageZone);
 
-    // Both triage tasks should be visible
-    expect(screen.getByText("FN-001")).toBeDefined();
-    expect(screen.getByText("FN-002")).toBeDefined();
-    expect(screen.queryByText("FN-003")).toBeNull();
-
-    // Apply text filter within the triage column
-    const filterInput = screen.getByPlaceholderText("Filter by ID or title...");
-    fireEvent.change(filterInput, { target: { value: "Alpha" } });
-
-    // Only Alpha triage task should be visible
+    // Only Alpha triage task should be visible (text filter + column filter)
     expect(screen.getByText("FN-001")).toBeDefined();
     expect(screen.queryByText("FN-002")).toBeNull();
     expect(screen.queryByText("FN-003")).toBeNull();
@@ -1382,15 +1353,12 @@ describe("ListView Hide Done Tasks", () => {
       createMockTask({ id: "FN-003", column: "triage", title: "Gamma" }),
     ];
 
-    renderListView({ tasks });
+    // Hide done + apply filter via props
+    renderListView({ tasks, searchQuery: "Gamma" });
 
-    // Hide done tasks
+    // Hide done tasks via button
     const hideDoneButton = screen.getByRole("button", { name: /hide done/i });
     fireEvent.click(hideDoneButton);
-
-    // Apply filter
-    const filterInput = screen.getByPlaceholderText("Filter by ID or title...");
-    fireEvent.change(filterInput, { target: { value: "Gamma" } });
 
     // Completed tasks should remain hidden
     expect(screen.queryByText("FN-001")).toBeNull();
@@ -1781,7 +1749,7 @@ describe("ListView Collapsible Sections", () => {
       createMockTask({ id: "FN-002", column: "triage", title: "Beta Task" }),
     ];
 
-    renderListView({ tasks });
+    renderListView({ tasks, searchQuery: "Alpha" });
 
     // Collapse triage section
     const triageHeader = screen.getAllByRole("row").find(r =>
@@ -1789,14 +1757,10 @@ describe("ListView Collapsible Sections", () => {
     );
     fireEvent.click(triageHeader!);
 
-    // Apply filter
-    const filterInput = screen.getByPlaceholderText("Filter by ID or title...");
-    fireEvent.change(filterInput, { target: { value: "Alpha" } });
-
-    // Expand triage section by clicking again (filter change should keep collapsed state)
+    // Expand triage section by clicking again
     fireEvent.click(triageHeader!);
 
-    // Only Alpha task should be visible
+    // Only Alpha task should be visible (filter is applied via prop)
     expect(screen.getByText("FN-001")).toBeDefined();
     expect(screen.queryByText("FN-002")).toBeNull();
   });

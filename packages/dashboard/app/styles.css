@@ -7399,62 +7399,6 @@ body {
   background: var(--surface);
 }
 
-.list-filter {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  flex: 1;
-  max-width: 320px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 6px 12px;
-  transition: border-color var(--transition-fast);
-}
-
-.list-filter:focus-within {
-  border-color: var(--todo);
-}
-
-.filter-icon {
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.filter-input {
-  flex: 1;
-  background: none;
-  border: none;
-  color: var(--text);
-  font-size: 13px;
-  font-family: inherit;
-  outline: none;
-}
-
-.filter-input::placeholder {
-  color: var(--text-dim);
-}
-
-.filter-clear {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 16px;
-  line-height: 1;
-  padding: 0 2px;
-  transition: color var(--transition-fast);
-}
-
-.filter-clear:hover {
-  color: var(--text);
-}
-.filter-clear:focus-visible {
-  box-shadow: var(--focus-ring-strong);
-  outline: none;
-  border-radius: var(--radius-sm);
-}
-
 .list-stats {
   font-size: 12px;
   color: var(--text-muted);
@@ -8081,13 +8025,6 @@ body {
 
   .list-create-area {
     padding: var(--space-sm) var(--space-md);
-  }
-
-  .list-filter {
-    max-width: none;
-    width: 100%;
-    order: 2;
-    margin-top: var(--space-sm);
   }
 
   .list-stats {

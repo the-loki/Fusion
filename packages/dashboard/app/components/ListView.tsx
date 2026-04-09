@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, Fragment, useEffect, useRef } from "react";
-import { LayoutGrid, List as ListIcon, ArrowUpDown, ArrowUp, ArrowDown, Search, Link, Columns3, EyeOff, Eye, ChevronRight } from "lucide-react";
+import { LayoutGrid, List as ListIcon, ArrowUpDown, ArrowUp, ArrowDown, Link, Columns3, EyeOff, Eye, ChevronRight } from "lucide-react";
 import type { Task, TaskDetail, Column, TaskStep, TaskCreateInput } from "@fusion/core";
 import { COLUMN_LABELS, COLUMNS } from "@fusion/core";
 import { batchUpdateTaskModels } from "../api";
@@ -126,6 +126,8 @@ interface ListViewProps {
   projectName?: string;
   /** Project-level stuck task timeout in milliseconds (undefined = disabled) */
   taskStuckTimeoutMs?: number;
+  /** External search query from header search (defaults to "") */
+  searchQuery?: string;
 }
 
 function getStepProgress(steps: TaskStep[]): string {
@@ -159,10 +161,10 @@ export function ListView({
   projectId,
   projectName,
   taskStuckTimeoutMs,
+  searchQuery = "",
 }: ListViewProps) {
   const [sortField, setSortField] = useState<SortField>("id");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
-  const [filter, setFilter] = useState("");
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<Column | null>(null);
   const [selectedColumn, setSelectedColumn] = useState<Column | null>(null);
@@ -322,12 +324,12 @@ export function ListView({
 
   const groupedTasks = useMemo(() => {
     // First apply text filter
-    let filtered = filter
+    let filtered = searchQuery
       ? tasks.filter(
           (t) =>
-            t.id.toLowerCase().includes(filter.toLowerCase()) ||
-            (t.title && t.title.toLowerCase().includes(filter.toLowerCase())) ||
-            t.description.toLowerCase().includes(filter.toLowerCase())
+            t.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            (t.title && t.title.toLowerCase().includes(searchQuery.toLowerCase())) ||
+            t.description.toLowerCase().includes(searchQuery.toLowerCase())
         )
       : [...tasks];
 
@@ -372,7 +374,7 @@ export function ListView({
     };
     sorted.forEach(task => groups[task.column].push(task));
     return groups;
-  }, [tasks, filter, sortField, sortDirection, hideDoneTasks, selectedColumn]);
+  }, [tasks, searchQuery, sortField, sortDirection, hideDoneTasks, selectedColumn]);
 
   // Calculate total filtered count from groups
   const filteredCount = useMemo(() => {
@@ -594,21 +596,6 @@ export function ListView({
   return (
     <div className="list-view">
       <div className="list-toolbar">
-        <div className="list-filter">
-          <Search size={14} className="filter-icon" />
-          <input
-            type="text"
-            placeholder="Filter by ID or title..."
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="filter-input"
-          />
-          {filter && (
-            <button className="filter-clear" onClick={() => setFilter("")}>
-              ×
-            </button>
-          )}
-        </div>
         <div className="list-column-toggle" ref={columnDropdownRef}>
           <button
             className="btn btn-sm"
@@ -771,7 +758,7 @@ export function ListView({
         </div>
         {filteredCount === 0 ? (
           <div className="list-empty">
-            {filter ? "No tasks match your filter" : "No tasks yet"}
+            {searchQuery ? "No tasks match your filter" : "No tasks yet"}
           </div>
         ) : isMobile ? (
           <div className="list-cards">
@@ -781,7 +768,7 @@ export function ListView({
 
               const columnTasks = groupedTasks[column];
               const isEmpty = columnTasks.length === 0;
-              if (filter && isEmpty) return null;
+              if (searchQuery && isEmpty) return null;
 
               const isCollapsed = collapsedSections.has(column);
 
@@ -956,7 +943,7 @@ export function ListView({
                 const isEmpty = columnTasks.length === 0;
 
                 // When text filtering, hide empty sections entirely
-                if (filter && isEmpty) return null;
+                if (searchQuery && isEmpty) return null;
 
                 const isCollapsed = collapsedSections.has(column);
 

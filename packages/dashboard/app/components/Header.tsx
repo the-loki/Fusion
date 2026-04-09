@@ -285,7 +285,7 @@ export function Header({
 
       <div className="header-actions">
         {/* Desktop Search - only show in board view */}
-        {onSearchChange && view === "board" && !isMobile && (
+        {onSearchChange && (view === "board" || view === "list") && !isMobile && (
           <div className="header-search">
             <Search size={14} className="header-search-icon" />
             <input
@@ -308,7 +308,7 @@ export function Header({
         )}
 
         {/* Mobile Search Trigger - show in board and list views when mobile nav is hidden (hideFullNav) or in board view when mobile nav is visible */}
-        {onSearchChange && isMobile && (hideFullNav || view === "board") && (
+        {onSearchChange && isMobile && (hideFullNav || view === "board" || view === "list") && (
           <>
             {!shouldShowMobileSearch ? (
               <button
