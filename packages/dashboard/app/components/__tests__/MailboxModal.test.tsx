@@ -461,4 +461,94 @@ describe("MailboxModal", () => {
       });
     });
   });
+
+  describe("theme-awareness CSS regressions", () => {
+    // Read CSS file once for all tests in this block
+    let css: string;
+    beforeAll(async () => {
+      const fs = await import("fs");
+      const path = await import("path");
+      const cssPath = path.resolve(__dirname, "../../styles.css");
+      css = fs.readFileSync(cssPath, "utf-8");
+    });
+
+    it("mailbox unread badge uses theme-aware text token", () => {
+      const blockMatch = css.match(/\.mailbox-unread-badge\s*\{([^}]*)\}/);
+      expect(blockMatch).toBeTruthy();
+      expect(blockMatch![1]).toContain("var(--fab-text)");
+      expect(blockMatch![1]).not.toContain("color: white");
+    });
+
+    it("mailbox tab badge uses theme-aware text token", () => {
+      const blockMatch = css.match(/\.mailbox-tab-badge\s*\{([^}]*)\}/);
+      expect(blockMatch).toBeTruthy();
+      expect(blockMatch![1]).toContain("var(--fab-text)");
+      expect(blockMatch![1]).not.toContain("color: white");
+    });
+
+    it("mailbox compose FAB uses theme-aware tokens", () => {
+      const blockMatch = css.match(/\.mailbox-compose-fab\s*\{([^}]*)\}/);
+      expect(blockMatch).toBeTruthy();
+      expect(blockMatch![1]).toContain("var(--fab-bg)");
+      expect(blockMatch![1]).toContain("var(--fab-text)");
+      expect(blockMatch![1]).not.toContain("background: var(--todo)");
+      expect(blockMatch![1]).not.toContain("color: white");
+
+      // Check hover state
+      const hoverMatch = css.match(/\.mailbox-compose-fab:hover\s*\{([^}]*)\}/);
+      expect(hoverMatch).toBeTruthy();
+      expect(hoverMatch![1]).toContain("var(--fab-bg)");
+      expect(hoverMatch![1]).toContain("var(--fab-text)");
+    });
+
+    it("mission event type error uses CSS custom properties", () => {
+      const blockMatch = css.match(/\.mission-event__type--error\s*\{([^}]*)\}/);
+      expect(blockMatch).toBeTruthy();
+      expect(blockMatch![1]).toContain("var(--event-error-text)");
+      expect(blockMatch![1]).toContain("var(--event-error-bg)");
+      expect(blockMatch![1]).not.toContain("#fca5a5");
+      expect(blockMatch![1]).not.toContain("rgba(239, 68, 68, 0.15)");
+    });
+
+    it("mission autopilot pulse uses CSS custom property", () => {
+      const blockMatch = css.match(/\.mission-detail__autopilot-pulse\s*\{([^}]*)\}/);
+      expect(blockMatch).toBeTruthy();
+      expect(blockMatch![1]).toContain("var(--autopilot-pulse)");
+      expect(blockMatch![1]).not.toContain("#22c55e");
+    });
+
+    it("terminal container uses CSS custom property", () => {
+      const blockMatch = css.match(/\.terminal-container\s*\{([^}]*)\}/);
+      expect(blockMatch).toBeTruthy();
+      expect(blockMatch![1]).toContain("var(--terminal-bg)");
+      expect(blockMatch![1]).not.toContain("#1e1e1e");
+    });
+
+    it("new tokens are defined in :root", () => {
+      // Find the :root block at the start of the file (before any other selectors)
+      const rootStart = css.indexOf(":root {");
+      const afterRoot = css.slice(rootStart);
+      // Match until we find the closing } followed by html,
+      const rootMatch = afterRoot.match(/:root\s*\{([\s\S]*?)^}\s*\n\s*html,/m);
+      expect(rootMatch).toBeTruthy();
+      const rootContent = rootMatch![1];
+      expect(rootContent).toContain("--autopilot-icon");
+      expect(rootContent).toContain("--event-error-text");
+      expect(rootContent).toContain("--terminal-bg");
+      expect(rootContent).toContain("--star-idle");
+      expect(rootContent).toContain("--fab-text");
+      expect(rootContent).toContain("--badge-mission-text");
+    });
+
+    it("light theme overrides new tokens", () => {
+      // Find the base [data-theme="light"] block (not combined with other selectors)
+      const lightBlockMatch = css.match(/^\[data-theme="light"\]\s*\{[\s\S]*?^\}\s*$/m);
+      expect(lightBlockMatch).toBeTruthy();
+      const lightContent = lightBlockMatch![0];
+      expect(lightContent).toContain("--terminal-bg");
+      expect(lightContent).toContain("--event-error-text");
+      expect(lightContent).toContain("--autopilot-icon");
+      expect(lightContent).toContain("--star-active");
+    });
+  });
 });
