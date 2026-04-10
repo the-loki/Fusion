@@ -21,6 +21,7 @@ import {
   Zap,
   Activity,
   FileText,
+  RefreshCw,
 } from "lucide-react";
 import type { ToastType } from "../hooks/useToast";
 import { MissionInterviewModal } from "./MissionInterviewModal";
@@ -1273,7 +1274,7 @@ export function MissionManager({ isOpen, isInline = false, onClose, addToast, pr
       data-testid="mission-manager-dialog"
     >
         {/* ── Header ── */}
-        <div className="mission-manager__header">
+        <div className={`mission-manager__header${isInline ? " mission-manager__header--inline" : ""}`}>
           <div className="mission-manager__header-title">
             {selectedMission ? (
               <button
@@ -1291,15 +1292,32 @@ export function MissionManager({ isOpen, isInline = false, onClose, addToast, pr
               {selectedMission ? selectedMission.title : "Missions"}
             </h2>
           </div>
-          <button
-            className="modal-close"
-            onClick={onClose}
-            title="Close"
-            aria-label="Close Mission Manager"
-            data-testid="mission-close-btn"
-          >
-            <X size={18} />
-          </button>
+          {isInline ? (
+            /* Inline mode: show refresh button instead of modal close */
+            <div className="mission-manager__header-controls">
+              <button
+                className="btn-icon"
+                onClick={() => loadMissions()}
+                title="Refresh"
+                disabled={loading}
+                aria-label="Refresh missions"
+                data-testid="mission-refresh-btn"
+              >
+                <RefreshCw size={16} className={loading ? "spin" : ""} />
+              </button>
+            </div>
+          ) : (
+            /* Modal mode: show close button */
+            <button
+              className="modal-close"
+              onClick={onClose}
+              title="Close"
+              aria-label="Close Mission Manager"
+              data-testid="mission-close-btn"
+            >
+              <X size={18} />
+            </button>
+          )}
         </div>
 
         {/* ── Body ── */}

@@ -47,6 +47,7 @@ vi.mock("lucide-react", () => ({
   Activity: () => <span data-testid="activity-icon">Activity</span>,
   FileText: () => <span data-testid="file-text-icon">FileText</span>,
   Minimize2: () => <span data-testid="minimize-icon">Minimize2</span>,
+  RefreshCw: ({ className }: any) => <span data-testid="refresh-icon" className={className}>Refresh</span>,
 }));
 
 // Mock data
@@ -1076,6 +1077,117 @@ describe("MissionManager", () => {
 
     await waitFor(() => {
       expect(screen.getByText("New Mission")).toBeDefined();
+    });
+  });
+
+  // ── Inline vs Modal Header Behavior ──────────────────────────────
+  describe("inline vs modal header behavior", () => {
+    it("renders with page-style header class when isInline is true", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue(mockApiResponse([]));
+      render(<MissionManager isOpen={true} isInline={true} onClose={vi.fn()} addToast={vi.fn()} />);
+
+      await waitFor(() => {
+        const header = document.querySelector(".mission-manager__header--inline");
+        expect(header).toBeDefined();
+      });
+    });
+
+    it("does not show modal close button in inline mode", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue(mockApiResponse([]));
+      render(<MissionManager isOpen={true} isInline={true} onClose={vi.fn()} addToast={vi.fn()} />);
+
+      await waitFor(() => {
+        // The modal close button should not be present in inline mode
+        expect(screen.queryByTestId("mission-close-btn")).toBeNull();
+      });
+    });
+
+    it("shows modal close button in modal mode (isInline=false)", async () => {
+      globalThis.fetch = createFetchMock();
+      render(<MissionManager isOpen={true} isInline={false} onClose={vi.fn()} addToast={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("mission-close-btn")).toBeDefined();
+      });
+    });
+
+    it("shows refresh button in inline mode header", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue(mockApiResponse([]));
+      render(<MissionManager isOpen={true} isInline={true} onClose={vi.fn()} addToast={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("mission-refresh-btn")).toBeDefined();
+      });
+    });
+
+    it("does not show refresh button in modal mode", async () => {
+      globalThis.fetch = createFetchMock();
+      render(<MissionManager isOpen={true} isInline={false} onClose={vi.fn()} addToast={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.queryByTestId("mission-refresh-btn")).toBeNull();
+      });
+    });
+
+    it("refresh button triggers loadMissions when clicked in inline mode", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(mockApiResponse([]));
+      globalThis.fetch = fetchMock;
+
+      render(<MissionManager isOpen={true} isInline={true} onClose={vi.fn()} addToast={vi.fn()} />);
+
+      // Wait for initial load
+      await waitFor(() => {
+        expect(screen.getByText("No missions yet. Create one to start planning.")).toBeDefined();
+      });
+
+      // Reset fetch mock to track reload
+      fetchMock.mockClear();
+      fetchMock.mockResolvedValueOnce(mockApiResponse([]));
+
+      // Click refresh button
+      fireEvent.click(screen.getByTestId("mission-refresh-btn"));
+
+      // Verify missions were fetched again
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+    });
+
+    it("inline mode header has inline class modifier for styling parity with agents view", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue(mockApiResponse([]));
+      render(<MissionManager isOpen={true} isInline={true} onClose={vi.fn()} addToast={vi.fn()} />);
+
+      await waitFor(() => {
+        const dialog = screen.getByTestId("mission-manager-dialog");
+        expect(dialog.className).toContain("mission-manager--inline");
+      });
+    });
+
+    it("detail view in inline mode still shows back button", async () => {
+      let callCount = 0;
+      globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes("/health")) {
+          return Promise.resolve(mockApiResponse(getMockMissionHealth("M-001")));
+        }
+        callCount++;
+        if (callCount <= 1) {
+          return Promise.resolve(mockApiResponse(mockMissions));
+        }
+        return Promise.resolve(mockApiResponse(mockMissionDetail));
+      });
+
+      render(<MissionManager isOpen={true} isInline={true} onClose={vi.fn()} addToast={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Build Auth System")).toBeDefined();
+      });
+      fireEvent.click(screen.getByText("Build Auth System"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("mission-back-btn")).toBeDefined();
+        // Close button should still be absent in inline mode even in detail view
+        expect(screen.queryByTestId("mission-close-btn")).toBeNull();
+      });
     });
   });
 

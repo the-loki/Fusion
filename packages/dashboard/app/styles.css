@@ -19130,6 +19130,18 @@ html .column.drag-over * {
   background: rgba(0, 0, 0, 0.1);
 }
 
+/* Inline mode header - matches agents-view-header styling */
+.mission-manager__header--inline {
+  background: var(--surface);
+  padding: var(--space-lg) 20px;
+}
+
+.mission-manager__header-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
 .mission-manager__header-title {
   display: flex;
   align-items: center;
@@ -20396,6 +20408,10 @@ html .column.drag-over * {
 
   .mission-manager__header {
     padding: var(--space-sm) var(--space-md);
+  }
+
+  .mission-manager__header--inline {
+    padding: var(--space-md);
   }
 
   .mission-manager__body {
