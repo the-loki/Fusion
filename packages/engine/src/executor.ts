@@ -1707,6 +1707,7 @@ export class TaskExecutor {
             if (compactResult) {
               this.loopRecoveryState.set(task.id, { attempts: loopAttempts + 1, pending: true });
               executorLog.log(`${task.id} context compaction succeeded — resuming`);
+              await this.store.logEntry(task.id, "Context compaction succeeded — resuming execution", undefined, this.currentRunContext);
 
               try {
                 this.options.stuckTaskDetector?.recordProgress(task.id);
@@ -1728,12 +1729,18 @@ export class TaskExecutor {
                   await promptWithFallback(activeEntry.session, "Continue working on the remaining steps.");
                   checkSessionError(activeEntry.session);
                 }
+                // Compact-and-resume succeeded — return to let the finally block clean up
+                // without marking the task as failed. The agent will continue execution
+                // and call task_done or complete implicitly.
+                return;
               } catch (resumeErr: any) {
                 // Resume after context compaction failed — fall through to normal failure
                 executorLog.error(`${task.id} resume after context compaction failed: ${resumeErr.message}`);
+                await this.store.logEntry(task.id, `Resume after context compaction failed: ${resumeErr.message}`, undefined, this.currentRunContext);
               }
             } else {
               executorLog.log(`${task.id} context compaction failed — falling through to normal failure`);
+              await this.store.logEntry(task.id, "Context compaction failed — proceeding to failure path", undefined, this.currentRunContext);
             }
           }
         } else if (this.options.usageLimitPauser && isUsageLimitError(err.message)) {
