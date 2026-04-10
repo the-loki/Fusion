@@ -20221,6 +20221,78 @@ html .column.drag-over * {
   border-top: 1px solid var(--border);
 }
 
+/* ── Plan State Indicator ── */
+.mission-plan-state-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.mission-plan-state-indicator--not-started {
+  background: color-mix(in srgb, var(--text-secondary) 30%, transparent);
+}
+
+.mission-plan-state-indicator--planned {
+  background: color-mix(in srgb, var(--color-success) 30%, transparent);
+}
+
+.mission-plan-state-indicator--planned::after {
+  content: "✓";
+  font-size: 10px;
+  color: var(--color-success);
+}
+
+.mission-plan-state-indicator--needs-update {
+  background: color-mix(in srgb, var(--color-warning) 30%, transparent);
+}
+
+.mission-plan-state-indicator--needs-update::after {
+  content: "⚠";
+  font-size: 10px;
+  color: var(--color-warning);
+}
+
+/* ── Triage Preview ── */
+.mission-triage-preview {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+.mission-triage-preview__header {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.mission-triage-preview__content {
+  white-space: pre-wrap;
+  font-size: 12px;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-secondary);
+  max-height: 200px;
+  overflow-y: auto;
+  padding: var(--space-xs);
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.mission-triage-preview__actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
 /* ── Features (nested inside slices) ── */
 .mission-features {
   display: flex;
