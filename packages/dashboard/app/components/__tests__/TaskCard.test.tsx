@@ -3425,6 +3425,54 @@ describe("TaskCard mission badge", () => {
     expect(onOpenDetail).not.toHaveBeenCalled();
     expect(onOpenMission).toHaveBeenCalledWith("MSN-001");
   });
+
+  it("truncates long mission titles to 9 characters with ellipsis", async () => {
+    const { fetchMission } = await import("../../api");
+    vi.mocked(fetchMission).mockResolvedValue({
+      id: "MSN-LONG",
+      title: "This is a very long mission title that should be truncated",
+      description: "Test mission",
+      status: "active",
+      milestones: [],
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    } as any);
+
+    const task = createTask({ missionId: "MSN-LONG" });
+    render(<TaskCard task={task} onOpenDetail={vi.fn()} addToast={vi.fn()} />);
+
+    await waitFor(() => {
+      const badge = screen.getByTitle("Mission: MSN-LONG");
+      expect(badge).toBeInTheDocument();
+      expect(badge).toHaveClass("card-mission-badge");
+      // MAX_MISSION_TITLE_LENGTH is 12, so truncated form is 9 chars + "..."
+      expect(badge).toHaveTextContent("This is a...");
+    });
+  });
+
+  it("applies ellipsis CSS to mission badge for overflow handling", async () => {
+    const { fetchMission } = await import("../../api");
+    vi.mocked(fetchMission).mockResolvedValue({
+      id: "MSN-ELLIPSIS",
+      title: "A very long mission name that exceeds twelve chars",
+      description: "Test mission",
+      status: "active",
+      milestones: [],
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    } as any);
+
+    const task = createTask({ missionId: "MSN-ELLIPSIS" });
+    render(<TaskCard task={task} onOpenDetail={vi.fn()} addToast={vi.fn()} />);
+
+    await waitFor(() => {
+      const badge = screen.getByTitle("Mission: MSN-ELLIPSIS");
+      // Check computed styles for ellipsis properties
+      expect(window.getComputedStyle(badge).textOverflow).toBe("ellipsis");
+      expect(window.getComputedStyle(badge).whiteSpace).toBe("nowrap");
+      expect(window.getComputedStyle(badge).overflow).toBe("hidden");
+    });
+  });
 });
 
 describe("TaskCard agent badge", () => {

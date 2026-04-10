@@ -34,7 +34,7 @@ async function getMissionTitle(missionId: string, projectId?: string): Promise<s
   }
 }
 
-const MAX_MISSION_TITLE_LENGTH = 20;
+const MAX_MISSION_TITLE_LENGTH = 12;
 
 function abbreviateMissionTitle(title: string): string {
   if (title.length <= MAX_MISSION_TITLE_LENGTH) return title;

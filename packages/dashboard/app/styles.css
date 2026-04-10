@@ -1425,6 +1425,10 @@ body {
   border-radius: var(--radius-pill);
   cursor: pointer;
   transition: color var(--transition-fast), background var(--transition-fast);
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .card-mission-badge:hover {
