@@ -158,15 +158,37 @@ export class StuckTaskDetector {
   /**
    * Remove a task from monitoring.
    * Called when a task finishes (success, failure, or pause).
+   *
+   * Handles both direct keys and step-scoped keys:
+   * - Direct key (single-session mode): removes the entry with the given ID
+   * - Step-scoped keys (step-session mode): removes ALL entries for the canonical task ID
+   *
+   * In step-session mode, tasks are tracked with compound keys like "FN-200-step-0".
+   * When the executor calls untrackTask with the bare task ID "FN-200", this method
+   * cleans up all step-scoped entries for that task.
    */
   untrackTask(taskId: string): void {
+    // First, try to delete the direct key (single-session mode)
     this.tracked.delete(taskId);
+
+    // Also clean up any step-scoped entries for this task.
+    // In step-session mode, entries are keyed by "taskId-step-N" but we need to
+    // clean them up when given the bare task ID.
+    // Pattern: "{taskId}-step-{N}" where N is a number
+    const stepPrefix = `${taskId}-step-`;
+    for (const key of this.tracked.keys()) {
+      if (key.startsWith(stepPrefix)) {
+        this.tracked.delete(key);
+      }
+    }
   }
 
   /**
    * Record a heartbeat for a task's agent session.
    * Called on text deltas and tool calls only (NOT step transitions).
    * Increments `activitySinceProgress` counter.
+   *
+   * In step-session mode, called with step-scoped keys (e.g., "FN-200-step-0").
    */
   recordActivity(taskId: string): void {
     const entry = this.tracked.get(taskId);
@@ -183,12 +205,27 @@ export class StuckTaskDetector {
    * Record a step progress event for a task's agent session.
    * Called on step transitions (in-progress, done, skipped).
    * Resets `activitySinceProgress` to 0 and updates `lastProgressAt`.
+   *
+   * In step-session mode, called with the bare task ID (e.g., "FN-200").
+   * This method finds entries by canonical task ID when the direct key lookup fails.
    */
   recordProgress(taskId: string): void {
+    // First try direct key lookup (single-session mode)
     const entry = this.tracked.get(taskId);
     if (entry) {
       entry.lastProgressAt = Date.now();
       entry.activitySinceProgress = 0;
+      return;
+    }
+
+    // Fall back to finding by canonical task ID (step-session mode).
+    // In step-session mode, entries are keyed by "FN-200-step-0" but we receive "FN-200".
+    for (const trackedEntry of this.tracked.values()) {
+      if (trackedEntry.canonicalTaskId === taskId) {
+        trackedEntry.lastProgressAt = Date.now();
+        trackedEntry.activitySinceProgress = 0;
+        return;
+      }
     }
   }
 

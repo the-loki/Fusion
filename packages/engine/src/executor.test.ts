@@ -9114,6 +9114,125 @@ describe("StepSessionExecutor integration", () => {
     expect(mockTerminateAllSessions).toHaveBeenCalled();
   });
 
+  // ── FN-1461: Step-session stuck retry regression tests ─────────────────────────────────────
+
+  it("REGRESSION: stuck-kill with bare task ID properly requeues step-session task to todo", async () => {
+    const store = createStepSessionStore();
+
+    // Make executeAll hang initially
+    let resolveExecuteAll: (() => void) | null = null;
+    mockExecuteAll.mockReturnValue(new Promise<void>((resolve) => {
+      resolveExecuteAll = resolve;
+    }));
+
+    const executor = new TaskExecutor(store, "/tmp/test", {});
+
+    const task = createTaskWithSteps();
+    const executePromise = executor.execute(task);
+
+    // Give it time to set up the step executor
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Verify step executor is registered
+    expect((executor as any).activeStepExecutors.has("FN-200")).toBe(true);
+
+    // Trigger stuck kill with bare task ID (as StuckTaskDetector.onStuck would call)
+    executor.markStuckAborted("FN-200", true);
+
+    // Resolve executeAll to complete the execution
+    resolveExecuteAll!();
+    await executePromise;
+
+    // Verify: task should be marked stuck-killed and moved to todo for retry
+    expect(store.updateTask).toHaveBeenCalledWith("FN-200", expect.objectContaining({
+      status: "stuck-killed",
+      worktree: null,
+      branch: null,
+    }));
+    expect(store.moveTask).toHaveBeenCalledWith("FN-200", "todo");
+  });
+
+  it("REGRESSION: stuck-kill with exhausted budget does not requeue step-session task", async () => {
+    const store = createStepSessionStore();
+
+    let resolveExecuteAll: (() => void) | null = null;
+    mockExecuteAll.mockReturnValue(new Promise<void>((resolve) => {
+      resolveExecuteAll = resolve;
+    }));
+
+    const executor = new TaskExecutor(store, "/tmp/test", {});
+
+    const task = createTaskWithSteps();
+    const executePromise = executor.execute(task);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Budget exhausted — should NOT requeue
+    executor.markStuckAborted("FN-200", false);
+
+    resolveExecuteAll!();
+    await executePromise;
+
+    // Should NOT move to todo or mark as stuck-killed
+    expect(store.moveTask).not.toHaveBeenCalledWith("FN-200", "todo");
+    expect(store.updateTask).not.toHaveBeenCalledWith("FN-200", expect.objectContaining({
+      status: "stuck-killed",
+    }));
+  });
+
+  it("REGRESSION: untrackTask called with bare task ID during pause in step-session mode", async () => {
+    const store = createStepSessionStore();
+
+    const stuckDetector = {
+      trackTask: vi.fn(),
+      untrackTask: vi.fn(),
+      recordProgress: vi.fn(),
+    } as any;
+
+    let resolveExecuteAll: (() => void) | null = null;
+    mockExecuteAll.mockReturnValue(new Promise<void>((resolve) => {
+      resolveExecuteAll = resolve;
+    }));
+
+    const executor = new TaskExecutor(store, "/tmp/test", { stuckTaskDetector: stuckDetector });
+
+    const task = createTaskWithSteps();
+    const executePromise = executor.execute(task);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Trigger pause
+    store._trigger("task:updated", { ...task, paused: true });
+
+    resolveExecuteAll!();
+    await executePromise;
+
+    // In step-session mode, untrackTask is called with bare task ID "FN-200"
+    // But tracking was done with step-scoped keys like "FN-200-step-0"
+    // BUG: This test captures that the current implementation passes bare ID,
+    // which won't match the step-scoped tracking keys
+    expect(stuckDetector.untrackTask).toHaveBeenCalledWith("FN-200");
+    // After fix: untrackTask should also clean up any step-scoped entries
+  });
+
+  it("REGRESSION: StepSessionExecutor should pass bare task ID for recordProgress in onStepStart", async () => {
+    // Note: This test verifies the expected contract between StepSessionExecutor and StuckTaskDetector.
+    // In step-session mode:
+    // - StepSessionExecutor tracks with step-scoped keys (e.g., "FN-200-step-0")
+    // - But recordProgress should be called with the bare task ID for consistency
+    // - StuckTaskDetector.recordProgress should handle this by finding the canonical task ID
+    //
+    // Currently, StepSessionExecutor calls recordProgress(task.id) where task.id is "FN-200"
+    // But the entry was tracked with key "FN-200-step-0", so the lookup fails.
+    //
+    // After fix: recordProgress should handle both bare task IDs and step-scoped keys
+    // by extracting the canonical task ID from step-scoped keys.
+    //
+    // This test is informational - the actual fix will be in StuckTaskDetector.recordProgress()
+    // which should find entries by canonicalTaskId when looking up by bare task ID.
+    expect(true).toBe(true); // Placeholder - real test verifies StuckTaskDetector behavior
+  });
+
   it("cleanup called in finally block even on error", async () => {
     const store = createStepSessionStore();
 

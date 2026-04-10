@@ -128,6 +128,48 @@ describe("StuckTaskDetector", () => {
       detector.untrackTask("FN-001");
       expect(detector.trackedCount).toBe(0);
     });
+
+    // ── FN-1461: Step-session step-scoped key regression tests ─────────────────────
+    // In step-session mode, tasks are tracked with compound keys like "FN-200-step-0".
+    // When the executor calls untrackTask with the bare task ID "FN-200",
+    // the entry should still be removed. This test verifies the FIX works correctly.
+
+    it("FIX: untracking with bare task ID removes entries tracked with step-scoped key", () => {
+      // Track with step-scoped key (as StepSessionExecutor does)
+      detector.trackTask("FN-200-step-0", createMockSession(), "FN-200");
+      expect(detector.trackedCount).toBe(1);
+
+      // Executor calls untrackTask with bare task ID (as it does for both modes)
+      detector.untrackTask("FN-200");
+
+      // After fix: entry IS removed even though keys don't match exactly
+      expect(detector.trackedCount).toBe(0);
+    });
+
+    it("FIX: multiple step entries are cleaned up with bare task ID", () => {
+      // Track multiple steps for the same task
+      detector.trackTask("FN-200-step-0", createMockSession(), "FN-200");
+      detector.trackTask("FN-200-step-1", createMockSession(), "FN-200");
+      expect(detector.trackedCount).toBe(2);
+
+      // Untracking with bare ID removes ALL step entries for that task
+      detector.untrackTask("FN-200");
+
+      // After fix: all entries are removed
+      expect(detector.trackedCount).toBe(0);
+    });
+
+    it("FIX: orphaned step entries do not remain after cleanup", () => {
+      // Simulate what happens in step-session mode:
+      // 1. Track step-0
+      detector.trackTask("FN-200-step-0", createMockSession(), "FN-200");
+
+      // 2. Step completes, untrack with bare ID
+      detector.untrackTask("FN-200");
+
+      // 3. After fix: entry is properly removed
+      expect(detector.trackedCount).toBe(0);
+    });
   });
 
   describe("recordActivity", () => {
