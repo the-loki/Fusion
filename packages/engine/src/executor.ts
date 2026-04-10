@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import type { TaskStore, Task, TaskDetail, StepStatus, Settings, WorkflowStep, MissionStore, Slice, AgentState, AgentCapability, RunMutationContext } from "@fusion/core";
 import type { AgentStore } from "@fusion/core";
-import type { PluginRunner } from "@fusion/core";
 import { buildExecutionMemoryInstructions, resolveAgentPrompt } from "@fusion/core";
 import { findWorktreeUser } from "./merger.js";
 import { generateWorktreeName, slugify } from "./worktree-names.js";
@@ -21,6 +20,7 @@ import { isTransientError, isSilentTransientError } from "./transient-error-dete
 import { withRateLimitRetry } from "./rate-limit-retry.js";
 import { computeRecoveryDecision, formatDelay, MAX_RECOVERY_RETRIES } from "./recovery-policy.js";
 import type { StuckTaskDetector, StuckTaskEvent } from "./stuck-task-detector.js";
+import type { PluginRunner } from "./plugin-runner.js";
 import { isContextLimitError } from "./context-limit-detector.js";
 import { StepSessionExecutor, type StepSessionExecutorOptions, type StepResult } from "./step-session-executor.js";
 import { resolveAgentInstructions, buildSystemPromptWithInstructions } from "./agent-instructions.js";
@@ -1210,6 +1210,9 @@ export class TaskExecutor {
         stuckDetector?.trackTask(task.id, session);
         executorLog.log(`${task.id}: session registered (model=${describeModel(session)}, stuckDetector=${!!stuckDetector})`);
 
+        // Invoke plugin onAgentRunStart hook (fire-and-forget)
+        void (this.options.pluginRunner as any)?.invokeHook("onAgentRunStart", task.id);
+
         try {
           // Record activity on prompt start (heartbeat for stuck detection)
           stuckDetector?.recordActivity(task.id);
@@ -1469,6 +1472,8 @@ export class TaskExecutor {
           if (!wasPaused && !this.pausedAborted.has(task.id)) {
             this.store.updateTask(task.id, { sessionFile: null }).catch(() => {});
           }
+          // Invoke plugin onAgentRunEnd hook (fire-and-forget)
+          void (this.options.pluginRunner as any)?.invokeHook("onAgentRunEnd", task.id);
         }
       };
 
