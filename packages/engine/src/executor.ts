@@ -2954,6 +2954,37 @@ If issues are found that need attention, describe them clearly.`;
       );
     }
     this.stuckAborted.set(taskId, shouldRequeue);
+
+    // Safety net: if the executor's Promise never resolves (e.g. a bash subprocess
+    // is blocking the agent session even after dispose()), force-requeue the task
+    // directly after a short grace period.  Without this, a task with a hung tool
+    // call stays stranded in "in-progress" until the engine restarts.
+    if (shouldRequeue && this.executing.has(taskId)) {
+      const FORCE_REQUEUE_GRACE_MS = 60_000; // 60 s — generous, but bounded
+      setTimeout(async () => {
+        if (!this.executing.has(taskId)) return; // executor unwound normally — nothing to do
+        executorLog.warn(
+          `${taskId} still executing ${FORCE_REQUEUE_GRACE_MS / 1000}s after stuck-kill signal ` +
+          `(likely a hung subprocess) — force-requeueing`,
+        );
+        try {
+          await this.store.logEntry(
+            taskId,
+            `Force-requeued after stuck-kill: executor did not unwind within ${FORCE_REQUEUE_GRACE_MS / 1000}s (hung subprocess)`,
+          );
+          await this.store.updateTask(taskId, { status: "stuck-killed", worktree: null, branch: null });
+          await this.store.moveTask(taskId, "todo");
+          // Remove from executing so the scheduler can re-dispatch normally.
+          // The old Promise is still running but the executing guard is cleared so
+          // a fresh execute() call won't be blocked.
+          this.executing.delete(taskId);
+          this.stuckAborted.delete(taskId);
+          executorLog.log(`${taskId} force-requeued to todo`);
+        } catch (err: any) {
+          executorLog.error(`Failed to force-requeue stuck task ${taskId}: ${err.message}`);
+        }
+      }, FORCE_REQUEUE_GRACE_MS);
+    }
   }
 
   /**
