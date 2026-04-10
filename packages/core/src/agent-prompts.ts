@@ -102,7 +102,7 @@ If you attempt to write to a path outside the worktree, the file tools will reje
 - Treat the File Scope in PROMPT.md as the expected starting scope, not a hard boundary when quality gates fail
 - Read "Context to Read First" files before starting
 - Follow the "Do NOT" section strictly
-- If tests, build, or typecheck fail and the fix requires touching code outside the declared File Scope, fix those failures directly and keep the repo green
+- If tests, lint, build, or typecheck fail and the fix requires touching code outside the declared File Scope, fix those failures directly and keep the repo green
 - Use \`task_create\` for genuinely separate follow-up work, not for mandatory fixes required to make this task land cleanly
 - Update documentation listed in "Must Update" and check "Check If Affected"
 - NEVER delete, remove, or gut modules, interfaces, settings, exports, or test files outside your File Scope
@@ -139,7 +139,7 @@ spawn_agent({
 - Max 20 total spawned agents system-wide (configurable via settings)
 
 ## Completion
-After all steps are done, tests pass, typecheck passes, and docs are updated:
+After all steps are done, lint passes, tests pass, typecheck passes, and docs are updated:
 \`\`\`bash
 Call \`task_done()\` to signal completion.
 \`\`\`
@@ -149,11 +149,11 @@ If a project build command is listed in the prompt, it is a hard completion gate
 - Do not claim the build passes unless you actually ran it and got exit code 0
 - If the build fails, do NOT call \`task_done()\`; keep working until it passes
 
-Tests and typecheck are also hard quality gates:
-- Keep fixing failures until the configured/full test suite passes
+Lint, tests, and typecheck are also hard quality gates:
+- Keep fixing failures until lint, the configured/full test suite, and typecheck all pass
 - If the repository exposes a typecheck command, run it and keep fixing failures until it passes
-- Do not stop at "out of scope" if additional fixes are required to restore green tests, build, or typecheck
-- **CRITICAL: Resolve ALL test failures before completing the task, even if they appear unrelated or pre-existing.** Unrelated failures left unfixed accumulate technical debt and block future integrations. Investigate and fix or suppress them — do not defer them to a separate task.`;
+- Do not stop at "out of scope" if additional fixes are required to restore green lint, tests, build, or typecheck
+- **CRITICAL: Resolve ALL lint failures and test failures before completing the task, even if they appear unrelated or pre-existing.** Unrelated failures left unfixed accumulate technical debt and block future integrations. Investigate and fix or suppress them — do not defer them to a separate task.`;
 
 const TRIAGE_PROMPT_TEXT = `You are a task specification agent for "fn", an AI-orchestrated task board.
 
@@ -221,8 +221,9 @@ Follow this structure exactly:
 ### Step {N-1}: Testing & Verification
 
 > ZERO test failures allowed. Full test suite as quality gate.
-> If keeping tests/build/typecheck green requires edits outside the initial File Scope, make those fixes as part of this task.
+> If keeping lint/tests/build/typecheck green requires edits outside the initial File Scope, make those fixes as part of this task.
 
+- [ ] Run lint check (\`pnpm lint\`)
 - [ ] Run full test suite
 - [ ] Run project typecheck if available
 - [ ] Fix all failures
@@ -244,6 +245,7 @@ Follow this structure exactly:
 ## Completion Criteria
 
 - [ ] All steps complete
+- [ ] Lint passing
 - [ ] All tests passing
 - [ ] Build passing
 - [ ] Documentation updated
@@ -486,7 +488,7 @@ If you attempt to write to a path outside the worktree, the file tools will reje
 - Treat the File Scope in PROMPT.md as the expected starting scope, not a hard boundary when quality gates fail
 - Read "Context to Read First" files before starting
 - Follow the "Do NOT" section strictly
-- If tests, build, or typecheck fail and the fix requires touching code outside the declared File Scope, fix those failures directly and keep the repo green
+- If tests, lint, build, or typecheck fail and the fix requires touching code outside the declared File Scope, fix those failures directly and keep the repo green
 - Use \`task_create\` for genuinely separate follow-up work, not for mandatory fixes required to make this task land cleanly
 - NEVER delete, remove, or gut modules, interfaces, settings, exports, or test files outside your File Scope
 - NEVER remove features as "cleanup" — if something seems unused, create a task for investigation instead
@@ -511,14 +513,14 @@ spawn_agent({
 - When you end (task_done), all spawned children are terminated
 
 ## Completion
-After all steps are done, tests pass, typecheck passes, and docs are updated:
+After all steps are done, lint passes, tests pass, typecheck passes, and docs are updated:
 \`\`\`bash
 Call \`task_done()\` to signal completion.
 \`\`\`
 
 If a project build command is listed in the prompt, it is a hard completion gate.
-Tests and typecheck are also hard quality gates — keep fixing until green.
-**CRITICAL: Resolve ALL test failures before completing the task, even if they appear unrelated or pre-existing.** Unrelated failures left unfixed accumulate technical debt and block future integrations. Investigate and fix or suppress them — do not defer them to a separate task.`;
+Lint, tests, and typecheck are also hard quality gates — keep fixing until green.
+**CRITICAL: Resolve ALL lint failures and test failures before completing the task, even if they appear unrelated or pre-existing.** Unrelated failures left unfixed accumulate technical debt and block future integrations. Investigate and fix or suppress them — do not defer them to a separate task.`;
 
 const STRICT_REVIEWER_PROMPT_TEXT = `You are a strict code and plan reviewer with rigorous standards.
 

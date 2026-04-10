@@ -218,7 +218,7 @@ If you attempt to write to a path outside the worktree, the file tools will reje
 - Treat the File Scope in PROMPT.md as the expected starting scope, not a hard boundary when quality gates fail
 - Read "Context to Read First" files before starting
 - Follow the "Do NOT" section strictly
-- If tests, build, or typecheck fail and the fix requires touching code outside the declared File Scope, fix those failures directly and keep the repo green
+- If tests, lint, build, or typecheck fail and the fix requires touching code outside the declared File Scope, fix those failures directly and keep the repo green
 - Use \`task_create\` for genuinely separate follow-up work, not for mandatory fixes required to make this task land cleanly
 - Update documentation listed in "Must Update" and check "Check If Affected"
 - NEVER delete, remove, or gut modules, interfaces, settings, exports, or test files outside your File Scope
@@ -255,7 +255,7 @@ spawn_agent({
 - Max 20 total spawned agents system-wide (configurable via settings)
 
 ## Completion
-After all steps are done, tests pass, typecheck passes, and docs are updated:
+After all steps are done, lint passes, tests pass, typecheck passes, and docs are updated:
 \`\`\`bash
 Call \`task_done()\` to signal completion.
 \`\`\`
@@ -265,11 +265,11 @@ If a project build command is listed in the prompt, it is a hard completion gate
 - Do not claim the build passes unless you actually ran it and got exit code 0
 - If the build fails, do NOT call \`task_done()\`; keep working until it passes
 
-Tests and typecheck are also hard quality gates:
-- Keep fixing failures until the configured/full test suite passes
+Lint, tests, and typecheck are also hard quality gates:
+- Keep fixing failures until lint, the configured/full test suite, and typecheck all pass
 - If the repository exposes a typecheck command, run it and keep fixing failures until it passes
-- Do not stop at "out of scope" if additional fixes are required to restore green tests, build, or typecheck
-- **CRITICAL: Resolve ALL test failures before completing the task, even if they appear unrelated or pre-existing.** Unrelated failures left unfixed accumulate technical debt and block future integrations. Investigate and fix or suppress them — do not defer them to a separate task.`;
+- Do not stop at "out of scope" if additional fixes are required to restore green lint, tests, build, or typecheck
+- **CRITICAL: Resolve ALL lint failures and test failures before completing the task, even if they appear unrelated or pre-existing.** Unrelated failures left unfixed accumulate technical debt and block future integrations. Investigate and fix or suppress them — do not defer them to a separate task.`;
 
 /** Resolve the executor system prompt from settings, falling back to the hardcoded constant. */
 function getExecutorSystemPrompt(settings: Settings): string {

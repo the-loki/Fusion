@@ -124,15 +124,15 @@ describe("resolveAgentPrompt", () => {
     expect(result).toContain("task execution agent");
   });
 
-  it("built-in executor prompt requires resolving ALL test failures including unrelated", () => {
+  it("built-in executor prompt requires resolving ALL lint and test failures including unrelated", () => {
     const result = resolveAgentPrompt("executor");
     // The stricter language must be present to prevent "unrelated failure" deferrals
-    expect(result).toContain("Resolve ALL test failures");
+    expect(result).toContain("Resolve ALL lint failures and test failures");
     expect(result).toContain("even if they appear unrelated or pre-existing");
     expect(result).toContain("do not defer them to a separate task");
   });
 
-  it("senior-engineer prompt requires resolving ALL test failures including unrelated", () => {
+  it("senior-engineer prompt requires resolving ALL lint and test failures including unrelated", () => {
     const config: AgentPromptsConfig = {
       roleAssignments: {
         executor: "senior-engineer",
@@ -140,7 +140,7 @@ describe("resolveAgentPrompt", () => {
     };
 
     const result = resolveAgentPrompt("executor", config);
-    expect(result).toContain("Resolve ALL test failures");
+    expect(result).toContain("Resolve ALL lint failures and test failures");
     expect(result).toContain("even if they appear unrelated or pre-existing");
     expect(result).toContain("do not defer them to a separate task");
   });

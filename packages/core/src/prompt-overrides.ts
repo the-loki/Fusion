@@ -88,7 +88,7 @@ You are working in a git worktree isolated from the main branch. Your job is to 
 - Treat the File Scope in PROMPT.md as the expected starting scope, not a hard boundary when quality gates fail
 - Read "Context to Read First" files before starting
 - Follow the "Do NOT" section strictly
-- If tests, build, or typecheck fail and the fix requires touching code outside the declared File Scope, fix those failures directly and keep the repo green`,
+- If tests, lint, build, or typecheck fail and the fix requires touching code outside the declared File Scope, fix those failures directly and keep the repo green`,
   },
   "executor-spawning": {
     key: "executor-spawning",
@@ -119,7 +119,7 @@ spawn_agent({
     roles: ["executor"],
     description: "Completion criteria and signaling for executor",
     defaultContent: `## Completion
-After all steps are done, tests pass, typecheck passes, and docs are updated:
+After all steps are done, lint passes, tests pass, typecheck passes, and docs are updated:
 \`\`\`bash
 Call \`task_done()\` to signal completion.
 \`\`\``,

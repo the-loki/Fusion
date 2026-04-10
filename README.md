@@ -761,6 +761,7 @@ Each schedule contains multiple steps executed sequentially. Steps can be comman
 
 ```bash
 pnpm install
+pnpm lint                      # Lint all packages
 pnpm dev:ui                     # Dashboard only; builds and typechecks first
 pnpm dev dashboard              # Board + AI engine
 pnpm dev task list              # CLI commands

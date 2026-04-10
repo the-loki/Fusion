@@ -100,8 +100,9 @@ Follow this structure exactly:
 ### Step {N-1}: Testing & Verification
 
 > ZERO test failures allowed. Full test suite as quality gate.
-> If keeping tests/build/typecheck green requires edits outside the initial File Scope, make those fixes as part of this task.
+> If keeping lint/tests/build/typecheck green requires edits outside the initial File Scope, make those fixes as part of this task.
 
+- [ ] Run lint check (\`pnpm lint\`)
 - [ ] Run full test suite
 - [ ] Run project typecheck if available
 - [ ] Fix all failures
@@ -123,6 +124,7 @@ Follow this structure exactly:
 ## Completion Criteria
 
 - [ ] All steps complete
+- [ ] Lint passing
 - [ ] All tests passing
 - [ ] Typecheck passing (if available)
 - [ ] Documentation updated
@@ -158,9 +160,8 @@ files with assertions that run via a test runner. Typechecks and builds are NOT
 tests. Manual verification is NOT a test.
 
 - Each implementation step should include writing tests for the code being changed
-- The final Testing step runs the FULL test suite
-- The final Testing step also runs project typecheck when the repo exposes one
-- Specs must instruct executors to fix quality-gate failures directly, even when the required edits extend beyond the original File Scope
+- The final Testing step runs lint, the FULL test suite, and project typecheck when the repo exposes one
+- Specs must instruct executors to fix lint failures and quality-gate failures directly, even when the required edits extend beyond the original File Scope
 - If the project has no test framework, the Testing step must include setting one up
   as part of this task (not just skipping tests)
 

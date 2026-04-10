@@ -40,10 +40,20 @@ pnpm build
 ```bash
 pnpm dev          # build + run CLI entrypoint in dev mode
 pnpm dev:ui       # dashboard dev server only
+pnpm lint         # lint all packages
 pnpm typecheck    # workspace typechecks
 pnpm test         # workspace test suite
 pnpm build        # workspace builds
 ```
+
+## Quality Gate Checklist
+
+Before submitting changes, verify:
+
+- [ ] `pnpm lint` — lint passes with no errors
+- [ ] `pnpm test` — all tests pass
+- [ ] `pnpm typecheck` — type checking passes
+- [ ] `pnpm build` — builds successfully
 
 ## Testing Requirements
 
