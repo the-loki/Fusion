@@ -10,8 +10,8 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { Package, Settings, Trash2, Plus, X, RefreshCw } from "lucide-react";
-import { fetchPlugins, installPlugin, enablePlugin, disablePlugin, uninstallPlugin, fetchPluginSettings, updatePluginSettings } from "../api";
+import { Package, Settings, Trash2, Plus, X, RefreshCw, RotateCcw } from "lucide-react";
+import { fetchPlugins, installPlugin, enablePlugin, disablePlugin, uninstallPlugin, fetchPluginSettings, updatePluginSettings, reloadPlugin } from "../api";
 import type { PluginInstallation } from "@fusion/core";
 import type { ToastType } from "../hooks/useToast";
 
@@ -34,6 +34,7 @@ export function PluginManager({ addToast, projectId }: PluginManagerProps) {
   const [showInstall, setShowInstall] = useState(false);
   const [installPath, setInstallPath] = useState("");
   const [installing, setInstalling] = useState(false);
+  const [reloadingPluginId, setReloadingPluginId] = useState<string | null>(null);
   const [selectedPlugin, setSelectedPlugin] = useState<PluginInstallation | null>(null);
   const [pluginSettings, setPluginSettings] = useState<Record<string, unknown>>({});
   const [settingsLoading, setSettingsLoading] = useState(false);
@@ -91,6 +92,19 @@ export function PluginManager({ addToast, projectId }: PluginManagerProps) {
       await loadPlugins();
     } catch (err) {
       addToast(`Failed to disable plugin: ${err instanceof Error ? err.message : String(err)}`, "error");
+    }
+  };
+
+  const handleReload = async (plugin: PluginInstallation) => {
+    try {
+      setReloadingPluginId(plugin.id);
+      await reloadPlugin(plugin.id, projectId);
+      addToast(`${plugin.name} reloaded`, "success");
+      await loadPlugins();
+    } catch (err) {
+      addToast(`Failed to reload plugin: ${err instanceof Error ? err.message : String(err)}`, "error");
+    } finally {
+      setReloadingPluginId(null);
     }
   };
 
@@ -230,6 +244,16 @@ export function PluginManager({ addToast, projectId }: PluginManagerProps) {
           </div>
 
           <div className="plugin-detail-actions">
+            {selectedPlugin.state === "started" && (
+              <button
+                className="btn-secondary"
+                onClick={() => handleReload(selectedPlugin)}
+                disabled={reloadingPluginId === selectedPlugin.id}
+              >
+                <RotateCcw size={14} className={reloadingPluginId === selectedPlugin.id ? "spin" : ""} />
+                {reloadingPluginId === selectedPlugin.id ? "Reloading..." : "Reload"}
+              </button>
+            )}
             {selectedPlugin.enabled ? (
               <button className="btn-secondary" onClick={() => handleDisable(selectedPlugin)}>
                 Disable
@@ -303,6 +327,16 @@ export function PluginManager({ addToast, projectId }: PluginManagerProps) {
                 </span>
               </div>
               <div className="plugin-actions">
+                {plugin.state === "started" && (
+                  <button
+                    className="btn-icon"
+                    onClick={() => handleReload(plugin)}
+                    disabled={reloadingPluginId === plugin.id}
+                    title="Reload"
+                  >
+                    <RotateCcw size={14} className={reloadingPluginId === plugin.id ? "spin" : ""} />
+                  </button>
+                )}
                 <label className="toggle-switch">
                   <input
                     type="checkbox"

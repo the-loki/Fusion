@@ -47,6 +47,21 @@ export interface PluginLoadedEvent {
 }
 
 /**
+ * Event emitted when a plugin is unloaded (stopped).
+ */
+export interface PluginUnloadedEvent {
+  pluginId: string;
+}
+
+/**
+ * Event emitted when a plugin is reloaded with a new version.
+ */
+export interface PluginReloadedEvent {
+  pluginId: string;
+  plugin: FusionPlugin;
+}
+
+/**
  * Event emitted when a plugin encounters an error.
  */
 export interface PluginErrorEvent {
@@ -56,8 +71,10 @@ export interface PluginErrorEvent {
 
 export class PluginLoader extends EventEmitter<{
   "plugin:loaded": [PluginLoadedEvent];
+  "plugin:unloaded": [PluginUnloadedEvent];
+  "plugin:reloaded": [PluginReloadedEvent];
   "plugin:error": [PluginErrorEvent];
-  "plugin:stopped": [string];
+  "plugin:stopped": [string]; // Kept for backward compatibility
 }> {
   /** Loaded plugin instances keyed by plugin id */
   private plugins: Map<string, FusionPlugin> = new Map();
@@ -140,8 +157,9 @@ export class PluginLoader extends EventEmitter<{
     const pluginPath = this.resolvePluginPath(installation.path);
 
     try {
-      // Dynamic import the plugin
-      const mod = await this.importPluginModule(pluginPath);
+      // Dynamic import the plugin - always bypass cache to get fresh code
+      // Our loadedModules cache is cleared on stop, but Node.js ESM cache persists
+      const mod = await this.importPluginModule(pluginPath, true);
       const plugin = this.extractPluginFromModule(mod);
 
       // Validate manifest
@@ -176,11 +194,31 @@ export class PluginLoader extends EventEmitter<{
 
       // Call onLoad hook
       const ctx = await this.createContext(plugin);
-      await this.safeCallHook(plugin, "onLoad", [ctx]);
+      try {
+        await this.safeCallHook(plugin, "onLoad", [ctx]);
+      } catch (loadErr) {
+        // onLoad failed - clean up and propagate error
+        this.plugins.delete(pluginId);
+        const errorMsg = loadErr instanceof Error ? loadErr.message : String(loadErr);
+        await this.options.pluginStore.updatePluginState(
+          pluginId,
+          "error",
+          `onLoad failed: ${errorMsg}`,
+        );
+        this.emit("plugin:error", {
+          pluginId,
+          error: loadErr instanceof Error ? loadErr : new Error(errorMsg),
+        });
+        throw loadErr;
+      }
 
       this.emit("plugin:loaded", { pluginId, plugin });
       return plugin;
     } catch (err) {
+      // Ensure plugin is removed from loaded map on any failure
+      // (it may have been added above before the onLoad hook)
+      this.plugins.delete(pluginId);
+
       // Error isolation: set error state but don't crash
       const errorMsg = err instanceof Error ? err.message : String(err);
       await this.options.pluginStore.updatePluginState(
@@ -215,16 +253,187 @@ export class PluginLoader extends EventEmitter<{
     return resolve(process.cwd(), path);
   }
 
-  private async importPluginModule(path: string): Promise<unknown> {
-    // Check cache first
-    if (this.loadedModules.has(path)) {
+  private async importPluginModule(path: string, bypassCache = false): Promise<unknown> {
+    // Check cache first (unless bypassing cache for reload)
+    if (!bypassCache && this.loadedModules.has(path)) {
       return this.loadedModules.get(path)!;
     }
 
-    // Dynamic import
-    const mod = await import(path);
+    // Dynamic import - use cache-busting for reload scenarios
+    let mod: unknown;
+    if (bypassCache) {
+      // Use cache-busting with timestamp for ESM modules
+      // This ensures Node.js re-imports the module even if it has it cached
+      const bustedPath = `${path}?reload=${Date.now()}`;
+      mod = await import(bustedPath);
+    } else {
+      mod = await import(path);
+    }
     this.loadedModules.set(path, mod);
     return mod;
+  }
+
+  /**
+   * Invalidate the module cache for a plugin path.
+   * This ensures a fresh import when the plugin is loaded again.
+   */
+  private invalidateModuleCache(path: string): void {
+    this.loadedModules.delete(path);
+    console.log(`[plugin-loader] Module cache invalidated for: ${path}`);
+  }
+
+  /**
+   * Reload a plugin: stop the old instance, re-import, and start the new one.
+   * On failure, roll back to the old instance.
+   *
+   * @param pluginId - The plugin to reload
+   * @param options - Options including timeout for onUnload/onLoad hooks
+   */
+  async reloadPlugin(
+    pluginId: string,
+    options?: { timeoutMs?: number },
+  ): Promise<FusionPlugin> {
+    const timeoutMs = options?.timeoutMs ?? 5000;
+
+    // Get existing plugin
+    const oldPlugin = this.plugins.get(pluginId);
+    if (!oldPlugin) {
+      throw Object.assign(new Error(`Plugin "${pluginId}" is not loaded`), {
+        code: "PLUGIN_NOT_LOADED",
+      });
+    }
+
+    // Get installation record for path
+    const installation = await this.options.pluginStore.getPlugin(pluginId);
+    const pluginPath = this.resolvePluginPath(installation.path);
+
+    console.log(`[plugin-loader] Reloading plugin: ${pluginId}`);
+
+    // Call onUnload with timeout
+    try {
+      await this.withTimeout(
+        this.safeCallHook(oldPlugin, "onUnload", []),
+        timeoutMs,
+        `onUnload timeout for ${pluginId}`,
+      );
+    } catch (err) {
+      console.warn(`[plugin-loader] onUnload for ${pluginId} timed out or failed:`, err);
+      // Continue with reload despite onUnload issues
+    }
+
+    // Remove old module from cache
+    this.invalidateModuleCache(pluginPath);
+
+    // Snapshot old plugin for rollback
+    const snapshot = { ...oldPlugin };
+
+    try {
+      // Re-import the plugin module
+      const mod = await this.importPluginModule(pluginPath, true);
+      const newPlugin = this.extractPluginFromModule(mod);
+
+      // Validate manifest
+      const manifestValidation = validatePluginManifest(newPlugin.manifest);
+      if (!manifestValidation.valid) {
+        throw new Error(
+          `Invalid plugin manifest: ${manifestValidation.errors.join(", ")}`,
+        );
+      }
+
+      // Update plugin state
+      newPlugin.state = "started";
+
+      // Replace in plugins map
+      this.plugins.set(pluginId, newPlugin);
+
+      // Create fresh context and call onLoad
+      const ctx = await this.createContext(newPlugin);
+      await this.withTimeout(
+        this.safeCallHook(newPlugin, "onLoad", [ctx]),
+        timeoutMs,
+        `onLoad timeout for ${pluginId}`,
+      );
+
+      // State is already "started", no need to update store
+      // (avoiding started -> started transition which is disallowed)
+
+      console.log(`[plugin-loader] Plugin ${pluginId} reloaded successfully`);
+
+      this.emit("plugin:reloaded", { pluginId, plugin: newPlugin });
+      return newPlugin;
+    } catch (err) {
+      // Rollback: restore old plugin
+      console.error(`[plugin-loader] Reload failed for ${pluginId}, rolling back:`, err);
+
+      try {
+        // Restore old plugin
+        this.plugins.set(pluginId, snapshot);
+
+        // Attempt to reactivate old plugin
+        const ctx = await this.createContext(snapshot);
+        await this.withTimeout(
+          this.safeCallHook(snapshot, "onLoad", [ctx]),
+          timeoutMs,
+          `Rollback onLoad timeout for ${pluginId}`,
+        );
+
+        // Update store state back to started
+        await this.options.pluginStore.updatePluginState(pluginId, "started");
+
+        console.warn(`[plugin-loader] Rollback successful for ${pluginId}`);
+        throw err; // Still throw the original error
+      } catch (rollbackErr) {
+        // Rollback also failed - remove plugin and set error state
+        console.error(
+          `[plugin-loader] Rollback failed for ${pluginId}, removing plugin:`,
+          rollbackErr,
+        );
+
+        this.plugins.delete(pluginId);
+
+        const originalError = err instanceof Error ? err.message : String(err);
+        const rollbackError = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
+        const combinedError = `Reload failed and rollback failed: ${originalError}; ${rollbackError}`;
+
+        await this.options.pluginStore.updatePluginState(
+          pluginId,
+          "error",
+          combinedError,
+        );
+
+        this.emit("plugin:error", {
+          pluginId,
+          error: new Error(combinedError),
+        });
+
+        throw err; // Throw original error
+      }
+    }
+  }
+
+  /**
+   * Execute a promise with a timeout.
+   */
+  private withTimeout<T>(
+    promise: Promise<T>,
+    ms: number,
+    timeoutMessage: string,
+  ): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(timeoutMessage));
+      }, ms);
+
+      promise
+        .then((result) => {
+          clearTimeout(timer);
+          resolve(result);
+        })
+        .catch((err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+    });
   }
 
   private extractPluginFromModule(mod: unknown): FusionPlugin {
@@ -366,6 +575,10 @@ export class PluginLoader extends EventEmitter<{
       return;
     }
 
+    // Get the plugin path for cache invalidation
+    const installation = await this.options.pluginStore.getPlugin(pluginId);
+    const pluginPath = this.resolvePluginPath(installation.path);
+
     try {
       // Call onUnload hook
       await this.safeCallHook(plugin, "onUnload", []);
@@ -379,7 +592,11 @@ export class PluginLoader extends EventEmitter<{
     // Remove from loaded plugins
     this.plugins.delete(pluginId);
 
-    this.emit("plugin:stopped", pluginId);
+    // Invalidate module cache for clean re-import
+    this.invalidateModuleCache(pluginPath);
+
+    this.emit("plugin:unloaded", { pluginId });
+    this.emit("plugin:stopped", pluginId); // Backward compatibility
   }
 
   /**

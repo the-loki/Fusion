@@ -91,7 +91,13 @@ export { validatePluginManifest } from "./plugin-types.js";
 export { PluginStore } from "./plugin-store.js";
 export type { PluginStoreEvents, PluginRegistrationInput, PluginUpdateInput } from "./plugin-store.js";
 export { PluginLoader } from "./plugin-loader.js";
-export type { PluginLoaderOptions } from "./plugin-loader.js";
+export type {
+  PluginLoaderOptions,
+  PluginLoadedEvent,
+  PluginUnloadedEvent,
+  PluginReloadedEvent,
+  PluginErrorEvent,
+} from "./plugin-loader.js";
 export {
   BackupManager,
   createBackupManager,

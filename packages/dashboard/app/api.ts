@@ -3837,3 +3837,10 @@ export async function updatePluginSettings(
     body: JSON.stringify({ settings }),
   });
 }
+
+/** Reload a running plugin with updated code */
+export async function reloadPlugin(id: string, projectId?: string): Promise<PluginInstallation> {
+  return api<PluginInstallation>(withProjectId(`/plugins/${encodeURIComponent(id)}/reload`, projectId), {
+    method: "POST",
+  });
+}

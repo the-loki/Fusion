@@ -193,6 +193,18 @@ Key implementation details from the plugin core foundation task:
 - Classes: `PluginStore`, `PluginLoader`
 - Interfaces: `PluginStoreEvents`, `PluginRegistrationInput`, `PluginUpdateInput`, `PluginLoaderOptions`
 
+### Plugin Hot-Load/Unload (FN-1133)
+
+- Plugins can be loaded and unloaded at runtime without restarting the engine or dashboard.
+- `PluginLoader.reloadPlugin(id)` — stops old instance, invalidates module cache, re-imports, calls onLoad. On failure: restores old instance (rollback). If rollback also fails: removes plugin, sets state to "error". onUnload has 5s timeout.
+- `PluginRunner` subscribes to PluginStore events (`plugin:enabled` → loadPlugin, `plugin:disabled` → stopPlugin) for automatic hot-load/unload.
+- Plugin tools fetched per-agent-session in executor — hot-loaded plugins available immediately for new task executions.
+- Dashboard has `POST /plugins/:id/reload` endpoint and reload button in PluginManager.
+- PluginLoader emits `plugin:loaded`, `plugin:unloaded`, `plugin:reloaded` events.
+- Tool/route caches use stale-flag pattern — invalidated on plugin state changes, rebuilt on next `getPluginTools()`/`getPluginRoutes()` call.
+- Stopping a plugin with dependents logs warning but does NOT cascade-stop dependents.
+- Module cache busting uses `?reload=timestamp` query parameter for fresh ESM imports.
+
 ## Background Memory Summarization (FN-1399)
 
 The background memory summarization feature uses a three-layer architecture:

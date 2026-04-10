@@ -35,6 +35,7 @@ import {
 
 // PluginRunner interface for optional plugin runner
 interface PluginRunner {
+  reloadPlugin?(pluginId: string): Promise<void>;
   getPluginRoutes(): Array<{ pluginId: string; route: import("@fusion/core").PluginRouteDefinition }>;
 }
 
@@ -227,6 +228,46 @@ export function createPluginRouter(
     // Disable in store
     const plugin = await pluginStore.disablePlugin(id);
     res.json(plugin);
+  }));
+
+  /**
+   * POST /plugins/:id/reload
+   * Reload a running plugin with updated code.
+   */
+  router.post("/:id/reload", catchHandler(async (req: Request, res: Response) => {
+    const id = req.params.id as string;
+
+    // Validate plugin exists
+    let plugin;
+    try {
+      plugin = await pluginStore.getPlugin(id);
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        throw notFound(`Plugin "${id}" not found`);
+      }
+      throw internalError(err instanceof Error ? err.message : "Unknown error");
+    }
+
+    // Validate plugin is started (must be loaded to reload)
+    if (plugin.state !== "started") {
+      throw badRequest("Plugin is not currently loaded. Use enable instead.");
+    }
+
+    // Check if pluginRunner is available and has reloadPlugin method
+    if (!pluginRunner || !pluginRunner.reloadPlugin) {
+      throw internalError("Plugin runner not available");
+    }
+
+    // Reload the plugin
+    try {
+      await pluginRunner.reloadPlugin(id);
+    } catch (reloadErr) {
+      throw internalError(`Reload failed: ${reloadErr instanceof Error ? reloadErr.message : String(reloadErr)}`);
+    }
+
+    // Return updated plugin
+    const updatedPlugin = await pluginStore.getPlugin(id);
+    res.json(updatedPlugin);
   }));
 
   /**

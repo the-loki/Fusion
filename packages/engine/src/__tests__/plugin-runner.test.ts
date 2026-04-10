@@ -30,6 +30,11 @@ describe("PluginRunner", () => {
     getPluginRoutes: ReturnType<typeof vi.fn>;
     getLoadedPlugins: ReturnType<typeof vi.fn>;
     getPlugin: ReturnType<typeof vi.fn>;
+    loadPlugin: ReturnType<typeof vi.fn>;
+    stopPlugin: ReturnType<typeof vi.fn>;
+    reloadPlugin: ReturnType<typeof vi.fn>;
+    on: ReturnType<typeof vi.fn>;
+    off: ReturnType<typeof vi.fn>;
   };
   let mockPluginStore: {
     on: ReturnType<typeof vi.fn>;
@@ -64,6 +69,11 @@ describe("PluginRunner", () => {
       getPluginRoutes: vi.fn().mockReturnValue([]),
       getLoadedPlugins: vi.fn().mockReturnValue([]),
       getPlugin: vi.fn(),
+      loadPlugin: vi.fn().mockResolvedValue({}),
+      stopPlugin: vi.fn().mockResolvedValue(undefined),
+      reloadPlugin: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      off: vi.fn(),
     };
 
     const mockOn = vi.fn();
@@ -392,6 +402,215 @@ describe("PluginRunner", () => {
 
       // The invokeHook should complete (the slow plugin's error is logged but not thrown)
       await expect(runner.invokeHook("onTaskCreated", {})).resolves.not.toThrow();
+    });
+  });
+
+  describe("Hot-load via store events", () => {
+    it("should auto-load plugin when plugin:enabled event fires", async () => {
+      await pluginRunner.init();
+
+      // Find the plugin:enabled handler
+      const enabledHandler = mockPluginStore.on.mock.calls.find(
+        (call) => call[0] === "plugin:enabled",
+      )?.[1] as (plugin: any) => void;
+
+      // Simulate plugin:enabled event
+      await enabledHandler?.({ id: "test-plugin", name: "Test Plugin", version: "1.0.0" });
+
+      // Should have called loadPlugin
+      expect(mockPluginLoader.loadPlugin).toHaveBeenCalledWith("test-plugin");
+    });
+
+    it("should auto-stop plugin when plugin:disabled event fires", async () => {
+      await pluginRunner.init();
+
+      // Find the plugin:disabled handler
+      const disabledHandler = mockPluginStore.on.mock.calls.find(
+        (call) => call[0] === "plugin:disabled",
+      )?.[1] as (plugin: any) => void;
+
+      // Simulate plugin:disabled event
+      await disabledHandler?.({ id: "test-plugin", name: "Test Plugin", version: "1.0.0" });
+
+      // Should have called stopPlugin
+      expect(mockPluginLoader.stopPlugin).toHaveBeenCalledWith("test-plugin");
+    });
+
+    it("should stop plugin when plugin:unregistered event fires", async () => {
+      await pluginRunner.init();
+
+      // Find the plugin:unregistered handler
+      const unregisteredHandler = mockPluginStore.on.mock.calls.find(
+        (call) => call[0] === "plugin:unregistered",
+      )?.[1] as (plugin: any) => void;
+
+      // Simulate plugin:unregistered event
+      await unregisteredHandler?.({ id: "test-plugin", name: "Test Plugin", version: "1.0.0" });
+
+      // Should have called stopPlugin
+      expect(mockPluginLoader.stopPlugin).toHaveBeenCalledWith("test-plugin");
+    });
+
+    it("should isolate errors in auto-load", async () => {
+      await pluginRunner.init();
+
+      // Make loadPlugin throw
+      mockPluginLoader.loadPlugin.mockRejectedValue(new Error("Load failed"));
+
+      // Find the plugin:enabled handler
+      const enabledHandler = mockPluginStore.on.mock.calls.find(
+        (call) => call[0] === "plugin:enabled",
+      )?.[1] as (plugin: any) => void;
+
+      // Should not throw
+      await expect(
+        enabledHandler?.({ id: "test-plugin", name: "Test Plugin", version: "1.0.0" }),
+      ).resolves.not.toThrow();
+    });
+
+    it("should isolate errors in auto-stop", async () => {
+      await pluginRunner.init();
+
+      // Make stopPlugin throw
+      mockPluginLoader.stopPlugin.mockRejectedValue(new Error("Stop failed"));
+
+      // Find the plugin:disabled handler
+      const disabledHandler = mockPluginStore.on.mock.calls.find(
+        (call) => call[0] === "plugin:disabled",
+      )?.[1] as (plugin: any) => void;
+
+      // Should not throw
+      await expect(
+        disabledHandler?.({ id: "test-plugin", name: "Test Plugin", version: "1.0.0" }),
+      ).resolves.not.toThrow();
+    });
+  });
+
+  describe("reloadPlugin()", () => {
+    it("should call pluginLoader.reloadPlugin", async () => {
+      await pluginRunner.init();
+      await pluginRunner.reloadPlugin("test-plugin");
+      expect(mockPluginLoader.reloadPlugin).toHaveBeenCalledWith("test-plugin");
+    });
+
+    it("should invalidate caches after reload", async () => {
+      const pluginTool: PluginToolDefinition = {
+        name: "testTool",
+        description: "A test tool",
+        parameters: { type: "object", properties: {} },
+        execute: vi.fn(),
+      };
+
+      const plugin = createMockPlugin({
+        manifest: { id: "test-plugin", name: "Test Plugin", version: "1.0.0" },
+        tools: [pluginTool],
+      });
+
+      mockPluginLoader.getLoadedPlugins.mockReturnValue([plugin]);
+      mockPluginLoader.getPluginTools.mockReturnValue([pluginTool]);
+      mockPluginLoader.getPlugin.mockReturnValue(plugin);
+
+      await pluginRunner.init();
+
+      // Get tools to build cache
+      const tools1 = pluginRunner.getPluginTools();
+      expect(tools1.length).toBe(1);
+
+      // Reload
+      await pluginRunner.reloadPlugin("test-plugin");
+
+      // Cache should be invalidated, getPluginTools called again
+      expect(mockPluginLoader.getPluginTools).toHaveBeenCalled();
+    });
+  });
+
+  describe("Plugin loader events", () => {
+    it("should subscribe to plugin:loaded event", async () => {
+      await pluginRunner.init();
+      expect(mockPluginLoader.on).toHaveBeenCalledWith("plugin:loaded", expect.any(Function));
+    });
+
+    it("should subscribe to plugin:unloaded event", async () => {
+      await pluginRunner.init();
+      expect(mockPluginLoader.on).toHaveBeenCalledWith("plugin:unloaded", expect.any(Function));
+    });
+
+    it("should subscribe to plugin:reloaded event", async () => {
+      await pluginRunner.init();
+      expect(mockPluginLoader.on).toHaveBeenCalledWith("plugin:reloaded", expect.any(Function));
+    });
+  });
+
+  describe("Event cleanup on shutdown", () => {
+    it("should unsubscribe from plugin store events", async () => {
+      await pluginRunner.init();
+      await pluginRunner.shutdown();
+
+      expect(mockPluginStore.off).toHaveBeenCalledWith("plugin:enabled", expect.any(Function));
+      expect(mockPluginStore.off).toHaveBeenCalledWith("plugin:disabled", expect.any(Function));
+      expect(mockPluginStore.off).toHaveBeenCalledWith("plugin:unregistered", expect.any(Function));
+      expect(mockPluginStore.off).toHaveBeenCalledWith("plugin:stateChanged", expect.any(Function));
+      expect(mockPluginStore.off).toHaveBeenCalledWith("plugin:updated", expect.any(Function));
+    });
+
+    it("should unsubscribe from plugin loader events", async () => {
+      await pluginRunner.init();
+      await pluginRunner.shutdown();
+
+      expect(mockPluginLoader.off).toHaveBeenCalledWith("plugin:loaded", expect.any(Function));
+      expect(mockPluginLoader.off).toHaveBeenCalledWith("plugin:unloaded", expect.any(Function));
+      expect(mockPluginLoader.off).toHaveBeenCalledWith("plugin:reloaded", expect.any(Function));
+    });
+  });
+
+  describe("Cache invalidation lifecycle", () => {
+    it("should invalidate caches on plugin:loaded event", async () => {
+      await pluginRunner.init();
+
+      // Build cache
+      mockPluginLoader.getPluginTools.mockReturnValue([]);
+      mockPluginLoader.getPluginRoutes.mockReturnValue([]);
+      pluginRunner.getPluginTools();
+      pluginRunner.getPluginRoutes();
+
+      const initialToolsCalls = mockPluginLoader.getPluginTools.mock.calls.length;
+
+      // Find and trigger plugin:loaded handler
+      const loadedHandler = mockPluginLoader.on.mock.calls.find(
+        (call) => call[0] === "plugin:loaded",
+      )?.[1] as (event: any) => void;
+      loadedHandler?.({ pluginId: "test-plugin" });
+
+      // Get tools again - should rebuild cache
+      mockPluginLoader.getPluginTools.mockReturnValue([]);
+      pluginRunner.getPluginTools();
+
+      // Should have called getPluginTools again (cache invalidated and rebuilt)
+      expect(mockPluginLoader.getPluginTools.mock.calls.length).toBeGreaterThan(initialToolsCalls);
+    });
+
+    it("should invalidate caches on plugin:unloaded event", async () => {
+      await pluginRunner.init();
+
+      // Build cache
+      mockPluginLoader.getPluginTools.mockReturnValue([]);
+      mockPluginLoader.getPluginRoutes.mockReturnValue([]);
+      pluginRunner.getPluginTools();
+      pluginRunner.getPluginRoutes();
+
+      const initialToolsCalls = mockPluginLoader.getPluginTools.mock.calls.length;
+
+      // Find and trigger plugin:unloaded handler
+      const unloadedHandler = mockPluginLoader.on.mock.calls.find(
+        (call) => call[0] === "plugin:unloaded",
+      )?.[1] as (event: any) => void;
+      unloadedHandler?.({ pluginId: "test-plugin" });
+
+      // Get tools again - should rebuild cache
+      mockPluginLoader.getPluginTools.mockReturnValue([]);
+      pluginRunner.getPluginTools();
+
+      expect(mockPluginLoader.getPluginTools.mock.calls.length).toBeGreaterThan(initialToolsCalls);
     });
   });
 });

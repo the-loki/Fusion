@@ -43,16 +43,49 @@ interface CachedTools {
   version: number;
 }
 
+/**
+ * Cached routes - rebuilt when plugin state changes
+ */
+interface CachedRoutes {
+  routes: Array<{ pluginId: string; route: PluginRouteDefinition }>;
+  version: number;
+}
+
 const DEFAULT_HOOK_TIMEOUT_MS = 5000;
 
 export class PluginRunner {
   private readonly log = createLogger("plugin-runner");
   private cachedTools: CachedTools | null = null;
+  private cachedRoutes: CachedRoutes | null = null;
   private toolsCacheVersion = 0;
+  private routesCacheVersion = 0;
   private hookTimeoutMs: number;
+
+  // Event handler references for cleanup
+  private handlePluginEnabled: (plugin: import("@fusion/core").PluginInstallation) => void;
+  private handlePluginDisabled: (plugin: import("@fusion/core").PluginInstallation) => void;
+  private handlePluginUnregistered: (plugin: import("@fusion/core").PluginInstallation) => void;
+  private handlePluginStateChanged!: () => void;
+  private handlePluginUpdated!: () => void;
+  private handlePluginLoaded: (event: { pluginId: string }) => void;
+  private handlePluginUnloaded: (event: { pluginId: string }) => void;
+  private handlePluginReloaded: (event: { pluginId: string }) => void;
 
   constructor(private options: PluginRunnerOptions) {
     this.hookTimeoutMs = options.hookTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS;
+
+    // Create bound event handlers for proper cleanup
+    this.handlePluginEnabled = this.onPluginEnabled.bind(this);
+    this.handlePluginDisabled = this.onPluginDisabled.bind(this);
+    this.handlePluginUnregistered = this.onPluginUnregistered.bind(this);
+    this.handlePluginStateChanged = this.onPluginStateChanged.bind(this);
+    this.handlePluginUpdated = this.onPluginUpdated.bind(this);
+    this.handlePluginLoaded = this.onPluginLoaded.bind(this);
+    this.handlePluginUnloaded = this.onPluginUnloaded.bind(this);
+    this.handlePluginReloaded = this.onPluginReloaded.bind(this);
+    this.handlePluginLoaded = this.onPluginLoaded.bind(this);
+    this.handlePluginUnloaded = this.onPluginUnloaded.bind(this);
+    this.handlePluginReloaded = this.onPluginReloaded.bind(this);
   }
 
   /**
@@ -69,12 +102,21 @@ export class PluginRunner {
     // Subscribe to store events for task lifecycle hooks
     this.subscribeToStoreEvents();
 
-    // Subscribe to plugin state changes to invalidate tools cache
+    // Subscribe to plugin store events for automatic hot-load/unload
+    this.options.pluginStore.on("plugin:enabled", this.handlePluginEnabled);
+    this.options.pluginStore.on("plugin:disabled", this.handlePluginDisabled);
+    this.options.pluginStore.on("plugin:unregistered", this.handlePluginUnregistered);
     this.options.pluginStore.on("plugin:stateChanged", this.handlePluginStateChanged);
     this.options.pluginStore.on("plugin:updated", this.handlePluginUpdated);
 
-    // Build initial tools cache
+    // Subscribe to plugin loader events for cache invalidation
+    this.options.pluginLoader.on("plugin:loaded", this.handlePluginLoaded);
+    this.options.pluginLoader.on("plugin:unloaded", this.handlePluginUnloaded);
+    this.options.pluginLoader.on("plugin:reloaded", this.handlePluginReloaded);
+
+    // Build initial caches
     this.invalidateToolsCache();
+    this.invalidateRoutesCache();
   }
 
   /**
@@ -84,12 +126,20 @@ export class PluginRunner {
   async shutdown(): Promise<void> {
     executorLog.log("Shutting down PluginRunner...");
 
-    // Unsubscribe from store events
+    // Unsubscribe from task store events
     this.unsubscribeFromStoreEvents();
 
     // Unsubscribe from plugin store events
+    this.options.pluginStore.off("plugin:enabled", this.handlePluginEnabled);
+    this.options.pluginStore.off("plugin:disabled", this.handlePluginDisabled);
+    this.options.pluginStore.off("plugin:unregistered", this.handlePluginUnregistered);
     this.options.pluginStore.off("plugin:stateChanged", this.handlePluginStateChanged);
     this.options.pluginStore.off("plugin:updated", this.handlePluginUpdated);
+
+    // Unsubscribe from plugin loader events
+    this.options.pluginLoader.off("plugin:loaded", this.handlePluginLoaded);
+    this.options.pluginLoader.off("plugin:unloaded", this.handlePluginUnloaded);
+    this.options.pluginLoader.off("plugin:reloaded", this.handlePluginReloaded);
 
     // Stop all plugins
     await this.options.pluginLoader.stopAllPlugins();
@@ -123,9 +173,16 @@ export class PluginRunner {
 
   /**
    * Get all plugin routes with their plugin IDs.
+   * Routes are cached and only rebuilt when plugin state changes.
    */
   getPluginRoutes(): Array<{ pluginId: string; route: PluginRouteDefinition }> {
-    return this.options.pluginLoader.getPluginRoutes();
+    if (!this.cachedRoutes || this.cachedRoutes.version !== this.routesCacheVersion) {
+      this.cachedRoutes = {
+        routes: this.options.pluginLoader.getPluginRoutes(),
+        version: this.routesCacheVersion,
+      };
+    }
+    return this.cachedRoutes.routes;
   }
 
   /**
@@ -140,6 +197,104 @@ export class PluginRunner {
    */
   getStore(): PluginStore {
     return this.options.pluginStore;
+  }
+
+  /**
+   * Reload a plugin: stop the old instance, re-import, and start the new one.
+   * This invalidates the tools and routes caches.
+   */
+  async reloadPlugin(pluginId: string): Promise<void> {
+    executorLog.log(`Reloading plugin: ${pluginId}`);
+    await this.options.pluginLoader.reloadPlugin(pluginId);
+    this.invalidateToolsCache();
+    this.invalidateRoutesCache();
+    executorLog.log(`Plugin ${pluginId} reloaded`);
+  }
+
+  // ── Event Handlers for Hot-Load/Unload ─────────────────────────
+
+  /**
+   * Handle plugin:enabled event - automatically load the plugin.
+   */
+  private async onPluginEnabled(plugin: import("@fusion/core").PluginInstallation): Promise<void> {
+    try {
+      executorLog.log(`Auto-loading enabled plugin: ${plugin.id}`);
+      await this.options.pluginLoader.loadPlugin(plugin.id);
+      this.invalidateToolsCache();
+      this.invalidateRoutesCache();
+    } catch (err) {
+      this.log.error(`Failed to auto-load plugin ${plugin.id}:`, err);
+      // Don't rethrow - error isolation
+    }
+  }
+
+  /**
+   * Handle plugin:disabled event - automatically stop the plugin.
+   */
+  private async onPluginDisabled(plugin: import("@fusion/core").PluginInstallation): Promise<void> {
+    try {
+      executorLog.log(`Auto-stopping disabled plugin: ${plugin.id}`);
+      await this.options.pluginLoader.stopPlugin(plugin.id);
+      this.invalidateToolsCache();
+      this.invalidateRoutesCache();
+    } catch (err) {
+      this.log.error(`Failed to auto-stop plugin ${plugin.id}:`, err);
+      // Don't rethrow - error isolation
+    }
+  }
+
+  /**
+   * Handle plugin:unregistered event - ensure plugin is stopped.
+   */
+  private async onPluginUnregistered(plugin: import("@fusion/core").PluginInstallation): Promise<void> {
+    try {
+      executorLog.log(`Stopping unregistered plugin: ${plugin.id}`);
+      await this.options.pluginLoader.stopPlugin(plugin.id);
+      this.invalidateToolsCache();
+      this.invalidateRoutesCache();
+    } catch {
+      // Ignore - plugin might not be loaded
+    }
+  }
+
+  /**
+   * Handle plugin state changes - invalidate caches.
+   */
+  private onPluginStateChanged(): void {
+    this.invalidateToolsCache();
+    this.invalidateRoutesCache();
+  }
+
+  /**
+   * Handle plugin updates - invalidate caches.
+   */
+  private onPluginUpdated(): void {
+    this.invalidateToolsCache();
+    this.invalidateRoutesCache();
+  }
+
+  /**
+   * Handle plugin:loaded event from loader - invalidate caches.
+   */
+  private onPluginLoaded(_event: { pluginId: string }): void {
+    this.invalidateToolsCache();
+    this.invalidateRoutesCache();
+  }
+
+  /**
+   * Handle plugin:unloaded event from loader - invalidate caches.
+   */
+  private onPluginUnloaded(_event: { pluginId: string }): void {
+    this.invalidateToolsCache();
+    this.invalidateRoutesCache();
+  }
+
+  /**
+   * Handle plugin:reloaded event from loader - invalidate caches.
+   */
+  private onPluginReloaded(_event: { pluginId: string }): void {
+    this.invalidateToolsCache();
+    this.invalidateRoutesCache();
   }
 
   // ── Tool Conversion ───────────────────────────────────────────────
@@ -291,6 +446,14 @@ export class PluginRunner {
     this.log.log(`Tools cache invalidated (version: ${this.toolsCacheVersion})`);
   }
 
+  /**
+   * Invalidate the routes cache, forcing rebuild on next access.
+   */
+  private invalidateRoutesCache(): void {
+    this.routesCacheVersion++;
+    this.log.log(`Routes cache invalidated (version: ${this.routesCacheVersion})`);
+  }
+
   // ── Store Event Subscriptions ────────────────────────────────────
 
   /**
@@ -349,19 +512,8 @@ export class PluginRunner {
 
   // ── Event Handlers for Cache ────────────────────────────────────
 
-  /**
-   * Handler for plugin state changes.
-   */
-  private handlePluginStateChanged = (): void => {
-    this.invalidateToolsCache();
-  };
-
-  /**
-   * Handler for plugin updates.
-   */
-  private handlePluginUpdated = (): void => {
-    this.invalidateToolsCache();
-  };
+  // Note: handlePluginStateChanged and handlePluginUpdated are defined
+  // in the hot-load event handlers section above
 
   // ── Utilities ────────────────────────────────────────────────────
 
