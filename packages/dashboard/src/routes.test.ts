@@ -1825,7 +1825,6 @@ describe("PATCH /tasks/:id", () => {
       planningModelId: null,
       thinkingLevel: undefined,
       assigneeUserId: null,
-      assigneeUserId: null,
     });
     expect(res.body.dependencies).toEqual(["FN-002"]);
   });
@@ -1851,7 +1850,6 @@ describe("PATCH /tasks/:id", () => {
       planningModelProvider: null,
       planningModelId: null,
       thinkingLevel: undefined,
-      assigneeUserId: null,
       assigneeUserId: null,
     });
   });
@@ -1888,7 +1886,6 @@ describe("PATCH /tasks/:id", () => {
       planningModelProvider: null,
       planningModelId: null,
       thinkingLevel: undefined,
-      assigneeUserId: null,
       assigneeUserId: null,
     });
   });
