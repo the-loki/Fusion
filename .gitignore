@@ -12,7 +12,8 @@ coverage/
 .fusion/
 .hai/
 .worktrees/
-.fusion/
+.factory/
+kb.db/
 
 # Pi
 .pi/
