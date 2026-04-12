@@ -791,6 +791,7 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
     modelRegistry,
     automationStore,
     missionAutopilot,
+    missionExecutionLoop,
     heartbeatMonitor,
     pluginStore,
     pluginLoader,

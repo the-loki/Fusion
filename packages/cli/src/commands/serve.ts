@@ -614,6 +614,7 @@ export async function runServe(
     modelRegistry,
     automationStore,
     missionAutopilot,
+    missionExecutionLoop,
     heartbeatMonitor,
     pluginStore,
     pluginLoader,

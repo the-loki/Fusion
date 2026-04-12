@@ -102,6 +102,11 @@ export interface ServerOptions {
     start(): void;
     stop(): void;
   };
+  /** Optional MissionExecutionLoop for validation cycle handling */
+  missionExecutionLoop?: {
+    recoverActiveMissions(): Promise<{ recoveredCount: number }>;
+    isRunning(): boolean;
+  };
   /** Optional HeartbeatMonitor for triggering agent execution runs */
   heartbeatMonitor?: {
     startRun(agentId: string, options?: { source: import("@fusion/core").HeartbeatInvocationSource; triggerDetail?: string; contextSnapshot?: Record<string, unknown> }): Promise<import("@fusion/core").AgentHeartbeatRun>;
@@ -776,7 +781,7 @@ export function setupBadgeWebSocket(
   void badgePubSub.start();
 
   // Prime cache with existing tasks
-  void store.listTasks().then((tasks) => {
+  void store.listTasks({ slim: true, includeArchived: false }).then((tasks) => {
     for (const task of tasks) {
       badgeSnapshots.set(task.id, {
         prInfo: task.prInfo ?? null,

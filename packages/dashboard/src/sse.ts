@@ -222,6 +222,10 @@ export function createSSE(
       send(`event: mission:event\ndata: ${JSON.stringify(data)}\n\n`);
     };
 
+    const onMilestoneValidationUpdated = (data: any) => {
+      send(`event: milestone:validation:updated\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
     const onAiSessionUpdated = (data: any) => {
       send(`event: ai_session:updated\ndata: ${JSON.stringify(data)}\n\n`);
     };
@@ -293,6 +297,7 @@ export function createSSE(
         missionStore.off("feature:deleted", onFeatureDeleted);
         missionStore.off("feature:linked", onFeatureLinked);
         missionStore.off("mission:event", onMissionEvent);
+        missionStore.off("milestone:validation:updated", onMilestoneValidationUpdated);
       }
       if (aiSessionStore) {
         aiSessionStore.off("ai_session:updated", onAiSessionUpdated);
@@ -332,6 +337,7 @@ export function createSSE(
       missionStore.on("feature:deleted", onFeatureDeleted);
       missionStore.on("feature:linked", onFeatureLinked);
       missionStore.on("mission:event", onMissionEvent);
+      missionStore.on("milestone:validation:updated", onMilestoneValidationUpdated);
     }
 
     if (aiSessionStore) {

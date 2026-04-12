@@ -3,11 +3,13 @@ import multer from "multer";
 import { randomUUID } from "node:crypto";
 import { createReadStream, existsSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import { execSync } from "node:child_process";
 import { resolve, sep, join } from "node:path";
 import { tmpdir } from "node:os";
 import * as nodeFs from "node:fs";
 import * as nodeChildProcess from "node:child_process";
+import { promisify } from "node:util";
 import type { TaskStore, Column, MergeResult, ScheduleType, ActivityEventType, ModelPreset, AutomationStep, MessageType, ParticipantType, MessageCreateInput, Routine, RoutineCreateInput, RoutineUpdateInput, RoutineExecutionResult, RoutineTriggerType } from "@fusion/core";
 import { COLUMNS, VALID_TRANSITIONS, GLOBAL_SETTINGS_KEYS, type BatchStatusEntry, type BatchStatusResponse, type BatchStatusResult, type IssueInfo, type PrInfo, type Task, getCurrentRepo, isGhAuthenticated, AUTOMATION_PRESETS, AutomationStore, validateBackupSchedule, validateBackupRetention, validateBackupDir, syncBackupAutomation, exportSettings, importSettings, validateImportData, MessageStore, MEMORY_FILE_PATH, RoutineStore, isWebhookTrigger, resolveMemoryBackend, getMemoryBackendCapabilities, listMemoryBackendTypes, type MemoryBackendCapabilities } from "@fusion/core";
 import type { ChatStore, ChatSessionCreateInput, ChatSessionUpdateInput } from "@fusion/core";
@@ -98,6 +100,8 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
 });
+
+const execFileAsync = promisify(execFile);
 
 // Dynamic import fallback for @fusion/engine with injectable override for tests.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -190,6 +194,37 @@ function rethrowAsApiError(error: unknown, fallbackMessage = "Internal server er
   }
 
   throw internalError(fallbackMessage);
+}
+
+function getCommandErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    const anyError = error as Error & { stdout?: string; stderr?: string };
+    return [anyError.stderr, anyError.stdout, anyError.message].filter(Boolean).join("\n").trim() || anyError.message;
+  }
+  return String(error);
+}
+
+async function runGitCommand(args: string[], cwd?: string, timeout = 10000): Promise<string> {
+  const result = await execFileAsync("git", args, {
+    cwd,
+    timeout,
+    maxBuffer: 10 * 1024 * 1024,
+    encoding: "utf-8",
+  });
+
+  if (typeof result === "string") {
+    return result;
+  }
+
+  if (Array.isArray(result)) {
+    return String(result[0] ?? "");
+  }
+
+  if (result && typeof result === "object" && "stdout" in result) {
+    return String((result as { stdout?: unknown }).stdout ?? "");
+  }
+
+  return "";
 }
 
 function slugifyPresetName(name: string): string {
@@ -886,16 +921,14 @@ function getAheadCommits(cwd?: string): GitCommit[] {
  * @param remoteRef The remote ref (e.g. "origin/main") to list commits for
  * @param limit Maximum number of commits to return (default 10)
  */
-function getRemoteCommits(remoteRef: string, limit: number = 10, cwd?: string): GitCommit[] {
+async function getRemoteCommits(remoteRef: string, limit: number = 10, cwd?: string): Promise<GitCommit[]> {
   try {
     if (!isValidGitRef(remoteRef)) {
       throw new Error("Invalid remote ref");
     }
 
-    // Verify the ref exists
-    const execOptions = { encoding: "utf-8" as const, timeout: 5000, cwd, stdio: "pipe" as const };
     try {
-      execSync(`git rev-parse --verify "${remoteRef}"`, execOptions);
+      await runGitCommand(["rev-parse", "--verify", remoteRef], cwd, 5000);
     } catch {
       return [];
     }
@@ -903,12 +936,7 @@ function getRemoteCommits(remoteRef: string, limit: number = 10, cwd?: string): 
     // Format: hash|shortHash|message|author|date|parents
     const format = "%H|%h|%s|%an|%aI|%P";
     const safeLimit = Math.min(Math.max(1, limit), 50);
-    const output = execSync(`git log --max-count=${safeLimit} --pretty=format:"${format}" "${remoteRef}"`, {
-      encoding: "utf-8",
-      timeout: 10000,
-      cwd,
-      stdio: "pipe",
-    });
+    const output = await runGitCommand(["log", `--max-count=${safeLimit}`, `--pretty=format:${format}`, remoteRef], cwd, 10000);
 
     const commits: GitCommit[] = [];
     for (const line of output.split("\n")) {
@@ -1113,17 +1141,15 @@ function isValidBranchName(name: string): boolean {
  * Create a new branch from current HEAD or specified base.
  * Returns the created branch name.
  */
-function createGitBranch(name: string, base?: string, cwd?: string): string {
+async function createGitBranch(name: string, base?: string, cwd?: string): Promise<string> {
   if (!isValidBranchName(name)) {
     throw new Error("Invalid branch name");
   }
   if (base && !isValidBranchName(base)) {
     throw new Error("Invalid base branch name");
   }
-  const cmd = base
-    ? `git checkout -b ${name} ${base}`
-    : `git checkout -b ${name}`;
-  execSync(cmd, { encoding: "utf-8", timeout: 10000, cwd, stdio: "pipe" });
+  const args = base ? ["checkout", "-b", name, base] : ["checkout", "-b", name];
+  await runGitCommand(args, cwd, 10000);
   return name;
 }
 
@@ -1131,34 +1157,31 @@ function createGitBranch(name: string, base?: string, cwd?: string): string {
  * Checkout an existing branch.
  * Throws if there are uncommitted changes that would be lost.
  */
-function checkoutGitBranch(name: string, cwd?: string): void {
+async function checkoutGitBranch(name: string, cwd?: string): Promise<void> {
   if (!isValidBranchName(name)) {
     throw new Error("Invalid branch name");
   }
-  const execOptions = { encoding: "utf-8" as const, timeout: 5000, cwd, stdio: "pipe" as const };
-  // Check for uncommitted changes that would be lost
   try {
-    execSync("git diff-index --quiet HEAD --", execOptions);
+    await runGitCommand(["diff-index", "--quiet", "HEAD", "--"], cwd, 5000);
   } catch {
-    // Has uncommitted changes - check if they'd be lost
-    const diff = execSync("git diff --name-only", execOptions).trim();
+    const diff = (await runGitCommand(["diff", "--name-only"], cwd, 5000)).trim();
     if (diff) {
       throw new Error("Uncommitted changes would be lost. Commit or stash changes first.");
     }
   }
-  execSync(`git checkout ${name}`, { encoding: "utf-8", timeout: 10000, cwd, stdio: "pipe" });
+  await runGitCommand(["checkout", name], cwd, 10000);
 }
 
 /**
  * Delete a branch.
  * Throws if it's the current branch or has unmerged commits.
  */
-function deleteGitBranch(name: string, force: boolean = false, cwd?: string): void {
+async function deleteGitBranch(name: string, force: boolean = false, cwd?: string): Promise<void> {
   if (!isValidBranchName(name)) {
     throw new Error("Invalid branch name");
   }
   const flag = force ? "-D" : "-d";
-  execSync(`git branch ${flag} ${name}`, { encoding: "utf-8", timeout: 10000, cwd, stdio: "pipe" });
+  await runGitCommand(["branch", flag, name], cwd, 10000);
 }
 
 /** Result of a fetch operation */
@@ -1170,22 +1193,21 @@ export interface GitFetchResult {
 /**
  * Fetch from origin or specified remote.
  */
-function fetchGitRemote(remote: string = "origin", cwd?: string): GitFetchResult {
+async function fetchGitRemote(remote: string = "origin", cwd?: string): Promise<GitFetchResult> {
   if (!isValidBranchName(remote)) {
     throw new Error("Invalid remote name");
   }
   try {
-    const output = execSync(`git fetch ${remote}`, { encoding: "utf-8", timeout: 30000, cwd, stdio: "pipe" });
+    const output = await runGitCommand(["fetch", remote], cwd, 30000);
     return { fetched: true, message: output.trim() || "Fetch completed" };
   } catch (err: any) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-    const message = err.message || String(err);
+    if (err instanceof ApiError) {
+      throw err;
+    }
+    const message = getCommandErrorMessage(err);
     if (message.includes("Could not resolve host") || message.includes("Connection refused")) {
       throw new Error("Failed to connect to remote");
     }
-    // No updates is not an error
     return { fetched: false, message: message || "No updates" };
   }
 }
@@ -1200,18 +1222,17 @@ export interface GitPullResult {
 /**
  * Pull the current branch.
  */
-function pullGitBranch(cwd?: string): GitPullResult {
+async function pullGitBranch(cwd?: string): Promise<GitPullResult> {
   try {
-    const output = execSync("git pull", { encoding: "utf-8", timeout: 30000, cwd, stdio: "pipe" });
+    const output = await runGitCommand(["pull"], cwd, 30000);
     return { success: true, message: output.trim() };
   } catch (err: any) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-    const message = err.message || String(err);
+    if (err instanceof ApiError) {
+      throw err;
+    }
+    const message = getCommandErrorMessage(err);
     if (message.includes("CONFLICT") || message.includes("Merge conflict")) {
-      const success = false;
-      return { success, message: "Merge conflict detected. Resolve manually.", conflict: true };
+      return { success: false, message: "Merge conflict detected. Resolve manually.", conflict: true };
     }
     throw new Error(message || "Pull failed");
   }
@@ -1226,15 +1247,15 @@ export interface GitPushResult {
 /**
  * Push the current branch.
  */
-function pushGitBranch(cwd?: string): GitPushResult {
+async function pushGitBranch(cwd?: string): Promise<GitPushResult> {
   try {
-    const output = execSync("git push", { encoding: "utf-8", timeout: 30000, cwd, stdio: "pipe" });
+    const output = await runGitCommand(["push"], cwd, 30000);
     return { success: true, message: output.trim() || "Push completed" };
   } catch (err: any) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-    const message = err.message || String(err);
+    if (err instanceof ApiError) {
+      throw err;
+    }
+    const message = getCommandErrorMessage(err);
     if (message.includes("rejected") || message.includes("non-fast-forward")) {
       throw new Error("Push rejected. Pull latest changes first.");
     }
@@ -1319,7 +1340,7 @@ function listGitRemotes(cwd?: string): GitRemoteDetailed[] {
 /**
  * Add a new git remote.
  */
-function addGitRemote(name: string, url: string, cwd?: string): void {
+async function addGitRemote(name: string, url: string, cwd?: string): Promise<void> {
   if (!isValidBranchName(name)) {
     throw new Error("Invalid remote name");
   }
@@ -1327,12 +1348,12 @@ function addGitRemote(name: string, url: string, cwd?: string): void {
     throw new Error("Invalid git URL format");
   }
   try {
-    execSync(`git remote add ${name} ${url}`, { encoding: "utf-8", timeout: 10000, cwd, stdio: "pipe" });
+    await runGitCommand(["remote", "add", name, url], cwd, 10000);
   } catch (err: any) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-    const message = err.message || String(err);
+    if (err instanceof ApiError) {
+      throw err;
+    }
+    const message = getCommandErrorMessage(err);
     if (message.includes("already exists")) {
       throw new Error(`Remote '${name}' already exists`);
     }
@@ -1343,17 +1364,17 @@ function addGitRemote(name: string, url: string, cwd?: string): void {
 /**
  * Remove a git remote.
  */
-function removeGitRemote(name: string, cwd?: string): void {
+async function removeGitRemote(name: string, cwd?: string): Promise<void> {
   if (!isValidBranchName(name)) {
     throw new Error("Invalid remote name");
   }
   try {
-    execSync(`git remote remove ${name}`, { encoding: "utf-8", timeout: 10000, cwd, stdio: "pipe" });
+    await runGitCommand(["remote", "remove", name], cwd, 10000);
   } catch (err: any) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-    const message = err.message || String(err);
+    if (err instanceof ApiError) {
+      throw err;
+    }
+    const message = getCommandErrorMessage(err);
     if (message.includes("No such remote")) {
       throw new Error(`Remote '${name}' does not exist`);
     }
@@ -1364,7 +1385,7 @@ function removeGitRemote(name: string, cwd?: string): void {
 /**
  * Rename a git remote.
  */
-function renameGitRemote(oldName: string, newName: string, cwd?: string): void {
+async function renameGitRemote(oldName: string, newName: string, cwd?: string): Promise<void> {
   if (!isValidBranchName(oldName)) {
     throw new Error("Invalid remote name");
   }
@@ -1372,12 +1393,12 @@ function renameGitRemote(oldName: string, newName: string, cwd?: string): void {
     throw new Error("Invalid new remote name");
   }
   try {
-    execSync(`git remote rename ${oldName} ${newName}`, { encoding: "utf-8", timeout: 10000, cwd, stdio: "pipe" });
+    await runGitCommand(["remote", "rename", oldName, newName], cwd, 10000);
   } catch (err: any) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-    const message = err.message || String(err);
+    if (err instanceof ApiError) {
+      throw err;
+    }
+    const message = getCommandErrorMessage(err);
     if (message.includes("No such remote")) {
       throw new Error(`Remote '${oldName}' does not exist`);
     }
@@ -1391,7 +1412,7 @@ function renameGitRemote(oldName: string, newName: string, cwd?: string): void {
 /**
  * Set the URL for a git remote.
  */
-function setGitRemoteUrl(name: string, url: string, cwd?: string): void {
+async function setGitRemoteUrl(name: string, url: string, cwd?: string): Promise<void> {
   if (!isValidBranchName(name)) {
     throw new Error("Invalid remote name");
   }
@@ -1399,12 +1420,12 @@ function setGitRemoteUrl(name: string, url: string, cwd?: string): void {
     throw new Error("Invalid git URL format");
   }
   try {
-    execSync(`git remote set-url ${name} ${url}`, { encoding: "utf-8", timeout: 10000, cwd, stdio: "pipe" });
+    await runGitCommand(["remote", "set-url", name, url], cwd, 10000);
   } catch (err: any) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-    const message = err.message || String(err);
+    if (err instanceof ApiError) {
+      throw err;
+    }
+    const message = getCommandErrorMessage(err);
     if (message.includes("No such remote")) {
       throw new Error(`Remote '${name}' does not exist`);
     }
@@ -1463,18 +1484,16 @@ function getGitStashList(cwd?: string): GitStash[] {
 /**
  * Create a new stash.
  */
-function createGitStash(message?: string, cwd?: string): string {
+async function createGitStash(message?: string, cwd?: string): Promise<string> {
   let output: string;
-  const execOptions = { encoding: "utf-8" as const, timeout: 10000, cwd };
   if (message) {
-    // Sanitize message: remove shell metacharacters to prevent injection
     const sanitized = message.replace(/[`$\\!"]/g, "").trim();
     if (!sanitized) {
       throw new Error("Invalid stash message");
     }
-    output = execSync(`git stash push -m '${sanitized.replace(/'/g, "'\\''")}'`, execOptions).trim();
+    output = (await runGitCommand(["stash", "push", "-m", sanitized], cwd, 10000)).trim();
   } else {
-    output = execSync("git stash push", execOptions).trim();
+    output = (await runGitCommand(["stash", "push"], cwd, 10000)).trim();
   }
   if (output.includes("No local changes to save")) {
     throw new Error("No local changes to stash");
@@ -1485,36 +1504,28 @@ function createGitStash(message?: string, cwd?: string): string {
 /**
  * Apply a stash entry.
  */
-function applyGitStash(index: number, drop: boolean = false, cwd?: string): string {
+async function applyGitStash(index: number, drop: boolean = false, cwd?: string): Promise<string> {
   if (index < 0 || !Number.isInteger(index)) throw new Error("Invalid stash index");
-  const cmd = drop ? `git stash pop stash@{${index}}` : `git stash apply stash@{${index}}`;
-  const output = execSync(cmd, { encoding: "utf-8", timeout: 10000, cwd }).trim();
+  const args = drop ? ["stash", "pop", `stash@{${index}}`] : ["stash", "apply", `stash@{${index}}`];
+  const output = (await runGitCommand(args, cwd, 10000)).trim();
   return output || (drop ? "Stash popped" : "Stash applied");
 }
 
 /**
  * Drop a stash entry.
  */
-function dropGitStash(index: number, cwd?: string): string {
+async function dropGitStash(index: number, cwd?: string): Promise<string> {
   if (index < 0 || !Number.isInteger(index)) throw new Error("Invalid stash index");
-  const output = execSync(`git stash drop stash@{${index}}`, {
-    encoding: "utf-8",
-    timeout: 10000,
-    cwd,
-  }).trim();
+  const output = (await runGitCommand(["stash", "drop", `stash@{${index}}`], cwd, 10000)).trim();
   return output || "Stash dropped";
 }
 
 /**
  * Get file changes (staged and unstaged).
  */
-function getGitFileChanges(cwd?: string): GitFileChange[] {
+async function getGitFileChanges(cwd?: string): Promise<GitFileChange[]> {
   try {
-    const output = execSync("git status --porcelain=v1", {
-      encoding: "utf-8",
-      timeout: 5000,
-      cwd,
-    }).trim();
+    const output = (await runGitCommand(["status", "--porcelain=v1"], cwd, 5000)).trim();
     if (!output) return [];
 
     const changes: GitFileChange[] = [];
@@ -1524,7 +1535,6 @@ function getGitFileChanges(cwd?: string): GitFileChange[] {
       const workTreeStatus = line[1];
       const filePath = line.slice(3).trim();
 
-      // Map git status codes to our status type
       const mapStatus = (code: string): GitFileChange["status"] => {
         switch (code) {
           case "A": return "added";
@@ -1537,7 +1547,6 @@ function getGitFileChanges(cwd?: string): GitFileChange[] {
         }
       };
 
-      // Handle renamed files: "R  old -> new"
       let file = filePath;
       let oldFile: string | undefined;
       if (filePath.includes(" -> ")) {
@@ -1546,7 +1555,6 @@ function getGitFileChanges(cwd?: string): GitFileChange[] {
         file = newF.trim();
       }
 
-      // Staged changes (index status is not space and not ?)
       if (indexStatus !== " " && indexStatus !== "?") {
         changes.push({
           file,
@@ -1556,7 +1564,6 @@ function getGitFileChanges(cwd?: string): GitFileChange[] {
         });
       }
 
-      // Unstaged changes (work tree status is not space)
       if (workTreeStatus !== " ") {
         changes.push({
           file,
@@ -1575,11 +1582,10 @@ function getGitFileChanges(cwd?: string): GitFileChange[] {
 /**
  * Get working directory diff.
  */
-function getGitWorkingDiff(cwd?: string): { stat: string; patch: string } {
+async function getGitWorkingDiff(cwd?: string): Promise<{ stat: string; patch: string }> {
   try {
-    const execOptions = { encoding: "utf-8" as const, timeout: 10000, cwd };
-    const stat = execSync("git diff --stat", execOptions).trim();
-    const patch = execSync("git diff", execOptions);
+    const stat = (await runGitCommand(["diff", "--stat"], cwd, 10000)).trim();
+    const patch = await runGitCommand(["diff"], cwd, 10000);
     return { stat, patch };
   } catch {
     return { stat: "", patch: "" };
@@ -1589,63 +1595,54 @@ function getGitWorkingDiff(cwd?: string): { stat: string; patch: string } {
 /**
  * Stage specific files.
  */
-function stageGitFiles(files: string[], cwd?: string): string[] {
+async function stageGitFiles(files: string[], cwd?: string): Promise<string[]> {
   if (!files.length) throw new Error("No files specified");
-  // Validate file paths - no shell metacharacters
   for (const f of files) {
     if (/[;&|`$(){}[\]\r\n]/.test(f)) {
       throw new Error(`Invalid file path: ${f}`);
     }
   }
-  const escaped = files.map((f) => `"${f.replace(/"/g, '\\"')}"`).join(" ");
-  execSync(`git add ${escaped}`, { encoding: "utf-8", timeout: 10000, cwd });
+  await runGitCommand(["add", ...files], cwd, 10000);
   return files;
 }
 
 /**
  * Unstage specific files.
  */
-function unstageGitFiles(files: string[], cwd?: string): string[] {
+async function unstageGitFiles(files: string[], cwd?: string): Promise<string[]> {
   if (!files.length) throw new Error("No files specified");
   for (const f of files) {
     if (/[;&|`$(){}[\]\r\n]/.test(f)) {
       throw new Error(`Invalid file path: ${f}`);
     }
   }
-  const escaped = files.map((f) => `"${f.replace(/"/g, '\\"')}"`).join(" ");
-  execSync(`git reset HEAD ${escaped}`, { encoding: "utf-8", timeout: 10000, cwd });
+  await runGitCommand(["reset", "HEAD", "--", ...files], cwd, 10000);
   return files;
 }
 
 /**
  * Create a commit with staged changes.
  */
-function createGitCommit(message: string, cwd?: string): { hash: string; message: string } {
+async function createGitCommit(message: string, cwd?: string): Promise<{ hash: string; message: string }> {
   if (!message || !message.trim()) throw new Error("Commit message is required");
-  const execOptions = { encoding: "utf-8" as const, timeout: 10000, cwd };
-  // Check there are staged changes
-  const staged = execSync("git diff --cached --name-only", { encoding: "utf-8", timeout: 5000, cwd }).trim();
+  const staged = (await runGitCommand(["diff", "--cached", "--name-only"], cwd, 5000)).trim();
   if (!staged) throw new Error("No staged changes to commit");
-  // Sanitize: use single quotes and escape embedded single quotes for shell safety
-  const sanitized = message.trim().replace(/'/g, "'\\''");
-  execSync(`git commit -m '${sanitized}'`, execOptions);
-  const hash = execSync("git rev-parse --short HEAD", { encoding: "utf-8", timeout: 5000, cwd }).trim();
+  await runGitCommand(["commit", "-m", message.trim()], cwd, 10000);
+  const hash = (await runGitCommand(["rev-parse", "--short", "HEAD"], cwd, 5000)).trim();
   return { hash, message: message.trim() };
 }
 
 /**
  * Discard changes for specific files.
  */
-function discardGitChanges(files: string[], cwd?: string): string[] {
+async function discardGitChanges(files: string[], cwd?: string): Promise<string[]> {
   if (!files.length) throw new Error("No files specified");
   for (const f of files) {
     if (/[;&|`$(){}[\]\r\n]/.test(f)) {
       throw new Error(`Invalid file path: ${f}`);
     }
   }
-  const execOptions = { encoding: "utf-8" as const, timeout: 5000, cwd };
-  // Separate untracked from tracked
-  const statusOutput = execSync("git status --porcelain=v1", execOptions).trim();
+  const statusOutput = (await runGitCommand(["status", "--porcelain=v1"], cwd, 5000)).trim();
   const untracked = new Set<string>();
   for (const line of statusOutput.split("\n")) {
     if (line.startsWith("??")) {
@@ -1656,12 +1653,10 @@ function discardGitChanges(files: string[], cwd?: string): string[] {
   const untrackedFiles = files.filter((f) => untracked.has(f));
 
   if (trackedFiles.length) {
-    const escaped = trackedFiles.map((f) => `"${f.replace(/"/g, '\\"')}"`).join(" ");
-    execSync(`git checkout -- ${escaped}`, { encoding: "utf-8", timeout: 10000, cwd });
+    await runGitCommand(["checkout", "--", ...trackedFiles], cwd, 10000);
   }
   if (untrackedFiles.length) {
-    const escaped = untrackedFiles.map((f) => `"${f.replace(/"/g, '\\"')}"`).join(" ");
-    execSync(`git clean -f -- ${escaped}`, { encoding: "utf-8", timeout: 10000, cwd });
+    await runGitCommand(["clean", "-f", "--", ...untrackedFiles], cwd, 10000);
   }
   return files;
 }
@@ -2861,17 +2856,14 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
    * 3. **HEAD~1** — Last resort when neither baseCommitSha nor merge-base
    *    can be resolved.
    */
-  function resolveDiffBase(task: { baseCommitSha?: string; baseBranch?: string }, cwd: string): string | undefined {
+  async function resolveDiffBase(task: { baseCommitSha?: string; baseBranch?: string }, cwd: string): Promise<string | undefined> {
     // 1. Try task-scoped baseCommitSha
     if (task.baseCommitSha) {
       try {
         // Validate that the stored SHA is still an ancestor of HEAD.
         // If the branch was rebased or the SHA is otherwise unreachable,
         // this will exit non-zero and we fall through.
-        nodeChildProcess.execSync(
-          `git merge-base --is-ancestor ${task.baseCommitSha} HEAD`,
-          { cwd, encoding: "utf-8", timeout: 5000, stdio: "pipe" },
-        );
+        await runGitCommand(["merge-base", "--is-ancestor", task.baseCommitSha, "HEAD"], cwd, 5000);
         return task.baseCommitSha;
       } catch {
         // baseCommitSha is stale or invalid — fall through to merge-base
@@ -2881,21 +2873,18 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
     // 2. Branch merge-base
     const baseBranch = task.baseBranch ?? "main";
     try {
-      return nodeChildProcess.execSync(
-        `git merge-base HEAD origin/${baseBranch} 2>/dev/null || git merge-base HEAD ${baseBranch}`,
-        { cwd, encoding: "utf-8", timeout: 5000, stdio: "pipe" },
-      ).trim() || undefined;
+      try {
+        return (await runGitCommand(["merge-base", "HEAD", `origin/${baseBranch}`], cwd, 5000)).trim() || undefined;
+      } catch {
+        return (await runGitCommand(["merge-base", "HEAD", baseBranch], cwd, 5000)).trim() || undefined;
+      }
     } catch {
       // merge-base unavailable — fall through to HEAD~1
     }
 
     // 3. HEAD~1 fallback
     try {
-      return nodeChildProcess.execSync("git rev-parse HEAD~1", {
-        cwd,
-        encoding: "utf-8",
-        timeout: 5000,
-      }).trim() || undefined;
+      return (await runGitCommand(["rev-parse", "HEAD~1"], cwd, 5000)).trim() || undefined;
     } catch {
       return undefined;
     }
@@ -2920,24 +2909,16 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
 
       try {
         const fileSet = new Set<string>();
-        const baseRef = resolveDiffBase(task, task.worktree);
+        const baseRef = await resolveDiffBase(task, task.worktree);
 
         if (baseRef) {
-          const committedOutput = nodeChildProcess.execSync(`git diff --name-only ${baseRef}..HEAD`, {
-            cwd: task.worktree,
-            encoding: "utf-8",
-            timeout: 5000,
-          }).trim();
+          const committedOutput = (await runGitCommand(["diff", "--name-only", `${baseRef}..HEAD`], task.worktree, 5000)).trim();
           for (const file of committedOutput.split("\n").filter(Boolean)) {
             fileSet.add(file);
           }
         }
 
-        const workingTreeOutput = nodeChildProcess.execSync("git diff --name-only", {
-          cwd: task.worktree,
-          encoding: "utf-8",
-          timeout: 5000,
-        }).trim();
+        const workingTreeOutput = (await runGitCommand(["diff", "--name-only"], task.worktree, 5000)).trim();
         for (const file of workingTreeOutput.split("\n").filter(Boolean)) {
           fileSet.add(file);
         }
@@ -3675,7 +3656,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       if (!url || typeof url !== "string") {
         throw badRequest("url is required");
       }
-      addGitRemote(name, url, rootDir);
+      await addGitRemote(name, url, rootDir);
       res.status(201).json({ name, added: true });
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -3704,7 +3685,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         throw badRequest("Not a git repository");
       }
       const { name } = req.params;
-      removeGitRemote(name, rootDir);
+      await removeGitRemote(name, rootDir);
       res.json({ name, removed: true });
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -3736,7 +3717,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       if (!newName || typeof newName !== "string") {
         throw badRequest("newName is required");
       }
-      renameGitRemote(name, newName, rootDir);
+      await renameGitRemote(name, newName, rootDir);
       res.json({ oldName: name, newName, renamed: true });
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -3770,7 +3751,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       if (!url || typeof url !== "string") {
         throw badRequest("url is required");
       }
-      setGitRemoteUrl(name, url, rootDir);
+      await setGitRemoteUrl(name, url, rootDir);
       res.json({ name, url, updated: true });
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -3889,7 +3870,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
    * Query: ?limit=N (defaults to 10, max 50)
    * Response: Array of GitCommit objects
    */
-  router.get("/git/remotes/:name/commits", (req, res) => {
+  router.get("/git/remotes/:name/commits", async (req, res) => {
     try {
       const rootDir = store.getRootDir();
       if (!isGitRepo(rootDir)) {
@@ -3921,32 +3902,17 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       } else {
         // Default: try remote/HEAD symbolic ref, fall back to remote/main, remote/master
         try {
-          const headRef = execSync(`git symbolic-ref refs/remotes/${name}/HEAD`, {
-            encoding: "utf-8",
-            timeout: 5000,
-            cwd: rootDir,
-            stdio: "pipe",
-          }).trim();
+          const headRef = (await runGitCommand(["symbolic-ref", `refs/remotes/${name}/HEAD`], rootDir, 5000)).trim();
           // symbolic-ref returns full ref like refs/remotes/origin/main
           remoteRef = headRef.replace(/^refs\/remotes\//, "");
         } catch {
           // Try common defaults
           try {
-            execSync(`git rev-parse --verify "${name}/main"`, {
-              encoding: "utf-8",
-              timeout: 5000,
-              cwd: rootDir,
-              stdio: "pipe",
-            });
+            await runGitCommand(["rev-parse", "--verify", `${name}/main`], rootDir, 5000);
             remoteRef = `${name}/main`;
           } catch {
             try {
-              execSync(`git rev-parse --verify "${name}/master"`, {
-                encoding: "utf-8",
-                timeout: 5000,
-                cwd: rootDir,
-                stdio: "pipe",
-              });
+              await runGitCommand(["rev-parse", "--verify", `${name}/master`], rootDir, 5000);
               remoteRef = `${name}/master`;
             } catch {
               // Remote exists but no common branch found
@@ -3957,7 +3923,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         }
       }
 
-      const commits = getRemoteCommits(remoteRef, limit, rootDir);
+      const commits = await getRemoteCommits(remoteRef, limit, rootDir);
       res.json(commits);
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -4055,7 +4021,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       if (!name || typeof name !== "string") {
         throw badRequest("name is required");
       }
-      const branchName = createGitBranch(name, base, rootDir);
+      const branchName = await createGitBranch(name, base, rootDir);
       res.status(201).json({ name: branchName, created: true });
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -4082,7 +4048,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         throw badRequest("Not a git repository");
       }
       const { name } = req.params;
-      checkoutGitBranch(name, rootDir);
+      await checkoutGitBranch(name, rootDir);
       res.json({ checkedOut: name });
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -4111,7 +4077,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       }
       const { name } = req.params;
       const force = req.query.force === "true";
-      deleteGitBranch(name, force, rootDir);
+      await deleteGitBranch(name, force, rootDir);
       res.json({ deleted: name });
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -4141,7 +4107,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         throw badRequest("Not a git repository");
       }
       const { remote } = req.body;
-      const result = fetchGitRemote(remote || "origin", rootDir);
+      const result = await fetchGitRemote(remote || "origin", rootDir);
       res.json(result);
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -4167,7 +4133,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       if (!isGitRepo(rootDir)) {
         throw badRequest("Not a git repository");
       }
-      const result = pullGitBranch(rootDir);
+      const result = await pullGitBranch(rootDir);
       if (result.conflict) {
         throw new ApiError(409, result.message ?? "Merge conflict detected. Resolve manually.", {
           ...result,
@@ -4192,7 +4158,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       if (!isGitRepo(rootDir)) {
         throw badRequest("Not a git repository");
       }
-      const result = pushGitBranch(rootDir);
+      const result = await pushGitBranch(rootDir);
       res.json(result);
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -4242,7 +4208,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         throw badRequest("Not a git repository");
       }
       const { message } = req.body;
-      const result = createGitStash(message, rootDir);
+      const result = await createGitStash(message, rootDir);
       res.status(201).json({ message: result });
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -4272,7 +4238,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         throw badRequest("Invalid stash index");
       }
       const { drop } = req.body;
-      const result = applyGitStash(index, drop === true, rootDir);
+      const result = await applyGitStash(index, drop === true, rootDir);
       res.json({ message: result });
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -4296,7 +4262,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       if (isNaN(index) || index < 0) {
         throw badRequest("Invalid stash index");
       }
-      const result = dropGitStash(index, rootDir);
+      const result = await dropGitStash(index, rootDir);
       res.json({ message: result });
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -4310,13 +4276,13 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
    * GET /api/git/diff
    * Returns working directory diff (unstaged changes).
    */
-  router.get("/git/diff", (_req, res) => {
+  router.get("/git/diff", async (_req, res) => {
     try {
       const rootDir = store.getRootDir();
       if (!isGitRepo(rootDir)) {
         throw badRequest("Not a git repository");
       }
-      const diff = getGitWorkingDiff(rootDir);
+      const diff = await getGitWorkingDiff(rootDir);
       res.json(diff);
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -4330,13 +4296,13 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
    * GET /api/git/changes
    * Returns file changes (staged and unstaged).
    */
-  router.get("/git/changes", (_req, res) => {
+  router.get("/git/changes", async (_req, res) => {
     try {
       const rootDir = store.getRootDir();
       if (!isGitRepo(rootDir)) {
         throw badRequest("Not a git repository");
       }
-      const changes = getGitFileChanges(rootDir);
+      const changes = await getGitFileChanges(rootDir);
       res.json(changes);
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -4361,7 +4327,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       if (!Array.isArray(files) || files.length === 0) {
         throw badRequest("files array is required");
       }
-      const staged = stageGitFiles(files, rootDir);
+      const staged = await stageGitFiles(files, rootDir);
       res.json({ staged });
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -4386,7 +4352,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       if (!Array.isArray(files) || files.length === 0) {
         throw badRequest("files array is required");
       }
-      const unstaged = unstageGitFiles(files, rootDir);
+      const unstaged = await unstageGitFiles(files, rootDir);
       res.json({ unstaged });
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -4411,7 +4377,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       if (!message || typeof message !== "string" || !message.trim()) {
         throw badRequest("Commit message is required");
       }
-      const result = createGitCommit(message, rootDir);
+      const result = await createGitCommit(message, rootDir);
       res.status(201).json(result);
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -4440,7 +4406,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       if (!Array.isArray(files) || files.length === 0) {
         throw badRequest("files array is required");
       }
-      const discarded = discardGitChanges(files, rootDir);
+      const discarded = await discardGitChanges(files, rootDir);
       res.json({ discarded });
     } catch (err: any) {
       if (err instanceof ApiError) {
@@ -11352,7 +11318,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
 
   // ── Mission Routes ─────────────────────────────────────────────────────────
   // Mount mission routes at /api/missions
-  router.use("/missions", createMissionRouter(store, options?.missionAutopilot, aiSessionStore));
+  router.use("/missions", createMissionRouter(store, options?.missionAutopilot, aiSessionStore, options?.missionExecutionLoop));
 
   // ── Plugin Routes ─────────────────────────────────────────────────────────
   // Plugin management endpoints with projectId scoping support.
@@ -13040,20 +13006,14 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         let mergeBase: string | undefined;
 
         try {
-          mergeBase = nodeChildProcess.execSync(
-            `git rev-parse ${sha}^`,
-            { cwd: rootDir, encoding: "utf-8", timeout: 5000, stdio: "pipe" },
-          ).trim();
+          mergeBase = (await runGitCommand(["rev-parse", `${sha}^`], rootDir, 5000)).trim();
         } catch {
           // Last resort: no diff available
           res.json({ files: [], stats: { filesChanged: 0, additions: 0, deletions: 0 } });
           return;
         }
 
-        const nameStatus = nodeChildProcess.execSync(
-          `git diff --name-status ${mergeBase}..${sha}`,
-          { cwd: rootDir, encoding: "utf-8", timeout: 10000, stdio: "pipe" },
-        ).trim();
+        const nameStatus = (await runGitCommand(["diff", "--name-status", `${mergeBase}..${sha}`], rootDir, 10000)).trim();
 
         const doneFiles: Array<{
           path: string;
@@ -13075,10 +13035,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
 
           let patch = "";
           try {
-            patch = nodeChildProcess.execSync(
-              `git diff ${mergeBase}..${sha} -- "${filePath}"`,
-              { cwd: rootDir, encoding: "utf-8", timeout: 10000 },
-            );
+            patch = await runGitCommand(["diff", `${mergeBase}..${sha}`, "--", filePath], rootDir, 10000);
           } catch { /* ignore */ }
 
           const additions = (patch.match(/^\+[^+]/gm) || []).length;
@@ -13116,7 +13073,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       const cwd = worktree || task.worktree || scopedStore.getRootDir();
 
       // Use resolveDiffBase for consistent diff base across all endpoints
-      const diffBase = resolveDiffBase(task, cwd);
+      const diffBase = await resolveDiffBase(task, cwd);
       const diffRange = diffBase ? `${diffBase}..HEAD` : "HEAD";
 
       // Get list of changed files — include both committed and working-tree changes
@@ -13124,10 +13081,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
 
       if (diffBase) {
         try {
-          const committedOutput = nodeChildProcess.execSync(
-            `git diff --name-status ${diffBase}..HEAD`,
-            { encoding: "utf-8", cwd, timeout: 10000 },
-          ).trim();
+          const committedOutput = (await runGitCommand(["diff", "--name-status", `${diffBase}..HEAD`], cwd, 10000)).trim();
           for (const line of committedOutput.split("\n").filter(Boolean)) {
             const parts = line.split("\t");
             fileMap.set(parts[1] ?? "", parts[0] ?? "M");
@@ -13138,9 +13092,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       }
 
       try {
-        const workingTreeOutput = nodeChildProcess.execSync("git diff --name-status", {
-          encoding: "utf-8", cwd, timeout: 10000,
-        }).trim();
+        const workingTreeOutput = (await runGitCommand(["diff", "--name-status"], cwd, 10000)).trim();
         for (const line of workingTreeOutput.split("\n").filter(Boolean)) {
           const parts = line.split("\t");
           fileMap.set(parts[1] ?? "", parts[0] ?? "M");
@@ -13168,16 +13120,11 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         // Get patch for this file
         let patch = "";
         try {
-          patch = nodeChildProcess.execSync(`git diff ${diffRange} -- "${filePath}"`, {
-            encoding: "utf-8",
-            cwd,
-            timeout: 10000,
-          });
+          patch = await runGitCommand(["diff", diffRange, "--", filePath], cwd, 10000);
         } catch {
           // Ignore errors for individual files
         }
 
-        // Count additions/deletions
         const additions = (patch.match(/^\+[^+]/gm) || []).length;
         const deletions = (patch.match(/^-[^-]/gm) || []).length;
 
@@ -13222,21 +13169,16 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         let mergeBase: string | undefined;
 
         try {
-          mergeBase = nodeChildProcess.execSync(
-            `git rev-parse ${sha}^`,
-            { cwd: rootDir, encoding: "utf-8", timeout: 5000, stdio: "pipe" },
-          ).trim();
+          mergeBase = (await runGitCommand(["rev-parse", `${sha}^`], rootDir, 5000)).trim();
         } catch {
           res.json([]);
           return;
         }
 
         try {
-          const nameStatus = nodeChildProcess.execSync(
-            `git diff --name-status ${mergeBase}..${sha}`,
-            { cwd: rootDir, encoding: "utf-8", timeout: 5000, stdio: "pipe" },
-          ).trim();
-          const doneFiles = nameStatus.split("\n").filter(Boolean).map((line) => {
+          const nameStatus = (await runGitCommand(["diff", "--name-status", `${mergeBase}..${sha}`], rootDir, 5000)).trim();
+          const doneFiles = [];
+          for (const line of nameStatus.split("\n").filter(Boolean)) {
             const parts = line.split("\t");
             const statusCode = parts[0] ?? "M";
             const filePath = parts[1] ?? "";
@@ -13246,13 +13188,10 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
             else if (statusCode.startsWith("R")) status = "renamed";
             let diff = "";
             try {
-              diff = nodeChildProcess.execSync(
-                `git diff ${mergeBase}..${sha} -- "${filePath}"`,
-                { cwd: rootDir, encoding: "utf-8", timeout: 5000 },
-              );
+              diff = await runGitCommand(["diff", `${mergeBase}..${sha}`, "--", filePath], rootDir, 5000);
             } catch { /* ignore */ }
-            return { path: filePath, status, diff };
-          });
+            doneFiles.push({ path: filePath, status, diff });
+          }
           res.json(doneFiles);
         } catch {
           res.json([]);
@@ -13284,7 +13223,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       // Resolve a diff base using the shared strategy so both endpoints
       // always agree on which files have changed.  Prefer task-scoped
       // baseCommitSha when it is still valid for the current HEAD.
-      const diffBase = resolveDiffBase(task, cwd);
+      const diffBase = await resolveDiffBase(task, cwd);
 
       // Collect file statuses from both committed changes (against diffBase)
       // and working-tree changes, deduplicating by path to match session-files.
@@ -13292,10 +13231,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
 
       if (diffBase) {
         try {
-          const committedOutput = nodeChildProcess.execSync(
-            `git diff --name-status ${diffBase}..HEAD`,
-            { cwd, encoding: "utf-8", timeout: 5000 },
-          ).trim();
+          const committedOutput = (await runGitCommand(["diff", "--name-status", `${diffBase}..HEAD`], cwd, 5000)).trim();
           for (const line of committedOutput.split("\n").filter(Boolean)) {
             const parts = line.split("\t");
             const statusCode = parts[0] ?? "M";
@@ -13311,11 +13247,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       }
 
       try {
-        const workingTreeOutput = nodeChildProcess.execSync("git diff --name-status", {
-          cwd,
-          encoding: "utf-8",
-          timeout: 5000,
-        }).trim();
+        const workingTreeOutput = (await runGitCommand(["diff", "--name-status"], cwd, 5000)).trim();
         for (const line of workingTreeOutput.split("\n").filter(Boolean)) {
           const parts = line.split("\t");
           const statusCode = parts[0] ?? "M";
@@ -13333,7 +13265,8 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       // against the resolved merge-base.
       const diffRange = diffBase ? `${diffBase}..HEAD` : "HEAD";
 
-      const files = Array.from(fileMap.entries()).flatMap(([filePath, { statusCode, oldPath }]) => {
+      const files = [];
+      for (const [filePath, { statusCode, oldPath }] of fileMap.entries()) {
         let status: "added" | "modified" | "deleted" | "renamed" = "modified";
 
         if (statusCode.startsWith("A")) {
@@ -13346,22 +13279,17 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
 
         let diff = "";
         try {
-          diff = nodeChildProcess.execSync(`git diff ${diffRange} -- "${filePath}"`, {
-            cwd,
-            encoding: "utf-8",
-            timeout: 5000,
-          });
+          diff = await runGitCommand(["diff", diffRange, "--", filePath], cwd, 5000);
         } catch {
           diff = "";
         }
 
-        // Filter out files with empty diffs (mode-only changes, binary files, etc.)
         if (!diff) {
-          return [];
+          continue;
         }
 
-        return oldPath ? [{ path: filePath, status, diff, oldPath }] : [{ path: filePath, status, diff }];
-      });
+        files.push(oldPath ? { path: filePath, status, diff, oldPath } : { path: filePath, status, diff });
+      }
 
       fileDiffsCache.set(task.id, {
         files,

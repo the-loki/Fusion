@@ -217,6 +217,10 @@ export function createMissionRouter(
     stop(): void;
   },
   aiSessionStore?: AiSessionStore,
+  missionExecutionLoop?: {
+    recoverActiveMissions(): Promise<{ recoveredCount: number }>;
+    isRunning(): boolean;
+  },
 ): Router {
   const router = Router();
   const requestContext = new AsyncLocalStorage<ReturnType<TaskStore["getMissionStore"]>>();
@@ -1792,6 +1796,181 @@ export function createMissionRouter(
 
       const rollup = missionStore.getMilestoneValidationRollup(milestoneId);
       res.json(rollup);
+    })
+  );
+
+  // ── Validation & Loop State Endpoints ─────────────────────────────────────
+
+  /**
+   * POST /api/missions/features/:featureId/validate
+   * Trigger validation for a feature. Starts a validator run and transitions
+   * the feature to "validating" state. Returns run metadata.
+   * 400 if no assertions are linked to the feature.
+   * 404 if the feature does not exist.
+   */
+  router.post(
+    "/features/:featureId/validate",
+    catchTypedHandler(async (req, res) => {
+      const { featureId } = req.params;
+
+      if (!validateFeatureId(featureId)) {
+        throw badRequest("Invalid feature ID format");
+      }
+
+      const feature = missionStore.getFeature(featureId);
+      if (!feature) {
+        throw notFound("Feature not found");
+      }
+
+      // Check if there are linked assertions
+      const assertions = missionStore.listAssertionsForFeature(featureId);
+      if (assertions.length === 0) {
+        throw badRequest("Feature has no linked assertions. Link assertions before triggering validation.");
+      }
+
+      // Transition feature to validating state
+      missionStore.updateFeature(featureId, {
+        loopState: "validating" as any,
+      });
+
+      // Start a validator run
+      const run = missionStore.startValidatorRun(featureId, "manual");
+
+      res.status(202).json({
+        runId: run.id,
+        featureId: run.featureId,
+        status: run.status,
+        triggerType: run.triggerType,
+        implementationAttempt: run.implementationAttempt,
+        validatorAttempt: run.validatorAttempt,
+        startedAt: run.startedAt,
+      });
+    })
+  );
+
+  /**
+   * GET /api/missions/features/:featureId/validation-loop
+   * Get the current loop state snapshot for a feature.
+   * Returns idle state when no loop is active.
+   * 404 if the feature does not exist.
+   */
+  router.get(
+    "/features/:featureId/validation-loop",
+    catchTypedHandler(async (req, res) => {
+      const { featureId } = req.params;
+
+      if (!validateFeatureId(featureId)) {
+        throw badRequest("Invalid feature ID format");
+      }
+
+      const feature = missionStore.getFeature(featureId);
+      if (!feature) {
+        throw notFound("Feature not found");
+      }
+
+      const snapshot = missionStore.getFeatureLoopSnapshot(featureId);
+      res.json(snapshot);
+    })
+  );
+
+  /**
+   * GET /api/missions/features/:featureId/validation-runs
+   * List validator runs for a feature, ordered by startedAt DESC.
+   * Supports pagination via limit and offset query parameters.
+   * 404 if the feature does not exist.
+   */
+  router.get(
+    "/features/:featureId/validation-runs",
+    catchTypedHandler(async (req, res) => {
+      const { featureId } = req.params;
+
+      if (!validateFeatureId(featureId)) {
+        throw badRequest("Invalid feature ID format");
+      }
+
+      const feature = missionStore.getFeature(featureId);
+      if (!feature) {
+        throw notFound("Feature not found");
+      }
+
+      // Parse pagination parameters
+      const limit = typeof req.query.limit === "string"
+        ? Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100)
+        : 20;
+      const offset = typeof req.query.offset === "string"
+        ? Math.max(parseInt(req.query.offset, 10) || 0, 0)
+        : 0;
+
+      // Get all runs (store returns them ordered DESC)
+      const allRuns = missionStore.getValidatorRunsByFeature(featureId);
+      const total = allRuns.length;
+      const runs = allRuns.slice(offset, offset + limit);
+
+      res.json({
+        runs,
+        total,
+        limit,
+        offset,
+      });
+    })
+  );
+
+  /**
+   * GET /api/missions/validation-runs/:runId
+   * Get a single validator run with assertion results.
+   * 404 if the run does not exist.
+   */
+  router.get(
+    "/validation-runs/:runId",
+    catchTypedHandler(async (req, res) => {
+      const { runId } = req.params;
+
+      if (!runId || typeof runId !== "string") {
+        throw badRequest("Run ID is required");
+      }
+
+      // Use the store's getValidatorRun method to fetch the run directly
+      const run = missionStore.getValidatorRun(runId);
+      if (!run) {
+        throw notFound("Validator run not found");
+      }
+
+      // Get failures for this run
+      const failures = missionStore.getFailuresForRun(runId);
+
+      res.json({
+        ...run,
+        failures,
+      });
+    })
+  );
+
+  /**
+   * POST /api/missions/recover
+   * Trigger recovery of active missions. Re-enqueues validating and needs_fix
+   * features for processing.
+   * Returns summary of recovered features. Idempotent - second call returns <= first.
+   */
+  router.post(
+    "/recover",
+    catchTypedHandler(async (req, res) => {
+      if (!missionExecutionLoop) {
+        throw internalError("Mission execution loop is not available");
+      }
+
+      if (!missionExecutionLoop.isRunning()) {
+        throw internalError("Mission execution loop is not running");
+      }
+
+      try {
+        const result = await missionExecutionLoop.recoverActiveMissions();
+        res.json({
+          recoveredCount: result.recoveredCount,
+          message: `Recovered ${result.recoveredCount} features`,
+        });
+      } catch (err: any) {
+        throw internalError(`Recovery failed: ${err.message}`);
+      }
     })
   );
 
