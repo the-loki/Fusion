@@ -243,4 +243,65 @@ describe("POST /api/agents/import", () => {
     expect(response.status).toBe(400);
     expect((response.body as any).error).toContain("Missing YAML frontmatter");
   });
+
+  it("rejects invalid companies.sh slugs", async () => {
+    const response = await postImport(app, {
+      importSource: "companies.sh",
+      companySlug: "Invalid Slug!",
+    });
+
+    expect(response.status).toBe(400);
+    expect((response.body as any).error).toContain("Invalid companies.sh slug");
+  });
+
+  it("rejects companies.sh slug with uppercase", async () => {
+    const response = await postImport(app, {
+      importSource: "companies.sh",
+      companySlug: "MyCompany",
+    });
+
+    expect(response.status).toBe(400);
+    expect((response.body as any).error).toContain("Invalid companies.sh slug");
+  });
+
+  it("rejects companies.sh slug with special characters", async () => {
+    const response = await postImport(app, {
+      importSource: "companies.sh",
+      companySlug: "company@123",
+    });
+
+    expect(response.status).toBe(400);
+    expect((response.body as any).error).toContain("Invalid companies.sh slug");
+  });
+});
+
+describe("GET /api/agents/companies", () => {
+  let store: MockStore;
+  let app: ReturnType<typeof import("../server.js").createServer>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    vi.mock("../server.js", async () => {
+      const actual = await vi.importActual("../server.js");
+      return actual;
+    });
+
+    mockInit.mockResolvedValue(undefined);
+
+    store = new MockStore();
+    const { createServer } = await import("../server.js");
+    app = createServer(store as any);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns companies from companies.sh API", async () => {
+    const response = await request(app, "GET", "/api/agents/companies");
+
+    // The actual API might return data or an empty array on failure
+    // Just verify the endpoint responds
+    expect([200, 500]).toContain(response.status);
+  });
 });

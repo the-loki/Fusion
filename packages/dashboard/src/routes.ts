@@ -9311,17 +9311,139 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
   });
 
   /**
+   * Companies.sh company entry from the catalog API.
+   */
+  interface CompaniesShCompany {
+    slug: string;
+    name: string;
+    tagline?: string;
+    repo?: string;
+    website?: string;
+    installs?: number;
+  }
+
+  /**
+   * Validate a company slug from companies.sh.
+   * Slugs must be lowercase alphanumeric with hyphens, 1-50 chars.
+   */
+  function isValidCompanySlug(slug: unknown): slug is string {
+    if (typeof slug !== "string") return false;
+    return /^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$/.test(slug) || /^[a-z0-9]$/.test(slug);
+  }
+
+  /**
+   * GET /api/agents/companies
+   * Browse companies from companies.sh catalog.
+   * Returns normalized company entries for UI display.
+   */
+  router.get("/agents/companies", async (_req, res) => {
+    try {
+      const COMPANIES_SH_API = "https://companies.sh/api/companies";
+
+      let companies: CompaniesShCompany[] = [];
+
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+
+        const response = await fetch(COMPANIES_SH_API, {
+          signal: controller.signal,
+          headers: {
+            "Accept": "application/json",
+            "User-Agent": "fn-dashboard/1.0",
+          },
+        });
+
+        clearTimeout(timeout);
+
+        if (!response.ok) {
+          throw new Error(`companies.sh API returned ${response.status}: ${response.statusText}`);
+        }
+
+        const contentType = response.headers.get("content-type") ?? "";
+        if (!contentType.includes("application/json")) {
+          throw new Error(`companies.sh API returned non-JSON content: ${contentType}`);
+        }
+
+        const data = await response.json() as unknown;
+
+        // Handle array response directly
+        if (Array.isArray(data)) {
+          companies = data.map((item): CompaniesShCompany | null => {
+            if (typeof item !== "object" || item === null) return null;
+            const entry = item as Record<string, unknown>;
+            const slug = typeof entry.slug === "string" ? entry.slug : undefined;
+            const name = typeof entry.name === "string" ? entry.name : undefined;
+
+            // Skip entries without required fields or with invalid slugs
+            if (!slug || !name || !isValidCompanySlug(slug)) return null;
+
+            return {
+              slug,
+              name,
+              tagline: typeof entry.tagline === "string" ? entry.tagline : undefined,
+              repo: typeof entry.repo === "string" ? entry.repo : undefined,
+              website: typeof entry.website === "string" ? entry.website : undefined,
+              installs: typeof entry.installs === "number" ? entry.installs : undefined,
+            };
+          }).filter((c): c is CompaniesShCompany => c !== null);
+        } else if (typeof data === "object" && data !== null) {
+          // Handle wrapped response: { companies: [...] } or { data: [...] }
+          const obj = data as Record<string, unknown>;
+          const arr = Array.isArray(obj.companies) ? obj.companies
+            : Array.isArray(obj.data) ? obj.data
+            : [];
+
+          companies = (arr as unknown[]).map((item): CompaniesShCompany | null => {
+            if (typeof item !== "object" || item === null) return null;
+            const entry = item as Record<string, unknown>;
+            const slug = typeof entry.slug === "string" ? entry.slug : undefined;
+            const name = typeof entry.name === "string" ? entry.name : undefined;
+
+            if (!slug || !name || !isValidCompanySlug(slug)) return null;
+
+            return {
+              slug,
+              name,
+              tagline: typeof entry.tagline === "string" ? entry.tagline : undefined,
+              repo: typeof entry.repo === "string" ? entry.repo : undefined,
+              website: typeof entry.website === "string" ? entry.website : undefined,
+              installs: typeof entry.installs === "number" ? entry.installs : undefined,
+            };
+          }).filter((c): c is CompaniesShCompany => c !== null);
+        }
+      } catch (fetchErr) {
+        // Return empty array on network/parsing errors (graceful degradation)
+        const message = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+        if (message.includes("aborted")) {
+          throw new Error("companies.sh request timed out");
+        }
+        // Log but don't fail - return empty catalog
+        console.warn(`[agents/companies] Failed to fetch catalog: ${message}`);
+      }
+
+      res.json({ companies });
+    } catch (err: any) {
+      if (err instanceof ApiError) {
+        throw err;
+      }
+      rethrowAsApiError(err);
+    }
+  });
+
+  /**
    * POST /api/agents/import
    * Import agents from Agent Companies sources.
    *
    * Body modes (checked in order):
+   *  - { importSource: "companies.sh", companySlug: string, skipExisting?, dryRun? }
    *  - { agents: AgentManifest[], skipExisting?, dryRun? }
    *  - { source: string, skipExisting?, dryRun? }   // server directory path
    *  - { manifest: string, skipExisting?, dryRun? } // raw AGENTS.md content
    */
   router.post("/agents/import", async (req, res) => {
     try {
-      const { agents, source, manifest, skipExisting, dryRun } = req.body ?? {};
+      const { agents, source, manifest, importSource, companySlug: importCompanySlug, skipExisting, dryRun } = req.body ?? {};
       const {
         AgentStore,
         parseCompanyDirectory,
@@ -9381,8 +9503,176 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
           projects: [],
           tasks: [],
         };
+      } else if (importSource === "companies.sh" && typeof importCompanySlug === "string") {
+        // Import from companies.sh catalog
+        if (!isValidCompanySlug(importCompanySlug)) {
+          throw badRequest(`Invalid companies.sh slug: "${importCompanySlug}". Slugs must be lowercase alphanumeric with hyphens.`);
+        }
+
+        // Fetch company info from companies.sh API
+        const companyApiUrl = `https://companies.sh/api/companies/${encodeURIComponent(importCompanySlug)}`;
+        let companyInfo: { name: string; repo?: string; tagline?: string } | null = null;
+
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 10000);
+
+          const response = await fetch(companyApiUrl, {
+            signal: controller.signal,
+            headers: {
+              "Accept": "application/json",
+              "User-Agent": "fn-dashboard/1.0",
+            },
+          });
+
+          clearTimeout(timeout);
+
+          if (!response.ok) {
+            if (response.status === 404) {
+              throw badRequest(`Company not found: "${importCompanySlug}"`);
+            }
+            throw new Error(`companies.sh API returned ${response.status}`);
+          }
+
+          const contentType = response.headers.get("content-type") ?? "";
+          if (!contentType.includes("application/json")) {
+            throw new Error("companies.sh API returned non-JSON");
+          }
+
+          const data = await response.json() as Record<string, unknown>;
+          const name = typeof data.name === "string" ? data.name : importCompanySlug;
+          const repo = typeof data.repo === "string" ? data.repo : undefined;
+          const tagline = typeof data.tagline === "string" ? data.tagline : undefined;
+
+          companyInfo = { name, repo, tagline };
+        } catch (fetchErr) {
+          const message = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+          if (fetchErr instanceof ApiError) throw fetchErr;
+          if (message.includes("aborted")) {
+            throw new Error("companies.sh request timed out");
+          }
+          throw badRequest(`Failed to fetch company "${importCompanySlug}": ${message}`);
+        }
+
+        // Determine download URL from repo
+        if (!companyInfo?.repo) {
+          throw badRequest(`Company "${importCompanySlug}" has no repository URL`);
+        }
+
+        // Parse the repo URL to determine the archive URL
+        // Accept HTTPS GitHub URLs: https://github.com/owner/repo
+        const repoMatch = companyInfo.repo.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/i);
+        if (!repoMatch) {
+          throw badRequest(`Unsupported repository URL format: ${companyInfo.repo}. Only GitHub HTTPS URLs are supported.`);
+        }
+
+        const [, repoOwner, repoName] = repoMatch;
+        // Use GitHub's archive API to get the default branch archive
+        const archiveUrl = `https://github.com/${repoOwner}/${repoName}/archive/refs/heads/main.tar.gz`;
+
+        // Download and extract to temp directory
+        let tempDir: string | null = null;
+        try {
+          tempDir = await mkdtemp(join(tmpdir(), `fn-agent-import-${importCompanySlug}-`));
+
+          // Download the archive
+          const archivePath = join(tempDir, "archive.tar.gz");
+          const { createWriteStream } = await import("node:fs");
+
+          const archiveResponse = await fetch(archiveUrl);
+          if (!archiveResponse.ok) {
+            // Try main branch as fallback
+            const fallbackUrl = `https://github.com/${repoOwner}/${repoName}/archive/refs/heads/master.tar.gz`;
+            const fallbackResponse = await fetch(fallbackUrl);
+            if (!fallbackResponse.ok) {
+              throw badRequest(`Failed to download repository archive: ${fallbackResponse.status} ${fallbackResponse.statusText}`);
+            }
+
+            const fallbackStream = createWriteStream(archivePath);
+            if (!fallbackResponse.body) {
+              throw new Error("No response body");
+            }
+            await fallbackResponse.body.pipeTo(new WritableStream({
+              write(chunk) {
+                fallbackStream.write(chunk);
+              },
+              close() {
+                fallbackStream.end();
+              },
+              abort(err) {
+                fallbackStream.close();
+              },
+            }));
+          } else {
+            const stream = createWriteStream(archivePath);
+            if (!archiveResponse.body) {
+              throw new Error("No response body");
+            }
+            await archiveResponse.body.pipeTo(new WritableStream({
+              write(chunk) {
+                stream.write(chunk);
+              },
+              close() {
+                stream.end();
+              },
+              abort(err) {
+                stream.close();
+              },
+            }));
+          }
+
+          // Extract the archive
+          // The archive extracts to a subdirectory named after the repo
+          const extractDir = join(tempDir, "extracted");
+          nodeFs.mkdirSync(extractDir, { recursive: true });
+
+          // Use tar to extract (available on Linux/macOS)
+          const execFileAsync = promisify(execFile);
+          try {
+            await execFileAsync("tar", ["xzf", archivePath, "-C", extractDir], { timeout: 30000 });
+          } catch {
+            // Fallback: try with bsdtar (macOS Homebrew)
+            try {
+              await execFileAsync("bsdtar", ["xzf", archivePath, "-C", extractDir], { timeout: 30000 });
+            } catch {
+              throw badRequest("Failed to extract archive. Please ensure tar is installed.");
+            }
+          }
+
+          // Find the extracted directory (GitHub archives extract to owner-repo-hash/)
+          const extractedEntries = nodeFs.readdirSync(extractDir);
+          if (extractedEntries.length === 0) {
+            throw badRequest("Archive extracted to empty directory");
+          }
+
+          // The archive should have a single directory at the root
+          const extractedDir = join(extractDir, extractedEntries[0]);
+          if (!nodeFs.statSync(extractedDir).isDirectory()) {
+            throw badRequest("Archive did not extract to a directory");
+          }
+
+          // Parse the extracted company
+          pkg = parseCompanyDirectory(extractedDir);
+
+          // Override company info if available from API
+          if (companyInfo) {
+            pkg.company = {
+              name: companyInfo.name,
+              slug: importCompanySlug,
+            };
+          }
+        } finally {
+          // Clean up temp directory
+          if (tempDir) {
+            try {
+              nodeFs.rmSync(tempDir, { recursive: true, force: true });
+            } catch {
+              // Best-effort cleanup
+            }
+          }
+        }
       } else {
-        throw badRequest("Provide one of: agents (array), source (path), or manifest (string)");
+        throw badRequest("Provide one of: agents (array), source (path), manifest (string), or importSource + companySlug");
       }
 
       const { inputs, result } = convertAgentCompanies(pkg as any, conversionOptions);

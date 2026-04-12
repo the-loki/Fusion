@@ -1,5 +1,6 @@
-import { useState, useRef, useCallback } from "react";
-import { Upload, FileText, CheckCircle, AlertTriangle, X, Loader2, FolderOpen } from "lucide-react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { Upload, FileText, CheckCircle, AlertTriangle, X, Loader2, FolderOpen, Globe, Search } from "lucide-react";
+import { fetchCompanies, type CompanyEntry } from "../api";
 
 export interface AgentImportModalProps {
   isOpen: boolean;
@@ -44,7 +45,7 @@ interface ApiErrorResponse {
 }
 
 type ModalStep = "input" | "preview" | "result";
-type InputMethod = "paste" | "file" | "directory";
+type InputMethod = "paste" | "file" | "directory" | "browse";
 
 function parseDirectoryAgentManifest(content: string): DirectoryAgentInput {
   const match = content.match(/^---\s*\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$/);
@@ -125,6 +126,31 @@ export function AgentImportModal({ isOpen, onClose, onImported, projectId }: Age
   const fileInputRef = useRef<HTMLInputElement>(null);
   const directoryInputRef = useRef<HTMLInputElement>(null);
 
+  // Browse mode state
+  const [companies, setCompanies] = useState<CompanyEntry[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCompany, setSelectedCompany] = useState<CompanyEntry | null>(null);
+  const [isLoadingCompanies, setIsLoadingCompanies] = useState(false);
+  const [companiesError, setCompaniesError] = useState<string | null>(null);
+
+  // Load companies when browse mode is selected
+  useEffect(() => {
+    if (inputMethod === "browse" && companies.length === 0 && !isLoadingCompanies) {
+      setIsLoadingCompanies(true);
+      setCompaniesError(null);
+      fetchCompanies()
+        .then((data) => {
+          setCompanies(data);
+        })
+        .catch((err) => {
+          setCompaniesError(err instanceof Error ? err.message : "Failed to load companies");
+        })
+        .finally(() => {
+          setIsLoadingCompanies(false);
+        });
+    }
+  }, [inputMethod, companies.length, isLoadingCompanies]);
+
   const reset = useCallback(() => {
     setStep("input");
     setInputMethod("paste");
@@ -137,6 +163,11 @@ export function AgentImportModal({ isOpen, onClose, onImported, projectId }: Age
     setParseError(null);
     setImportResult(null);
     setImportError(null);
+    setCompanies([]);
+    setSearchQuery("");
+    setSelectedCompany(null);
+    setIsLoadingCompanies(false);
+    setCompaniesError(null);
   }, []);
 
   const handleClose = useCallback(() => {
@@ -213,7 +244,11 @@ export function AgentImportModal({ isOpen, onClose, onImported, projectId }: Age
       setParseError("Please select a directory containing AGENTS.md files");
       return;
     }
-    if (inputMethod !== "directory" && !manifestContent.trim()) {
+    if (inputMethod === "browse" && !selectedCompany) {
+      setParseError("Please select a company from the catalog");
+      return;
+    }
+    if (inputMethod !== "directory" && inputMethod !== "browse" && !manifestContent.trim()) {
       setParseError("Please provide manifest content");
       return;
     }
@@ -222,9 +257,15 @@ export function AgentImportModal({ isOpen, onClose, onImported, projectId }: Age
     setParseError(null);
 
     try {
-      const body = inputMethod === "directory"
-        ? { agents: directoryAgents, dryRun: true }
-        : { manifest: manifestContent, dryRun: true };
+      let body: Record<string, unknown>;
+
+      if (inputMethod === "directory") {
+        body = { agents: directoryAgents, dryRun: true };
+      } else if (inputMethod === "browse" && selectedCompany) {
+        body = { importSource: "companies.sh", companySlug: selectedCompany.slug, dryRun: true };
+      } else {
+        body = { manifest: manifestContent, dryRun: true };
+      }
 
       const res = await fetch(buildUrl("/agents/import"), {
         method: "POST",
@@ -257,7 +298,7 @@ export function AgentImportModal({ isOpen, onClose, onImported, projectId }: Age
     } finally {
       setIsParsing(false);
     }
-  }, [inputMethod, directoryAgents, manifestContent, projectId]);
+  }, [inputMethod, directoryAgents, manifestContent, selectedCompany, projectId]);
 
   /** Execute the actual import */
   const handleImport = useCallback(async () => {
@@ -265,9 +306,15 @@ export function AgentImportModal({ isOpen, onClose, onImported, projectId }: Age
     setImportError(null);
 
     try {
-      const body = inputMethod === "directory"
-        ? { agents: directoryAgents, skipExisting: true }
-        : { manifest: manifestContent, skipExisting: true };
+      let body: Record<string, unknown>;
+
+      if (inputMethod === "directory") {
+        body = { agents: directoryAgents, skipExisting: true };
+      } else if (inputMethod === "browse" && selectedCompany) {
+        body = { importSource: "companies.sh", companySlug: selectedCompany.slug, skipExisting: true };
+      } else {
+        body = { manifest: manifestContent, skipExisting: true };
+      }
 
       const res = await fetch(buildUrl("/agents/import"), {
         method: "POST",
@@ -289,7 +336,7 @@ export function AgentImportModal({ isOpen, onClose, onImported, projectId }: Age
     } finally {
       setIsImporting(false);
     }
-  }, [inputMethod, directoryAgents, manifestContent, projectId, onImported]);
+  }, [inputMethod, directoryAgents, manifestContent, selectedCompany, projectId, onImported]);
 
   if (!isOpen) return null;
 
@@ -310,7 +357,7 @@ export function AgentImportModal({ isOpen, onClose, onImported, projectId }: Age
           {step === "input" && (
             <div className="agent-import-input">
               <p className="agent-import-description">
-                Import agents from an Agent Companies package. Upload an AGENTS.md file, select a directory, or paste manifest content.
+                Import agents from an Agent Companies package. Browse the companies.sh catalog to discover published agents, upload an AGENTS.md file, select a directory, or paste manifest content.
               </p>
 
               {/* File upload */}
@@ -349,28 +396,139 @@ export function AgentImportModal({ isOpen, onClose, onImported, projectId }: Age
                   <FolderOpen size={16} />
                   Select Directory
                 </button>
+                <button
+                  type="button"
+                  className="btn agent-import-upload-btn"
+                  onClick={() => {
+                    setInputMethod("browse");
+                    setDirectoryAgents([]);
+                    setManifestContent("");
+                    setSelectedCompany(null);
+                    setParseError(null);
+                  }}
+                >
+                  <Globe size={16} />
+                  Browse Catalog
+                </button>
                 <span className="agent-import-file-hint">.md and .txt files supported</span>
               </div>
 
-              {/* Or divider */}
-              <div className="agent-import-divider">
-                <span>or paste manifest content</span>
-              </div>
+              {/* Browse Catalog Mode */}
+              {inputMethod === "browse" && (
+                <div className="agent-import-browse">
+                  <div className="agent-import-browse-header">
+                    <div className="agent-import-browse-search">
+                      <Search size={16} className="agent-import-browse-search-icon" />
+                      <input
+                        type="text"
+                        className="agent-import-browse-search-input"
+                        placeholder="Search companies..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        aria-label="Search companies"
+                      />
+                    </div>
+                    {selectedCompany && (
+                      <div className="agent-import-browse-selected">
+                        <span className="agent-import-browse-selected-label">Selected:</span>
+                        <span className="agent-import-browse-selected-name">{selectedCompany.name}</span>
+                        <button
+                          type="button"
+                          className="btn btn--small"
+                          onClick={() => setSelectedCompany(null)}
+                        >
+                          Change
+                        </button>
+                      </div>
+                    )}
+                  </div>
 
-              {/* Text area for paste */}
-              <textarea
-                className="agent-import-textarea"
-                placeholder={"---\nname: CEO\ntitle: Chief Executive Officer\nreportsTo: null\nskills:\n  - review\n---\nAgent instructions go here..."}
-                value={manifestContent}
-                onChange={(e) => {
-                  setInputMethod("paste");
-                  setDirectoryAgents([]);
-                  setManifestContent(e.target.value);
-                  setParseError(null);
-                }}
-                rows={8}
-                aria-label="Manifest content"
-              />
+                  {isLoadingCompanies && (
+                    <div className="agent-import-browse-loading">
+                      <Loader2 size={20} className="spin" />
+                      <span>Loading companies...</span>
+                    </div>
+                  )}
+
+                  {companiesError && (
+                    <div className="agent-import-browse-error">
+                      <AlertTriangle size={16} />
+                      <span>{companiesError}</span>
+                    </div>
+                  )}
+
+                  {!isLoadingCompanies && !companiesError && (
+                    <div className="agent-import-browse-list">
+                      {companies
+                        .filter((company) =>
+                          searchQuery === "" ||
+                          company.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          (company.tagline?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
+                        )
+                        .map((company) => (
+                          <div
+                            key={company.slug}
+                            className={`agent-import-browse-item ${selectedCompany?.slug === company.slug ? "agent-import-browse-item--selected" : ""}`}
+                            onClick={() => setSelectedCompany(company)}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                setSelectedCompany(company);
+                              }
+                            }}
+                          >
+                            <div className="agent-import-browse-item-header">
+                              <span className="agent-import-browse-item-name">{company.name}</span>
+                              {company.installs !== undefined && (
+                                <span className="agent-import-browse-item-installs">{company.installs.toLocaleString()} installs</span>
+                              )}
+                            </div>
+                            {company.tagline && (
+                              <span className="agent-import-browse-item-tagline">{company.tagline}</span>
+                            )}
+                            {company.repo && (
+                              <span className="agent-import-browse-item-repo">{company.repo}</span>
+                            )}
+                          </div>
+                        ))}
+                      {companies.filter((company) =>
+                        searchQuery === "" ||
+                        company.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                        (company.tagline?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
+                      ).length === 0 && (
+                        <p className="agent-import-browse-empty">
+                          {searchQuery ? "No companies match your search" : "No companies available"}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Or divider - only show when not in browse mode */}
+              {inputMethod !== "browse" && (
+                <>
+                  <div className="agent-import-divider">
+                    <span>or paste manifest content</span>
+                  </div>
+
+                  {/* Text area for paste */}
+                  <textarea
+                    className="agent-import-textarea"
+                    placeholder={"---\nname: CEO\ntitle: Chief Executive Officer\nreportsTo: null\nskills:\n  - review\n---\nAgent instructions go here..."}
+                    value={manifestContent}
+                    onChange={(e) => {
+                      setInputMethod("paste");
+                      setDirectoryAgents([]);
+                      setManifestContent(e.target.value);
+                      setParseError(null);
+                    }}
+                    rows={8}
+                    aria-label="Manifest content"
+                  />
+                </>
+              )}
 
               <p className="agent-import-file-hint">Current input: {inputMethod}</p>
 
@@ -506,7 +664,11 @@ export function AgentImportModal({ isOpen, onClose, onImported, projectId }: Age
             <button
               className="btn btn--primary"
               onClick={() => void handleParse()}
-              disabled={isParsing || (inputMethod === "directory" ? directoryAgents.length === 0 : !manifestContent.trim())}
+              disabled={
+                isParsing ||
+                (inputMethod === "directory" ? directoryAgents.length === 0 : false) ||
+                (inputMethod === "browse" ? !selectedCompany : !manifestContent.trim())
+              }
             >
               {isParsing ? (
                 <>

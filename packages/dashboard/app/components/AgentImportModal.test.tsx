@@ -53,6 +53,12 @@ describe("AgentImportModal", () => {
     expect(screen.getByLabelText("Manifest content")).toBeTruthy();
   });
 
+  it("renders the Browse Catalog button", () => {
+    render(<AgentImportModal isOpen={true} onClose={onClose} onImported={onImported} />);
+
+    expect(screen.getByRole("button", { name: "Browse Catalog" })).toBeTruthy();
+  });
+
   it("loads selected .md file content into the manifest textarea", async () => {
     render(<AgentImportModal isOpen={true} onClose={onClose} onImported={onImported} />);
 
@@ -168,5 +174,14 @@ describe("AgentImportModal", () => {
     await waitFor(() => {
       expect(screen.getByText("No agents found")).toBeTruthy();
     });
+  });
+
+  it("switches to browse mode when Browse Catalog button is clicked", () => {
+    render(<AgentImportModal isOpen={true} onClose={onClose} onImported={onImported} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Browse Catalog" }));
+
+    // The browse mode should render the search input (the fetch for companies is async)
+    expect(screen.getByPlaceholderText("Search companies...")).toBeTruthy();
   });
 });

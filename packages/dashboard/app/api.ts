@@ -2500,6 +2500,16 @@ export function fetchAgentTasks(agentId: string, projectId?: string): Promise<Ta
 
 // ── Agent Import API ────────────────────────────────────────────────────────
 
+/** Company entry from companies.sh catalog */
+export interface CompanyEntry {
+  slug: string;
+  name: string;
+  tagline?: string;
+  repo?: string;
+  website?: string;
+  installs?: number;
+}
+
 /** Result of importing agents from an Agent Companies source */
 export interface AgentImportResult {
   companyName?: string;
@@ -2513,11 +2523,28 @@ export interface AgentImportResult {
 }
 
 /**
+ * Fetch companies from companies.sh catalog.
+ */
+export function fetchCompanies(): Promise<CompanyEntry[]> {
+  return api<{ companies: CompanyEntry[] }>("/agents/companies").then((res) => res.companies);
+}
+
+/**
  * Import agents from an Agent Companies source via the API.
  * Uses dryRun for preview, then actual import.
+ *
+ * Supports four input modes:
+ * - { manifest: string } - raw AGENTS.md content
+ * - { source: string } - server directory path
+ * - { agents: unknown[] } - parsed agent manifests
+ * - { importSource: "companies.sh", companySlug: string } - companies.sh catalog entry
  */
 export function importAgents(
-  input: { manifest: string } | { source: string } | { agents: unknown[] },
+  input:
+    | { manifest: string }
+    | { source: string }
+    | { agents: unknown[] }
+    | { importSource: "companies.sh"; companySlug: string },
   options?: { dryRun?: boolean; skipExisting?: boolean },
   projectId?: string,
 ): Promise<AgentImportResult> {
