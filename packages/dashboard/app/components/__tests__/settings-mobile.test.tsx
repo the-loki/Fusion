@@ -50,6 +50,8 @@ vi.mock("../../api", () => ({
   importSettings: vi.fn(() => Promise.resolve({ success: true })),
   fetchMemory: vi.fn(() => Promise.resolve({ memory: "" })),
   saveMemory: vi.fn(() => Promise.resolve({ success: true })),
+  fetchGlobalConcurrency: vi.fn(() => Promise.resolve({ globalMaxConcurrent: 4, currentlyActive: 0, queuedCount: 0, projectsActive: {} })),
+  updateGlobalConcurrency: vi.fn(() => Promise.resolve({ globalMaxConcurrent: 4, currentlyActive: 0, queuedCount: 0, projectsActive: {} })),
 }));
 
 import { fetchSettings } from "../../api";
