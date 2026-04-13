@@ -358,7 +358,7 @@ describe("GitManagerModal", () => {
 
     await user.click(screen.getByText("Stage All"));
     await waitFor(() => {
-      expect(stageFiles).toHaveBeenCalledWith(["src/app.ts"]);
+      expect(stageFiles).toHaveBeenCalledWith(["src/app.ts"], undefined);
     });
   });
 
@@ -375,7 +375,7 @@ describe("GitManagerModal", () => {
 
     await user.click(screen.getByText("Unstage All"));
     await waitFor(() => {
-      expect(unstageFiles).toHaveBeenCalledWith(["src/index.ts"]);
+      expect(unstageFiles).toHaveBeenCalledWith(["src/index.ts"], undefined);
     });
   });
 
@@ -397,7 +397,7 @@ describe("GitManagerModal", () => {
     await user.click(commitBtn);
 
     await waitFor(() => {
-      expect(createCommit).toHaveBeenCalledWith("fix: update app");
+      expect(createCommit).toHaveBeenCalledWith("fix: update app", undefined);
     });
   });
 
@@ -502,7 +502,7 @@ describe("GitManagerModal", () => {
     // Click the commit to expand diff
     fireEvent.click(screen.getByText("Test commit"));
     await waitFor(() => {
-      expect(fetchCommitDiff).toHaveBeenCalledWith("abc1234def5678");
+      expect(fetchCommitDiff).toHaveBeenCalledWith("abc1234def5678", undefined);
     });
   });
 
@@ -539,7 +539,7 @@ describe("GitManagerModal", () => {
     await user.click(createButton);
 
     await waitFor(() => {
-      expect(createBranch).toHaveBeenCalledWith("new-feature", undefined);
+      expect(createBranch).toHaveBeenCalledWith("new-feature", undefined, undefined);
     });
   });
 
@@ -564,7 +564,7 @@ describe("GitManagerModal", () => {
     await user.click(createButton);
 
     await waitFor(() => {
-      expect(createBranch).toHaveBeenCalledWith("hotfix", "feature");
+      expect(createBranch).toHaveBeenCalledWith("hotfix", "feature", undefined);
     });
   });
 
@@ -606,7 +606,7 @@ describe("GitManagerModal", () => {
     fireEvent.click(checkoutButtons[0]);
 
     await waitFor(() => {
-      expect(checkoutBranch).toHaveBeenCalledWith("feature");
+      expect(checkoutBranch).toHaveBeenCalledWith("feature", undefined);
     });
   });
 
@@ -629,7 +629,7 @@ describe("GitManagerModal", () => {
     fireEvent.click(deleteButtons[0]);
 
     await waitFor(() => {
-      expect(deleteBranch).toHaveBeenCalledWith("feature");
+      expect(deleteBranch).toHaveBeenCalledWith("feature", undefined, undefined);
     });
   });
 
@@ -662,7 +662,7 @@ describe("GitManagerModal", () => {
     fireEvent.click(branchItems[1]);
 
     await waitFor(() => {
-      expect(fetchBranchCommits).toHaveBeenCalledWith("feature", 10);
+      expect(fetchBranchCommits).toHaveBeenCalledWith("feature", 10, undefined);
     });
 
     await waitFor(() => {
@@ -695,7 +695,7 @@ describe("GitManagerModal", () => {
     fireEvent.click(branchItems[1]);
 
     await waitFor(() => {
-      expect(fetchBranchCommits).toHaveBeenCalledWith("feature", 10);
+      expect(fetchBranchCommits).toHaveBeenCalledWith("feature", 10, undefined);
     });
 
     // Click again to deselect
@@ -798,7 +798,7 @@ describe("GitManagerModal", () => {
     fireEvent.click(commitRow);
 
     await waitFor(() => {
-      expect(fetchCommitDiff).toHaveBeenCalledWith("def456789abc");
+      expect(fetchCommitDiff).toHaveBeenCalledWith("def456789abc", undefined);
     });
   });
 
@@ -817,7 +817,7 @@ describe("GitManagerModal", () => {
     fireEvent.click(branchItems[1]);
 
     await waitFor(() => {
-      expect(fetchBranchCommits).toHaveBeenCalledWith("feature", 10);
+      expect(fetchBranchCommits).toHaveBeenCalledWith("feature", 10, undefined);
     });
 
     // Should show empty state since fetch failed
@@ -948,7 +948,7 @@ describe("GitManagerModal", () => {
     await user.click(stashBtn);
 
     await waitFor(() => {
-      expect(createStash).toHaveBeenCalledWith("my stash");
+      expect(createStash).toHaveBeenCalledWith("my stash", undefined);
     });
   });
 
@@ -965,7 +965,7 @@ describe("GitManagerModal", () => {
 
     await user.click(screen.getByText("Apply"));
     await waitFor(() => {
-      expect(applyStash).toHaveBeenCalledWith(0, false);
+      expect(applyStash).toHaveBeenCalledWith(0, false, undefined);
     });
   });
 
@@ -982,7 +982,7 @@ describe("GitManagerModal", () => {
 
     await user.click(screen.getByText("Pop"));
     await waitFor(() => {
-      expect(applyStash).toHaveBeenCalledWith(0, true);
+      expect(applyStash).toHaveBeenCalledWith(0, true, undefined);
     });
   });
 
@@ -1001,7 +1001,7 @@ describe("GitManagerModal", () => {
 
     await user.click(screen.getByTitle("Drop stash"));
     await waitFor(() => {
-      expect(dropStash).toHaveBeenCalledWith(0);
+      expect(dropStash).toHaveBeenCalledWith(0, undefined);
     });
   });
 

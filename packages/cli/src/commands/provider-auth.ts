@@ -87,7 +87,7 @@ export function wrapAuthStorageWithApiKeyProviders(
     },
     hasApiKey: (providerId) => {
       const credential = authStorage.get(providerId);
-      return credential?.type === "api_key" || authStorage.hasAuth(providerId);
+      return credential?.type === "api_key" && !!credential.key;
     },
     getApiKey: (providerId) => authStorage.getApiKey(providerId),
     get: (providerId) => authStorage.get(providerId),

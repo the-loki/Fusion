@@ -141,7 +141,7 @@ export function SettingsModal({
 
   // Import/Export state
   const [importDialogOpen, setImportDialogOpen] = useState(false);
-  const [importFile, setImportFile] = useState<File | null>(null);
+  const [, setImportFile] = useState<File | null>(null);
   const [importPreview, setImportPreview] = useState<SettingsExportData | null>(null);
   const [importLoading, setImportLoading] = useState(false);
   const [importScope, setImportScope] = useState<'global' | 'project' | 'both'>('both');
@@ -2089,7 +2089,7 @@ export function SettingsModal({
                           onChange={(e) => setApiKeyInputs((prev) => ({ ...prev, [provider.id]: e.target.value }))}
                           disabled={authActionInProgress === provider.id}
                         />
-                        {provider.authenticated ? (
+                        {provider.authenticated && !apiKeyInputs[provider.id] ? (
                           <button
                             className="btn btn-sm"
                             onClick={() => handleClearApiKey(provider.id)}
