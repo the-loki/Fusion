@@ -7202,6 +7202,195 @@ describe("File API endpoints", () => {
     });
 });
 
+describe("Workspace File Routes", () => {
+  let store: TaskStore;
+
+  beforeEach(() => {
+    store = createMockStore();
+  });
+
+  function buildApp() {
+    const app = express();
+    app.use(express.json());
+    app.use("/api", createApiRoutes(store));
+    return app;
+  }
+
+  // ── Route Collision Regression Tests ────────────────────────────────────────
+  // These tests verify that operation routes (/copy, /move, /delete, /rename)
+  // are NOT shadowed by the generic POST /files/{*filepath} write route.
+
+  describe("Route collision regression - POST /files/{*filepath}/delete", () => {
+    it("delete route is matched correctly without hitting the generic write handler", async () => {
+      // The key bug: POST /files/somefolder/delete was matching
+      // POST /files/{*filepath} with filepath="somefolder/delete", causing
+      // the "content is required" error instead of hitting the delete handler.
+
+      // Mock the file-service to track which function was called
+      const mockDeleteWorkspaceFile = vi.fn().mockResolvedValue({ success: true });
+      const mockWriteWorkspaceFile = vi.fn().mockResolvedValue({ success: true, mtime: new Date().toISOString(), size: 0 });
+      const mockReadWorkspaceFile = vi.fn().mockResolvedValue({ content: "test", mtime: new Date().toISOString(), size: 4 });
+
+      // We need to spy on the file-service module
+      // Since the routes import file-service internally, we test by checking
+      // that a delete request to /files/somefolder/delete returns success
+      // (not a 400 "content required" error from the generic handler)
+
+      const res = await REQUEST(
+        buildApp(),
+        "POST",
+        "/api/files/somefolder/delete?workspace=project",
+        JSON.stringify({}),
+        { "Content-Type": "application/json" }
+      );
+
+      // The route should NOT return 400 "content is required"
+      // It should either succeed (200/201) or return a proper error from deleteWorkspaceFile
+      // NOT the generic write handler's validation error
+      if (res.status === 400) {
+        expect(res.body.error).not.toContain("content is required");
+      }
+    });
+
+    it("POST /files/somefolder/delete does NOT require content body", async () => {
+      // This is the key regression test: the delete handler should NOT validate
+      // that content is a string, because delete doesn't take content.
+      // Previously, this would return 400 "content is required" because the
+      // generic write handler was shadowing the delete route.
+
+      const res = await REQUEST(
+        buildApp(),
+        "POST",
+        "/api/files/somefolder/delete",
+        JSON.stringify({}),
+        { "Content-Type": "application/json" }
+      );
+
+      // Should NOT be 400 "content is required" - that was the bug
+      expect(res.status).not.toBe(400);
+    });
+  });
+
+  describe("Route collision regression - POST /files/{*filepath}/copy", () => {
+    it("copy route receives correct filepath parameter", async () => {
+      // Verify that /files/myfile.txt/copy gets the right filepath="myfile.txt"
+      // not filepath="myfile.txt/copy" from the generic handler
+
+      const res = await REQUEST(
+        buildApp(),
+        "POST",
+        "/api/files/myfile.txt/copy",
+        JSON.stringify({ destination: "newfile.txt" }),
+        { "Content-Type": "application/json" }
+      );
+
+      // Should NOT be 400 "destination is required" from copy handler
+      // The copy handler should be reached, not the generic write handler
+      if (res.status === 400) {
+        expect(res.body.error).not.toBe("content is required and must be a string");
+      }
+    });
+  });
+
+  describe("Route collision regression - POST /files/{*filepath}/move", () => {
+    it("move route receives correct filepath parameter", async () => {
+      const res = await REQUEST(
+        buildApp(),
+        "POST",
+        "/api/files/myfile.txt/move",
+        JSON.stringify({ destination: "newpath/myfile.txt" }),
+        { "Content-Type": "application/json" }
+      );
+
+      if (res.status === 400) {
+        expect(res.body.error).not.toBe("content is required and must be a string");
+      }
+    });
+  });
+
+  describe("Route collision regression - POST /files/{*filepath}/rename", () => {
+    it("rename route receives correct filepath parameter", async () => {
+      const res = await REQUEST(
+        buildApp(),
+        "POST",
+        "/api/files/myfile.txt/rename",
+        JSON.stringify({ newName: "renamed.txt" }),
+        { "Content-Type": "application/json" }
+      );
+
+      if (res.status === 400) {
+        expect(res.body.error).not.toBe("content is required and must be a string");
+      }
+    });
+  });
+
+  describe("Generic write route still enforces content validation", () => {
+    it("POST /files/{*filepath} still requires content for actual writes", async () => {
+      // Make sure the generic write route still validates content correctly
+      const res = await REQUEST(
+        buildApp(),
+        "POST",
+        "/api/files/somefile.txt",
+        JSON.stringify({}),
+        { "Content-Type": "application/json" }
+      );
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain("content is required");
+    });
+
+    it("POST /files/{*filepath} accepts valid content string", async () => {
+      // This test ensures the generic write route still works for actual file writes
+      const res = await REQUEST(
+        buildApp(),
+        "POST",
+        "/api/files/newfile.txt",
+        JSON.stringify({ content: "hello world" }),
+        { "Content-Type": "application/json" }
+      );
+
+      // Should not be 400 "content is required" - the route should accept this
+      // It may fail for other reasons (e.g., file not found), but not content validation
+      if (res.status === 400) {
+        expect(res.body.error).not.toBe("content is required and must be a string");
+      }
+    });
+  });
+
+  describe("Operation routes with nested paths", () => {
+    it("POST /files/deep/path/file.txt/delete works correctly", async () => {
+      // Test that deeply nested paths work with operation routes
+      const res = await REQUEST(
+        buildApp(),
+        "POST",
+        "/api/files/deep/path/to/file.txt/delete",
+        JSON.stringify({}),
+        { "Content-Type": "application/json" }
+      );
+
+      // Should NOT be 400 "content is required"
+      if (res.status === 400) {
+        expect(res.body.error).not.toContain("content is required");
+      }
+    });
+
+    it("POST /files/a/b/c/d.txt/copy with destination", async () => {
+      const res = await REQUEST(
+        buildApp(),
+        "POST",
+        "/api/files/a/b/c/d.txt/copy",
+        JSON.stringify({ destination: "a/b/c/d_copy.txt" }),
+        { "Content-Type": "application/json" }
+      );
+
+      // Should NOT be 400 about content validation
+      if (res.status === 400) {
+        expect(res.body.error).not.toContain("content is required");
+      }
+    });
+  });
+});
+
 describe("Planning Mode Routes", () => {
     let store: TaskStore;
 

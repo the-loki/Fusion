@@ -244,6 +244,16 @@ export class ProjectEngine {
     return this.runtime.getTaskStore();
   }
 
+  /** Get the HeartbeatMonitor (if initialized). */
+  getHeartbeatMonitor() {
+    return this.runtime.getHeartbeatMonitor();
+  }
+
+  /** Get the project working directory. */
+  getWorkingDirectory(): string {
+    return this.config.workingDirectory;
+  }
+
   /** Get the PrMonitor (if initialized). */
   getPrMonitor(): PrMonitor | undefined {
     return this.prMonitor;
@@ -257,16 +267,6 @@ export class ProjectEngine {
   /** Get the AutomationStore (if initialized). */
   getAutomationStore(): AutomationStoreType | undefined {
     return this.automationStore;
-  }
-
-  /** Get the project's working directory. */
-  getWorkingDirectory(): string {
-    return this.config.workingDirectory;
-  }
-
-  /** Get the HeartbeatMonitor from the underlying runtime, if initialized. */
-  getHeartbeatMonitor(): HeartbeatMonitor | undefined {
-    return this.runtime.getHeartbeatMonitor();
   }
 
   /** Get the HeartbeatTriggerScheduler from the underlying runtime, if initialized. */

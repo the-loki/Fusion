@@ -6260,46 +6260,11 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
     }
   });
 
-  /**
-   * POST /api/files/{*filepath}
-   * Write file contents to the requested workspace. Defaults to the project root when omitted.
-   * Query param: ?workspace=project|TASK-ID
-   * Body: { content: string }
-   * Returns: { success: true; mtime: string; size: number }
-   */
-  router.post("/files/{*filepath}", async (req, res) => {
-    try {
-      const scopedStore = await getScopedStore(req);
-      const filePath = Array.isArray(req.params.filepath) ? req.params.filepath[0] : req.params.filepath ?? "";
-      const { content } = req.body;
-      const workspace = typeof req.query.workspace === "string" && req.query.workspace.length > 0
-        ? req.query.workspace
-        : "project";
-
-      if (typeof content !== "string") {
-        throw badRequest("content is required and must be a string");
-      }
-
-      const result = await writeWorkspaceFile(scopedStore, workspace, filePath, content);
-      res.json(result);
-    } catch (err: any) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-      if (err instanceof FileServiceError) {
-        const status = err.code === "ENOTASK" ? 404
-          : err.code === "ENOENT" ? 404
-          : err.code === "EACCES" ? 403
-          : err.code === "ETOOLARGE" ? 413
-          : 400;
-        throw new ApiError(status, err.message, { code: err.code });
-      } else {
-        rethrowAsApiError(err, "Internal server error");
-      }
-    }
-  });
-
   // ── File Operation Routes ─────────────────────────────────────────────
+  // IMPORTANT: Operation routes must be defined BEFORE the generic write route.
+  // Express matches routes in order, so wildcard routes would shadow specific
+  // operation routes if defined first (e.g., POST /files/somefolder/delete
+  // would match POST /files/{*filepath} with filepath="somefolder/delete").
 
   /**
    * Helper to extract filepath and workspace from request.
@@ -6516,6 +6481,50 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
           : err.code === "ENOENT" ? 404
           : err.code === "ENOTDIR" ? 400
           : err.code === "EACCES" ? 403
+          : 400;
+        throw new ApiError(status, err.message, { code: err.code });
+      } else {
+        rethrowAsApiError(err, "Internal server error");
+      }
+    }
+  });
+
+  // ── Generic File Write Route ────────────────────────────────────────────
+  // This route must be defined AFTER all operation routes to avoid shadowing.
+  // Express matches routes in order, so this wildcard route would catch
+  // /copy, /move, /delete, /rename, etc. if defined first.
+
+  /**
+   * POST /api/files/{*filepath}
+   * Write file contents to the requested workspace. Defaults to the project root when omitted.
+   * Query param: ?workspace=project|TASK-ID
+   * Body: { content: string }
+   * Returns: { success: true; mtime: string; size: number }
+   */
+  router.post("/files/{*filepath}", async (req, res) => {
+    try {
+      const scopedStore = await getScopedStore(req);
+      const filePath = Array.isArray(req.params.filepath) ? req.params.filepath[0] : req.params.filepath ?? "";
+      const { content } = req.body;
+      const workspace = typeof req.query.workspace === "string" && req.query.workspace.length > 0
+        ? req.query.workspace
+        : "project";
+
+      if (typeof content !== "string") {
+        throw badRequest("content is required and must be a string");
+      }
+
+      const result = await writeWorkspaceFile(scopedStore, workspace, filePath, content);
+      res.json(result);
+    } catch (err: any) {
+      if (err instanceof ApiError) {
+        throw err;
+      }
+      if (err instanceof FileServiceError) {
+        const status = err.code === "ENOTASK" ? 404
+          : err.code === "ENOENT" ? 404
+          : err.code === "EACCES" ? 403
+          : err.code === "ETOOLARGE" ? 413
           : 400;
         throw new ApiError(status, err.message, { code: err.code });
       } else {
