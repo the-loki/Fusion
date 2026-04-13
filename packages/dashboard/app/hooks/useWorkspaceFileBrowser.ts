@@ -16,10 +16,12 @@ interface UseWorkspaceFileBrowserReturn {
  *
  * @param workspace - The workspace identifier ("project" or task ID)
  * @param enabled - Whether fetching is enabled
+ * @param projectId - Optional project ID for multi-project scoping
  */
 export function useWorkspaceFileBrowser(
   workspace: string,
   enabled: boolean,
+  projectId?: string,
 ): UseWorkspaceFileBrowserReturn {
   const [entries, setEntries] = useState<FileNode[]>([]);
   const [currentPath, setCurrentPath] = useState<string>(".");
@@ -57,6 +59,7 @@ export function useWorkspaceFileBrowser(
         const response: FileListResponse = await fetchWorkspaceFileList(
           workspace,
           currentPath === "." ? undefined : currentPath,
+          projectId,
         );
 
         if (!cancelled) {
@@ -79,7 +82,7 @@ export function useWorkspaceFileBrowser(
     return () => {
       cancelled = true;
     };
-  }, [workspace, currentPath, enabled, refreshKey]);
+  }, [workspace, currentPath, enabled, refreshKey, projectId]);
 
   return {
     entries,

@@ -1178,28 +1178,37 @@ export interface WorkspaceListResponse {
 }
 
 /** Fetch available file browser workspaces. */
-export function fetchWorkspaces(): Promise<WorkspaceListResponse> {
-  return api<WorkspaceListResponse>("/workspaces");
+export function fetchWorkspaces(projectId?: string): Promise<WorkspaceListResponse> {
+  return api<WorkspaceListResponse>(withProjectId("/workspaces", projectId));
 }
 
 /** List files in a workspace (project root or task worktree). */
-export function fetchWorkspaceFileList(workspace: string, path?: string): Promise<FileListResponse> {
+export function fetchWorkspaceFileList(workspace: string, path?: string, projectId?: string): Promise<FileListResponse> {
   const query = new URLSearchParams({ workspace });
   if (path) {
     query.set("path", path);
+  }
+  if (projectId) {
+    query.set("projectId", projectId);
   }
   return api<FileListResponse>(`/files?${query.toString()}`);
 }
 
 /** Fetch file content from a workspace. */
-export function fetchWorkspaceFileContent(workspace: string, filePath: string): Promise<FileContentResponse> {
+export function fetchWorkspaceFileContent(workspace: string, filePath: string, projectId?: string): Promise<FileContentResponse> {
   const query = new URLSearchParams({ workspace });
+  if (projectId) {
+    query.set("projectId", projectId);
+  }
   return api<FileContentResponse>(`/files/${encodeURIComponent(filePath)}?${query.toString()}`);
 }
 
 /** Save file content to a workspace. */
-export function saveWorkspaceFileContent(workspace: string, filePath: string, content: string): Promise<SaveFileResponse> {
+export function saveWorkspaceFileContent(workspace: string, filePath: string, content: string, projectId?: string): Promise<SaveFileResponse> {
   const query = new URLSearchParams({ workspace });
+  if (projectId) {
+    query.set("projectId", projectId);
+  }
   return api<SaveFileResponse>(`/files/${encodeURIComponent(filePath)}?${query.toString()}`, {
     method: "POST",
     body: JSON.stringify({ content }),
@@ -1215,8 +1224,11 @@ export interface FileOperationResponse {
 }
 
 /** Copy a file or directory to a new location within a workspace. */
-export function copyFile(workspace: string, filePath: string, destination: string): Promise<FileOperationResponse> {
+export function copyFile(workspace: string, filePath: string, destination: string, projectId?: string): Promise<FileOperationResponse> {
   const query = new URLSearchParams({ workspace });
+  if (projectId) {
+    query.set("projectId", projectId);
+  }
   return api<FileOperationResponse>(`/files/${encodeURIComponent(filePath)}/copy?${query.toString()}`, {
     method: "POST",
     body: JSON.stringify({ destination }),
@@ -1224,8 +1236,11 @@ export function copyFile(workspace: string, filePath: string, destination: strin
 }
 
 /** Move a file or directory to a new location within a workspace. */
-export function moveFile(workspace: string, filePath: string, destination: string): Promise<FileOperationResponse> {
+export function moveFile(workspace: string, filePath: string, destination: string, projectId?: string): Promise<FileOperationResponse> {
   const query = new URLSearchParams({ workspace });
+  if (projectId) {
+    query.set("projectId", projectId);
+  }
   return api<FileOperationResponse>(`/files/${encodeURIComponent(filePath)}/move?${query.toString()}`, {
     method: "POST",
     body: JSON.stringify({ destination }),
@@ -1233,16 +1248,22 @@ export function moveFile(workspace: string, filePath: string, destination: strin
 }
 
 /** Delete a file or directory within a workspace. */
-export function deleteFile(workspace: string, filePath: string): Promise<FileOperationResponse> {
+export function deleteFile(workspace: string, filePath: string, projectId?: string): Promise<FileOperationResponse> {
   const query = new URLSearchParams({ workspace });
+  if (projectId) {
+    query.set("projectId", projectId);
+  }
   return api<FileOperationResponse>(`/files/${encodeURIComponent(filePath)}/delete?${query.toString()}`, {
     method: "POST",
   });
 }
 
 /** Rename a file or directory within a workspace. */
-export function renameFile(workspace: string, filePath: string, newName: string): Promise<FileOperationResponse> {
+export function renameFile(workspace: string, filePath: string, newName: string, projectId?: string): Promise<FileOperationResponse> {
   const query = new URLSearchParams({ workspace });
+  if (projectId) {
+    query.set("projectId", projectId);
+  }
   return api<FileOperationResponse>(`/files/${encodeURIComponent(filePath)}/rename?${query.toString()}`, {
     method: "POST",
     body: JSON.stringify({ newName }),
@@ -1250,14 +1271,20 @@ export function renameFile(workspace: string, filePath: string, newName: string)
 }
 
 /** Get the download URL for a single file in a workspace. */
-export function downloadFileUrl(workspace: string, filePath: string): string {
+export function downloadFileUrl(workspace: string, filePath: string, projectId?: string): string {
   const query = new URLSearchParams({ workspace });
+  if (projectId) {
+    query.set("projectId", projectId);
+  }
   return `/api/files/${encodeURIComponent(filePath)}/download?${query.toString()}`;
 }
 
 /** Get the download URL for a folder as ZIP in a workspace. */
-export function downloadZipUrl(workspace: string, filePath: string): string {
+export function downloadZipUrl(workspace: string, filePath: string, projectId?: string): string {
   const query = new URLSearchParams({ workspace });
+  if (projectId) {
+    query.set("projectId", projectId);
+  }
   return `/api/files/${encodeURIComponent(filePath)}/download-zip?${query.toString()}`;
 }
 

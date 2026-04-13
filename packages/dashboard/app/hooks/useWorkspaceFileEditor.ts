@@ -20,11 +20,13 @@ interface UseWorkspaceFileEditorReturn {
  * @param workspace - The workspace identifier ("project" or task ID)
  * @param filePath - The selected file path
  * @param enabled - Whether loading is enabled
+ * @param projectId - Optional project ID for multi-project scoping
  */
 export function useWorkspaceFileEditor(
   workspace: string,
   filePath: string | null,
   enabled: boolean,
+  projectId?: string,
 ): UseWorkspaceFileEditorReturn {
   const [content, setContentState] = useState<string>("");
   const [originalContent, setOriginalContent] = useState<string>("");
@@ -54,7 +56,7 @@ export function useWorkspaceFileEditor(
       setError(null);
 
       try {
-        const response: FileContentResponse = await fetchWorkspaceFileContent(workspace, filePath!);
+        const response: FileContentResponse = await fetchWorkspaceFileContent(workspace, filePath!, projectId);
 
         if (!cancelled) {
           setContentState(response.content);
@@ -80,7 +82,7 @@ export function useWorkspaceFileEditor(
     return () => {
       cancelled = true;
     };
-  }, [workspace, filePath, enabled]);
+  }, [workspace, filePath, enabled, projectId]);
 
   const hasChanges = content !== originalContent;
 
@@ -93,7 +95,7 @@ export function useWorkspaceFileEditor(
     setError(null);
 
     try {
-      const response: SaveFileResponse = await saveWorkspaceFileContent(workspace, filePath, content);
+      const response: SaveFileResponse = await saveWorkspaceFileContent(workspace, filePath, content, projectId);
       setOriginalContent(content);
       setMtime(response.mtime);
     } catch (err: any) {
@@ -102,7 +104,7 @@ export function useWorkspaceFileEditor(
     } finally {
       setSaving(false);
     }
-  }, [workspace, filePath, content, hasChanges]);
+  }, [workspace, filePath, content, hasChanges, projectId]);
 
   return {
     content,

@@ -768,7 +768,14 @@ export async function runServe(
     automationStore,
     missionAutopilot,
     missionExecutionLoop,
-    heartbeatMonitor,
+    heartbeatMonitor: heartbeatMonitor
+      ? {
+          rootDir: cwd,
+          startRun: heartbeatMonitor.startRun.bind(heartbeatMonitor),
+          executeHeartbeat: heartbeatMonitor.executeHeartbeat.bind(heartbeatMonitor),
+          stopRun: heartbeatMonitor.stopRun.bind(heartbeatMonitor),
+        }
+      : undefined,
     pluginStore,
     pluginLoader,
     pluginRunner: pluginLoader,

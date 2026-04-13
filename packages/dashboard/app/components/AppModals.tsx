@@ -166,6 +166,7 @@ export function AppModals({
           isOpen={true}
           onClose={modalManager.closeFiles}
           onWorkspaceChange={modalManager.setFileWorkspace}
+          projectId={projectId}
         />
       )}
 

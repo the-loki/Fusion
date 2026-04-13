@@ -15,6 +15,8 @@ interface FileBrowserProps {
   workspace?: string;
   /** Callback to refresh the file list after an operation */
   onRefresh?: () => void;
+  /** Optional project ID for multi-project scoping */
+  projectId?: string;
 }
 
 function formatBytes(bytes?: number): string {
@@ -305,6 +307,7 @@ export function FileBrowser({
   onRetry,
   workspace,
   onRefresh,
+  projectId,
 }: FileBrowserProps) {
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(INITIAL_CONTEXT_MENU);
   const [dialog, setDialog] = useState<DialogState>(INITIAL_DIALOG);
@@ -443,14 +446,14 @@ export function FileBrowser({
     // Download actions trigger directly (no dialog)
     if (action === "download") {
       if (!workspace) return;
-      const url = downloadFileUrl(workspace, fullPath);
+      const url = downloadFileUrl(workspace, fullPath, projectId);
       window.open(url, "_blank");
       return;
     }
 
     if (action === "download-zip") {
       if (!workspace) return;
-      const url = downloadZipUrl(workspace, fullPath);
+      const url = downloadZipUrl(workspace, fullPath, projectId);
       window.open(url, "_blank");
       return;
     }
@@ -462,7 +465,7 @@ export function FileBrowser({
       entryFullPath: fullPath,
     });
     setOperationError(null);
-  }, [contextMenu, workspace]);
+  }, [contextMenu, workspace, projectId]);
 
   const handleDialogConfirm = useCallback(async (value: string) => {
     if (!dialog.type || !dialog.entry || !workspace) return;
@@ -473,16 +476,16 @@ export function FileBrowser({
     try {
       switch (dialog.type) {
         case "copy":
-          await copyFile(workspace, dialog.entryFullPath, value);
+          await copyFile(workspace, dialog.entryFullPath, value, projectId);
           break;
         case "move":
-          await moveFile(workspace, dialog.entryFullPath, value);
+          await moveFile(workspace, dialog.entryFullPath, value, projectId);
           break;
         case "rename":
-          await renameFile(workspace, dialog.entryFullPath, value);
+          await renameFile(workspace, dialog.entryFullPath, value, projectId);
           break;
         case "delete":
-          await deleteFile(workspace, dialog.entryFullPath);
+          await deleteFile(workspace, dialog.entryFullPath, projectId);
           break;
       }
 
@@ -493,7 +496,7 @@ export function FileBrowser({
     } finally {
       setOperationLoading(false);
     }
-  }, [dialog, workspace, onRefresh]);
+  }, [dialog, workspace, onRefresh, projectId]);
 
   const handleDialogCancel = useCallback(() => {
     setDialog(INITIAL_DIALOG);

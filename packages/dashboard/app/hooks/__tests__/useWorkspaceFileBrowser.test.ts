@@ -32,7 +32,7 @@ describe("useWorkspaceFileBrowser", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     expect(result.current.entries).toEqual(mockResponse.entries);
-    expect(mockFetchWorkspaceFileList).toHaveBeenCalledWith("FN-123", undefined);
+    expect(mockFetchWorkspaceFileList).toHaveBeenCalledWith("FN-123", undefined, undefined);
   });
 
   it("resets path when workspace changes", async () => {
@@ -53,12 +53,12 @@ describe("useWorkspaceFileBrowser", () => {
     });
 
     await waitFor(() => expect(result.current.currentPath).toBe("src"));
-    await waitFor(() => expect(mockFetchWorkspaceFileList).toHaveBeenLastCalledWith("FN-123", "src"));
+    await waitFor(() => expect(mockFetchWorkspaceFileList).toHaveBeenLastCalledWith("FN-123", "src", undefined));
 
     rerender({ workspace: "project" });
 
     await waitFor(() => expect(result.current.currentPath).toBe("."));
-    await waitFor(() => expect(mockFetchWorkspaceFileList).toHaveBeenLastCalledWith("project", undefined));
+    await waitFor(() => expect(mockFetchWorkspaceFileList).toHaveBeenLastCalledWith("project", undefined, undefined));
   });
 
   it("handles fetch errors", async () => {

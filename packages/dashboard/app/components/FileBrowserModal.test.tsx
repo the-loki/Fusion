@@ -84,7 +84,7 @@ describe("FileBrowserModal", () => {
 
     expect(screen.getByText("Files — Project")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /kb/i })).toBeInTheDocument();
-    expect(mockUseWorkspaceFileBrowser).toHaveBeenCalledWith("project", true);
+    expect(mockUseWorkspaceFileBrowser).toHaveBeenCalledWith("project", true, undefined);
   });
 
   it("opens a file in the editor when selected", async () => {
@@ -102,7 +102,7 @@ describe("FileBrowserModal", () => {
       expect(screen.getByLabelText("Editor for file1.ts")).toBeInTheDocument();
     });
 
-    expect(mockUseWorkspaceFileEditor).toHaveBeenLastCalledWith("project", "file1.ts", true);
+    expect(mockUseWorkspaceFileEditor).toHaveBeenLastCalledWith("project", "file1.ts", true, undefined);
   });
 
   it("switches workspace and notifies parent", async () => {

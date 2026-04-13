@@ -45,6 +45,7 @@ interface FileBrowserModalProps {
   initialWorkspace?: string;
   onClose: () => void;
   onWorkspaceChange?: (workspace: string) => void;
+  projectId?: string;
 }
 
 /**
@@ -55,8 +56,9 @@ export function FileBrowserModal({
   initialWorkspace = "project",
   onClose,
   onWorkspaceChange,
+  projectId,
 }: FileBrowserModalProps) {
-  const { projectName, workspaces } = useWorkspaces();
+  const { projectName, workspaces } = useWorkspaces(projectId);
   const [currentWorkspace, setCurrentWorkspace] = useState(initialWorkspace);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
@@ -69,7 +71,7 @@ export function FileBrowserModal({
     loading: browserLoading,
     error: browserError,
     refresh,
-  } = useWorkspaceFileBrowser(currentWorkspace, true);
+  } = useWorkspaceFileBrowser(currentWorkspace, true, projectId);
 
   const {
     content,
@@ -81,7 +83,7 @@ export function FileBrowserModal({
     save,
     hasChanges,
     mtime,
-  } = useWorkspaceFileEditor(currentWorkspace, selectedFile, true);
+  } = useWorkspaceFileEditor(currentWorkspace, selectedFile, true, projectId);
 
   useEffect(() => {
     setCurrentWorkspace(initialWorkspace);
@@ -155,8 +157,8 @@ export function FileBrowserModal({
   // Compute image source URL when an image file is selected
   const imageSrc = useMemo(() => {
     if (!selectedFile || !isImageFile(selectedFile)) return null;
-    return downloadFileUrl(currentWorkspace, selectedFile);
-  }, [selectedFile, currentWorkspace]);
+    return downloadFileUrl(currentWorkspace, selectedFile, projectId);
+  }, [selectedFile, currentWorkspace, projectId]);
 
   const formatFileSize = (value: string): string => {
     const bytes = new Blob([value]).size;
@@ -202,6 +204,7 @@ export function FileBrowserModal({
               onRetry={refresh}
               workspace={currentWorkspace}
               onRefresh={refresh}
+              projectId={projectId}
             />
           </div>
 

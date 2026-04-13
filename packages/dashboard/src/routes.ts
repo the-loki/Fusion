@@ -1802,6 +1802,22 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
   const hasHeartbeatExecutor = Boolean(heartbeatMonitor);
   const aiSessionStore = options?.aiSessionStore;
 
+  /**
+   * Check whether the heartbeatMonitor is bound to the same project as scopedStore.
+   * Returns false when the monitor's rootDir is set and differs from the store's root.
+   * Returns true when rootDir is not exposed (backward compatible) or paths match.
+   */
+  function isHeartbeatMonitorForProject(scopedStore: TaskStore): boolean {
+    if (!heartbeatMonitor?.rootDir) return true; // no rootDir exposed — assume compatible
+    try {
+      const monitorRoot = resolve(heartbeatMonitor.rootDir);
+      const storeRoot = resolve(scopedStore.getRootDir());
+      return monitorRoot === storeRoot;
+    } catch {
+      return true; // path resolution failure — assume compatible
+    }
+  }
+
   const triggerCommentWakeForAssignedAgent = async (
     scopedStore: TaskStore,
     task: Task,
@@ -1812,6 +1828,12 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
     },
   ): Promise<void> => {
     if (!hasHeartbeatExecutor || !heartbeatMonitor || !task.assignedAgentId) {
+      return;
+    }
+
+    // Guard: heartbeatMonitor is bound to a specific project root directory.
+    // Skip the wake when the scoped store belongs to a different project.
+    if (!isHeartbeatMonitorForProject(scopedStore)) {
       return;
     }
 
@@ -9585,13 +9607,15 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
           throw badRequest(`Invalid companies.sh slug: "${importCompanySlug}". Slugs must be lowercase alphanumeric with hyphens.`);
         }
 
-        // Fetch company info from companies.sh API
-        const companyApiUrl = `https://companies.sh/api/companies/${encodeURIComponent(importCompanySlug)}`;
+        // Fetch company info from companies.sh catalog API
+        // Note: The per-company endpoint (/api/companies/:slug) returns HTML (SPA),
+        // so we fetch the full list and filter by slug.
+        const companyApiUrl = "https://companies.sh/api/companies";
         let companyInfo: { name: string; repo?: string; tagline?: string } | null = null;
 
         try {
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 10000);
+          const timeout = setTimeout(() => controller.abort(), 15000);
 
           const response = await fetch(companyApiUrl, {
             signal: controller.signal,
@@ -9604,21 +9628,31 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
           clearTimeout(timeout);
 
           if (!response.ok) {
-            if (response.status === 404) {
-              throw badRequest(`Company not found: "${importCompanySlug}"`);
-            }
             throw new Error(`companies.sh API returned ${response.status}`);
           }
 
           const contentType = response.headers.get("content-type") ?? "";
           if (!contentType.includes("application/json")) {
-            throw new Error("companies.sh API returned non-JSON");
+            throw new Error("companies.sh API returned non-JSON content");
           }
 
           const data = await response.json() as Record<string, unknown>;
-          const name = typeof data.name === "string" ? data.name : importCompanySlug;
-          const repo = typeof data.repo === "string" ? data.repo : undefined;
-          const tagline = typeof data.tagline === "string" ? data.tagline : undefined;
+
+          // The API returns { items: [...] } — find the matching company by slug
+          const items = Array.isArray(data.items)
+            ? data.items as Record<string, unknown>[]
+            : Array.isArray(data)
+              ? data as Record<string, unknown>[]
+              : [];
+
+          const match = items.find((item) => item.slug === importCompanySlug);
+          if (!match) {
+            throw badRequest(`Company not found: "${importCompanySlug}"`);
+          }
+
+          const name = typeof match.name === "string" ? match.name : importCompanySlug;
+          const repo = typeof match.repo === "string" ? match.repo : undefined;
+          const tagline = typeof match.tagline === "string" ? match.tagline : undefined;
 
           companyInfo = { name, repo, tagline };
         } catch (fetchErr) {
@@ -10671,7 +10705,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
 
       // Optionally trigger execution
       let run: import("@fusion/core").AgentHeartbeatRun | undefined;
-      if (triggerExecution && hasHeartbeatExecutor && heartbeatMonitor) {
+      if (triggerExecution && hasHeartbeatExecutor && heartbeatMonitor && isHeartbeatMonitorForProject(scopedStore)) {
         run = await heartbeatMonitor.executeHeartbeat({
           agentId: req.params.id,
           source: "on_demand",
@@ -10810,6 +10844,13 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       if (hasHeartbeatExecutor && heartbeatMonitor) {
         // Check for existing active run
         const scopedStore = await getScopedStore(req);
+
+        // Guard: heartbeatMonitor is bound to a specific project root directory.
+        // Reject when the scoped store belongs to a different project.
+        if (!isHeartbeatMonitorForProject(scopedStore)) {
+          throw new ApiError(400, "Agent execution is only available for the server's primary project. The heartbeat monitor is not bound to this project.");
+        }
+
         const { AgentStore: AgentStoreClass } = await import("@fusion/core");
         const agentStore = new AgentStoreClass({ rootDir: scopedStore.getFusionDir() });
         await agentStore.init();
@@ -10888,7 +10929,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         return;
       }
 
-      if (hasHeartbeatExecutor && heartbeatMonitor) {
+      if (hasHeartbeatExecutor && heartbeatMonitor && isHeartbeatMonitorForProject(scopedStore)) {
         await heartbeatMonitor.stopRun(req.params.id);
       } else {
         const existingRun = await agentStore.getRunDetail(req.params.id, activeRun.id);

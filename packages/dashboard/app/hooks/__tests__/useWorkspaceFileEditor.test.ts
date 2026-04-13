@@ -36,7 +36,7 @@ describe("useWorkspaceFileEditor", () => {
 
     expect(result.current.content).toBe("hello");
     expect(result.current.originalContent).toBe("hello");
-    expect(mockFetchWorkspaceFileContent).toHaveBeenCalledWith("FN-123", "src/index.ts");
+    expect(mockFetchWorkspaceFileContent).toHaveBeenCalledWith("FN-123", "src/index.ts", undefined);
   });
 
   it("saves workspace file changes", async () => {
@@ -66,7 +66,7 @@ describe("useWorkspaceFileEditor", () => {
       await result.current.save();
     });
 
-    expect(mockSaveWorkspaceFileContent).toHaveBeenCalledWith("project", "README.md", "changed");
+    expect(mockSaveWorkspaceFileContent).toHaveBeenCalledWith("project", "README.md", "changed", undefined);
     expect(result.current.hasChanges).toBe(false);
     expect(result.current.mtime).toBe("2024-01-02T00:00:00Z");
   });

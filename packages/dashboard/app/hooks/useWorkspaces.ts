@@ -37,7 +37,7 @@ function mapTaskWorkspace(task: WorkspaceTaskInfo): WorkspaceInfo {
 /**
  * Fetch and poll the list of available file browser workspaces.
  */
-export function useWorkspaces(): UseWorkspacesReturn {
+export function useWorkspaces(projectId?: string): UseWorkspacesReturn {
   const [projectName, setProjectName] = useState("Project Root");
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,7 +48,7 @@ export function useWorkspaces(): UseWorkspacesReturn {
 
     async function loadWorkspaces() {
       try {
-        const response = await fetchWorkspaces();
+        const response = await fetchWorkspaces(projectId);
         if (cancelled) {
           return;
         }
@@ -76,7 +76,7 @@ export function useWorkspaces(): UseWorkspacesReturn {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, []);
+  }, [projectId]);
 
   return {
     projectName,

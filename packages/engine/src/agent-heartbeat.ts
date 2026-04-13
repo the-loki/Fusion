@@ -226,6 +226,14 @@ export class HeartbeatMonitor {
   }
 
   /**
+   * Get the project root directory this monitor is bound to.
+   * Returns undefined when not configured for execution.
+   */
+  getRootDir(): string | undefined {
+    return this.rootDir;
+  }
+
+  /**
    * Register an agent for monitoring with optional session context.
    * @param agentId - The agent ID
    * @param session - Session with dispose() for cleanup

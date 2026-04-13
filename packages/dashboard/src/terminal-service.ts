@@ -832,21 +832,24 @@ export class TerminalService extends EventEmitter {
   }
 }
 
-// Singleton instance (initialized lazily with project root)
-let terminalService: TerminalService | null = null;
-let initializedRoot: string | null = null;
+// Per-project service instances (keyed by resolved project root)
+const terminalServices: Map<string, TerminalService> = new Map();
 
 export function getTerminalService(projectRoot?: string, maxSessions?: number): TerminalService {
-  if (!terminalService || (projectRoot && projectRoot !== initializedRoot)) {
-    if (!projectRoot) {
+  if (!projectRoot) {
+    // Fallback: return the first available instance or throw
+    const first = terminalServices.values().next();
+    if (first.done) {
       throw new Error("TerminalService requires projectRoot for initialization");
     }
-    // Clean up old instance to avoid leaking PTY processes
-    if (terminalService) {
-      terminalService.cleanup();
-    }
-    terminalService = new TerminalService(projectRoot, maxSessions);
-    initializedRoot = projectRoot;
+    return first.value;
   }
-  return terminalService;
+  const resolvedRoot = path.resolve(projectRoot);
+  const existing = terminalServices.get(resolvedRoot);
+  if (existing) {
+    return existing;
+  }
+  const service = new TerminalService(resolvedRoot, maxSessions);
+  terminalServices.set(resolvedRoot, service);
+  return service;
 }

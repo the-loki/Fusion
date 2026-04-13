@@ -109,6 +109,8 @@ export interface ServerOptions {
   };
   /** Optional HeartbeatMonitor for triggering agent execution runs */
   heartbeatMonitor?: {
+    /** Project root directory this monitor is bound to. Used for scope validation. */
+    rootDir?: string;
     startRun(agentId: string, options?: { source: import("@fusion/core").HeartbeatInvocationSource; triggerDetail?: string; contextSnapshot?: Record<string, unknown> }): Promise<import("@fusion/core").AgentHeartbeatRun>;
     executeHeartbeat(options: {
       agentId: string;
