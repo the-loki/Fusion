@@ -9,12 +9,14 @@ import {
   connectMissionInterviewStream,
   fetchAiSession,
   parseConversationHistory,
+  fetchModels,
   type MissionPlanSummary,
   type ConversationHistoryEntry,
   type MissionPlanMilestone,
   type MissionPlanSlice,
   type MissionPlanFeature,
   type MissionWithHierarchy,
+  type ModelInfo,
 } from "../api";
 import {
   saveMissionGoal,
@@ -41,9 +43,31 @@ import {
   Lock,
 } from "lucide-react";
 import { ConversationHistory } from "./ConversationHistory";
+import { CustomModelDropdown } from "./CustomModelDropdown";
 import { useSessionLock } from "../hooks/useSessionLock";
 import { useAiSessionSync } from "../hooks/useAiSessionSync";
 import { getSessionTabId } from "../utils/getSessionTabId";
+
+// Helper functions for model selection
+function getModelSelectionValue(provider?: string, modelId?: string): string {
+  return provider && modelId ? `${provider}/${modelId}` : "";
+}
+
+function parseModelSelection(value: string): { provider?: string; modelId?: string } {
+  if (!value) {
+    return { provider: undefined, modelId: undefined };
+  }
+
+  const slashIndex = value.indexOf("/");
+  if (slashIndex === -1) {
+    return { provider: undefined, modelId: undefined };
+  }
+
+  return {
+    provider: value.slice(0, slashIndex),
+    modelId: value.slice(slashIndex + 1),
+  };
+}
 
 interface MissionInterviewModalProps {
   isOpen: boolean;
@@ -112,6 +136,56 @@ export function MissionInterviewModal({
     broadcastUnlock,
     broadcastHeartbeat,
   } = useAiSessionSync();
+
+  // Model selection state
+  const [modelProvider, setModelProvider] = useState<string | undefined>(undefined);
+  const [modelId, setModelId] = useState<string | undefined>(undefined);
+  const [loadedModels, setLoadedModels] = useState<ModelInfo[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [favoriteProviders, setFavoriteProviders] = useState<string[]>([]);
+  const [favoriteModels, setFavoriteModels] = useState<string[]>([]);
+
+  const modelSelectionValue = getModelSelectionValue(modelProvider, modelId);
+
+  // Load models on mount
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setModelsLoading(true);
+        const resp = await fetchModels();
+        setLoadedModels(resp.models);
+        setFavoriteProviders(resp.favoriteProviders);
+        setFavoriteModels(resp.favoriteModels);
+      } catch (err: any) {
+        setModelsError(err.message || "Failed to load models");
+      } finally {
+        setModelsLoading(false);
+      }
+    };
+    void load();
+  }, []);
+
+  const handleToggleFavoriteProvider = useCallback((provider: string) => {
+    setFavoriteProviders((prev) =>
+      prev.includes(provider) ? prev.filter((item) => item !== provider) : [...prev, provider],
+    );
+  }, []);
+
+  const handleToggleFavoriteModel = useCallback((modelIdToToggle: string) => {
+    setFavoriteModels((prev) =>
+      prev.includes(modelIdToToggle) ? prev.filter((item) => item !== modelIdToToggle) : [...prev, modelIdToToggle],
+    );
+  }, []);
+
+  const getModelBadgeLabel = useCallback(
+    (provider?: string, mid?: string) => {
+      if (!provider || !mid) return "Using default";
+      const matched = loadedModels.find((model) => model.provider === provider && model.id === mid);
+      return matched ? `${matched.provider}/${matched.id}` : `${provider}/${mid}`;
+    },
+    [loadedModels],
+  );
 
   const connectToMissionInterviewStream = useCallback(
     (sessionId: string) => {
@@ -216,7 +290,11 @@ export function MissionInterviewModal({
       setView({ type: "loading" });
 
       try {
-        const { sessionId } = await startMissionInterview(goal.trim(), projectId);
+        const { sessionId } = await startMissionInterview(
+          goal.trim(),
+          projectId,
+          modelProvider && modelId ? { modelProvider, modelId } : undefined,
+        );
         currentSessionIdRef.current = sessionId;
         setLockSessionId(sessionId);
         clearMissionGoal(projectId);
@@ -231,7 +309,7 @@ export function MissionInterviewModal({
         setLockSessionId(null);
       }
     },
-    [connectToMissionInterviewStream, missionGoal, projectId]
+    [connectToMissionInterviewStream, missionGoal, modelProvider, modelId, projectId]
   );
 
   // Focus textarea when opening
@@ -446,6 +524,8 @@ export function MissionInterviewModal({
     setIsRetrying(false);
     setHasProgress(false);
     setIsCreating(false);
+    setModelProvider(undefined);
+    setModelId(undefined);
     currentSessionIdRef.current = null;
     setLockSessionId(null);
     onClose();
@@ -657,6 +737,71 @@ export function MissionInterviewModal({
                         {mission.length > 45 ? mission.slice(0, 45) + "..." : mission}
                       </button>
                     ))}
+                  </div>
+                </div>
+
+                <div className="planning-model-select-group">
+                  <label htmlFor="mission-interview-modal-model" className="form-label">
+                    Planning Model
+                    {modelsLoading && (
+                      <span className="text-muted text-muted-sm">
+                        Loading models…
+                      </span>
+                    )}
+                  </label>
+                  <CustomModelDropdown
+                    id="mission-interview-modal-model"
+                    label="Planning Model"
+                    value={modelSelectionValue}
+                    onChange={(value) => {
+                      const { provider, modelId: selectedModelId } = parseModelSelection(value);
+                      setModelProvider(provider);
+                      setModelId(selectedModelId);
+                    }}
+                    models={loadedModels}
+                    disabled={modelsLoading}
+                    favoriteProviders={favoriteProviders}
+                    onToggleFavorite={handleToggleFavoriteProvider}
+                    favoriteModels={favoriteModels}
+                    onToggleModelFavorite={handleToggleFavoriteModel}
+                  />
+                  {modelsError && (
+                    <div className="form-hint form-hint-error">
+                      {modelsError}{" "}
+                      <button
+                        type="button"
+                        className="text-link-btn"
+                        onClick={() => {
+                          void (async () => {
+                            try {
+                              setModelsLoading(true);
+                              const resp = await fetchModels();
+                              setLoadedModels(resp.models);
+                              setFavoriteProviders(resp.favoriteProviders);
+                              setFavoriteModels(resp.favoriteModels);
+                              setModelsError(null);
+                            } catch (err: any) {
+                              setModelsError(err.message || "Failed to load models");
+                            } finally {
+                              setModelsLoading(false);
+                            }
+                          })();
+                        }}
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  )}
+                  <div className="model-selector-current model-selector-current--spaced">
+                    <span
+                      className={`model-badge ${
+                        modelProvider && modelId
+                          ? "model-badge-custom"
+                          : "model-badge-default"
+                      }`}
+                    >
+                      {getModelBadgeLabel(modelProvider, modelId)}
+                    </span>
                   </div>
                 </div>
               </div>

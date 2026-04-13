@@ -354,7 +354,7 @@ describe("ModalReentry", () => {
 
       // Wait for auto-start
       await waitFor(() => {
-        expect(mockStartMissionInterview).toHaveBeenCalledWith("From prop", undefined);
+        expect(mockStartMissionInterview).toHaveBeenCalledWith("From prop", undefined, undefined);
       });
 
       // localStorage should NOT be read since prop was provided

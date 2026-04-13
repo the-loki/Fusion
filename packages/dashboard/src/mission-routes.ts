@@ -354,13 +354,13 @@ export function createMissionRouter(
   /**
    * POST /api/missions/interview/start
    * Start a mission interview session with AI agent streaming.
-   * Body: { missionTitle: string }
+   * Body: { missionTitle: string, modelProvider?: string, modelId?: string }
    * Returns: { sessionId: string }
    */
   router.post(
     "/interview/start",
     catchTypedHandler(async (req, res) => {
-      const { missionTitle } = req.body;
+      const { missionTitle, modelProvider, modelId } = req.body;
 
       if (!missionTitle || typeof missionTitle !== "string" || !missionTitle.trim()) {
         throw badRequest("missionTitle is required and must be a non-empty string");
@@ -368,6 +368,19 @@ export function createMissionRouter(
 
       if (missionTitle.length > 500) {
         throw badRequest("missionTitle must be 500 characters or less");
+      }
+
+      // Validate model parameters - if one is provided, both must be provided
+      if (modelProvider !== undefined && typeof modelProvider !== "string") {
+        throw badRequest("modelProvider must be a string when provided");
+      }
+
+      if (modelId !== undefined && typeof modelId !== "string") {
+        throw badRequest("modelId must be a string when provided");
+      }
+
+      if ((modelProvider && !modelId) || (!modelProvider && modelId)) {
+        throw badRequest("Both modelProvider and modelId must be provided together, or neither should be provided");
       }
 
       try {
@@ -386,6 +399,8 @@ export function createMissionRouter(
           missionTitle.trim(),
           rootDir,
           settings.promptOverrides,
+          modelProvider,
+          modelId,
         );
         res.status(201).json({ sessionId });
       } catch (err: any) {

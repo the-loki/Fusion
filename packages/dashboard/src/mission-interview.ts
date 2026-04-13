@@ -196,6 +196,9 @@ interface MissionInterviewSession {
   thinkingOutput: string;
   /** Thinking output generated while producing currentQuestion */
   lastGeneratedThinking: string;
+  /** Model override for this interview session */
+  modelProvider?: string;
+  modelId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -274,6 +277,8 @@ function persistMissionSession(session: MissionInterviewSession, status: "genera
       ip: session.ip,
       missionTitle: session.missionTitle,
       missionId: session.missionId,
+      modelProvider: session.modelProvider,
+      modelId: session.modelId,
     }),
     conversationHistory: JSON.stringify(session.history),
     currentQuestion: session.currentQuestion ? JSON.stringify(session.currentQuestion) : null,
@@ -300,7 +305,7 @@ function unpersistMissionSession(sessionId: string): void {
 }
 
 function buildMissionInterviewSessionFromRow(row: AiSessionRow): MissionInterviewSession {
-  const payload = safeParseJson<{ ip?: string; missionId?: string; missionTitle?: string }>(
+  const payload = safeParseJson<{ ip?: string; missionId?: string; missionTitle?: string; modelProvider?: string; modelId?: string }>(
     row.inputPayload,
     {},
     { throwOnError: true, fieldName: "inputPayload" },
@@ -338,6 +343,8 @@ function buildMissionInterviewSessionFromRow(row: AiSessionRow): MissionIntervie
     thinkingOutput: row.thinkingOutput,
     lastGeneratedThinking: row.thinkingOutput || "",
     error: row.error ?? undefined,
+    modelProvider: payload.modelProvider,
+    modelId: payload.modelId,
     createdAt,
     updatedAt,
     agent: undefined,
@@ -749,6 +756,12 @@ async function createMissionInterviewAgent(
     cwd: rootDir,
     systemPrompt: effectivePrompt,
     tools: "readonly",
+    ...(session.modelProvider && session.modelId
+      ? {
+          defaultProvider: session.modelProvider,
+          defaultModelId: session.modelId,
+        }
+      : {}),
     onThinking: (delta: string) => {
       session.thinkingOutput += delta;
       persistMissionThinking(session.id, session.thinkingOutput);
@@ -963,6 +976,8 @@ export async function createMissionInterviewSession(
   missionTitle: string,
   rootDir: string,
   promptOverrides?: PromptOverrideMap,
+  modelProvider?: string,
+  modelId?: string,
 ): Promise<string> {
   if (!checkRateLimit(ip)) {
     const resetTime = getRateLimitResetTime(ip);
@@ -982,6 +997,8 @@ export async function createMissionInterviewSession(
     history: [],
     thinkingOutput: "",
     lastGeneratedThinking: "",
+    modelProvider,
+    modelId,
     createdAt: new Date(),
     updatedAt: new Date(),
   };

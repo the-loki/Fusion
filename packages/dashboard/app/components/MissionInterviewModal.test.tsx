@@ -13,6 +13,7 @@ const mockParseConversationHistory = vi.fn();
 const mockAcquireSessionLock = vi.fn();
 const mockReleaseSessionLock = vi.fn();
 const mockForceAcquireSessionLock = vi.fn();
+const mockFetchModels = vi.fn();
 
 vi.mock("../api", () => ({
   startMissionInterview: (...args: any[]) => mockStartMissionInterview(...args),
@@ -26,6 +27,7 @@ vi.mock("../api", () => ({
   acquireSessionLock: (...args: any[]) => mockAcquireSessionLock(...args),
   releaseSessionLock: (...args: any[]) => mockReleaseSessionLock(...args),
   forceAcquireSessionLock: (...args: any[]) => mockForceAcquireSessionLock(...args),
+  fetchModels: (...args: any[]) => mockFetchModels(...args),
 }));
 
 vi.mock("../hooks/modalPersistence", () => ({
@@ -74,6 +76,7 @@ describe("MissionInterviewModal", () => {
     mockAcquireSessionLock.mockResolvedValue({ acquired: true, currentHolder: null });
     mockReleaseSessionLock.mockResolvedValue(undefined);
     mockForceAcquireSessionLock.mockResolvedValue({ acquired: true, currentHolder: null });
+    mockFetchModels.mockResolvedValue({ models: [], favoriteProviders: [], favoriteModels: [] });
   });
 
   function renderModal() {
@@ -121,7 +124,7 @@ describe("MissionInterviewModal", () => {
     fireEvent.click(screen.getByText("Start Interview"));
 
     await waitFor(() => {
-      expect(mockStartMissionInterview).toHaveBeenCalledWith("Build a mission planning workflow", undefined);
+      expect(mockStartMissionInterview).toHaveBeenCalledWith("Build a mission planning workflow", undefined, undefined);
       expect(streamHandlers).toBeDefined();
     });
 

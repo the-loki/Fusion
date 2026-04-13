@@ -3867,10 +3867,18 @@ export type MissionInterviewResponse =
   | { type: "complete"; data: MissionPlanSummary };
 
 /** Start a mission interview session with AI streaming */
-export function startMissionInterview(missionTitle: string, projectId?: string): Promise<{ sessionId: string }> {
+export function startMissionInterview(
+  missionTitle: string,
+  projectId?: string,
+  modelOverride?: { modelProvider?: string; modelId?: string },
+): Promise<{ sessionId: string }> {
   return api<{ sessionId: string }>(withProjectId("/missions/interview/start", projectId), {
     method: "POST",
-    body: JSON.stringify({ missionTitle }),
+    body: JSON.stringify({
+      missionTitle,
+      modelProvider: modelOverride?.modelProvider,
+      modelId: modelOverride?.modelId,
+    }),
   });
 }
 

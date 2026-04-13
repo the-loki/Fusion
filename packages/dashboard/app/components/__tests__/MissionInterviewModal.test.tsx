@@ -17,6 +17,7 @@ vi.mock("../../api", () => ({
   acquireSessionLock: vi.fn(),
   releaseSessionLock: vi.fn(),
   forceAcquireSessionLock: vi.fn(),
+  fetchModels: vi.fn(),
 }));
 
 vi.mock("../../hooks/modalPersistence", () => ({
@@ -35,6 +36,7 @@ const mockParseConversationHistory = vi.mocked(api.parseConversationHistory);
 const mockAcquireSessionLock = vi.mocked(api.acquireSessionLock);
 const mockReleaseSessionLock = vi.mocked(api.releaseSessionLock);
 const mockForceAcquireSessionLock = vi.mocked(api.forceAcquireSessionLock);
+const mockFetchModels = vi.mocked(api.fetchModels);
 const mockGetMissionGoal = vi.mocked(modalPersistence.getMissionGoal);
 
 const sampleQuestionSingle: PlanningQuestion = {
@@ -105,6 +107,7 @@ describe("MissionInterviewModal", () => {
     mockAcquireSessionLock.mockResolvedValue({ acquired: true, currentHolder: null });
     mockReleaseSessionLock.mockResolvedValue(undefined);
     mockForceAcquireSessionLock.mockResolvedValue({ acquired: true, currentHolder: null });
+    mockFetchModels.mockResolvedValue({ models: [], favoriteProviders: [], favoriteModels: [] });
 
     mockConnectMissionInterviewStream.mockImplementation((_sessionId, _projectId, handlers) => {
       streamHandlers = handlers;
@@ -136,7 +139,7 @@ describe("MissionInterviewModal", () => {
     await user.click(screen.getByRole("button", { name: "Start Interview" }));
 
     await waitFor(() => {
-      expect(mockStartMissionInterview).toHaveBeenCalledWith(goal, undefined);
+      expect(mockStartMissionInterview).toHaveBeenCalledWith(goal, undefined, undefined);
       expect(streamHandlers).toBeDefined();
     });
   }
@@ -385,7 +388,7 @@ describe("MissionInterviewModal", () => {
     renderModal({ initialGoal: "Auto-start goal" });
 
     await waitFor(() => {
-      expect(mockStartMissionInterview).toHaveBeenCalledWith("Auto-start goal", undefined);
+      expect(mockStartMissionInterview).toHaveBeenCalledWith("Auto-start goal", undefined, undefined);
     });
   });
 

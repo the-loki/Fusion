@@ -22,6 +22,7 @@ vi.mock("../../api", async () => {
     skipMilestoneInterview: (...args: any[]) => mockSkipMilestoneInterview(...args),
     skipSliceInterview: (...args: any[]) => mockSkipSliceInterview(...args),
     triageFeature: (...args: any[]) => mockTriageFeature(...args),
+    fetchModels: () => Promise.resolve({ models: [], favoriteProviders: [], favoriteModels: [] }),
   };
 });
 

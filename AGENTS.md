@@ -2270,8 +2270,17 @@ When features are triaged to tasks via `triageFeature()`, the system automatical
 
 ### Interview Flow
 
-The `MilestoneSliceInterviewModal` component provides the UI for milestone and slice interviews:
+The `MissionInterviewModal` and `MilestoneSliceInterviewModal` components provide the UI for interviews:
 
+**Mission-level interviews** (`MissionInterviewModal`):
+1. User clicks the **Plan** button on a mission in MissionManager
+2. Dashboard opens the `MissionInterviewModal` with a model selection dropdown
+3. User optionally selects an AI model for the interview
+4. Session created via `createMissionInterviewSession()` with model override
+5. AI asks clarifying questions via `submitMissionInterviewResponse()`
+6. User reviews summary and clicks **Apply** to persist results
+
+**Milestone/slice interviews** (`MilestoneSliceInterviewModal`):
 1. User clicks the **Plan** button on a milestone or slice in MissionManager
 2. Dashboard opens the `MilestoneSliceInterviewModal`
 3. User chooses from three options:
@@ -2291,6 +2300,8 @@ For skip flow:
 4. `skipTargetInterview()` called directly
 5. Planning notes populated with mission context message
 6. State set: `interviewState: "completed"` (milestone) or `planState: "planned"` (slice)
+
+**Model Selection:** Mission-level interviews support model overrides via `MissionInterviewSession.modelProvider` and `MissionInterviewSession.modelId`. The selected model is stored in the session and persists across server restarts. Milestone/slice interviews use global default settings.
 
 ### Triage Enrichment
 

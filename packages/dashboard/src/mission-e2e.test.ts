@@ -2377,6 +2377,8 @@ describe("Mission API", () => {
         "Scoped Mission",
         scopedRootDir,
         { "mission-interview-system": "Scoped mission interview prompt" },
+        undefined,
+        undefined,
       );
     });
 
@@ -2462,6 +2464,8 @@ describe("Mission API", () => {
         "Default Mission",
         "/fake/root",
         {},
+        undefined,
+        undefined,
       );
     });
 
