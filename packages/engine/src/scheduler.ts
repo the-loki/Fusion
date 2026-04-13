@@ -7,6 +7,7 @@ import { generateReservedWorktreeName, slugify } from "./worktree-names.js";
 import { schedulerLog } from "./logger.js";
 import { type PrMonitor, type PrComment } from "./pr-monitor.js";
 import { reconcileMissionFeatureState } from "./mission-feature-sync.js";
+import { evaluateSpecStaleness, getPromptPath } from "./spec-staleness.js";
 
 /**
  * Check whether two sets of file scope paths overlap.
@@ -639,6 +640,22 @@ export class Scheduler {
           await this.store.logEntry(task.id, "Task moved to triage — filesystem validation failed", validation.reason);
           continue;
         }
+
+        // Stale spec enforcement: check if PROMPT.md has aged beyond the configured threshold.
+        // When enabled, stale tasks are moved back to triage with status "needs-respecify"
+        // so they receive fresh specification before execution. This guard runs after
+        // filesystem validation so missing/unreadable files skip staleness checks entirely.
+        const promptPath = getPromptPath(this.store.getTasksDir(), task.id);
+        const staleness = await evaluateSpecStaleness({ settings, promptPath });
+        if (staleness.isStale) {
+          schedulerLog.warn(`Task ${task.id} specification is stale — ${staleness.reason}`);
+          await this.store.moveTask(task.id, "triage");
+          await this.store.updateTask(task.id, { status: "needs-respecify" });
+          await this.store.logEntry(task.id, staleness.reason);
+          continue;
+        }
+        // If staleness evaluation was skipped (missing/unreadable file), continue to
+        // existing scheduler logic which handles filesystem validation separately.
 
         // Check file scope overlap when enabled
         if (settings.groupOverlappingFiles) {

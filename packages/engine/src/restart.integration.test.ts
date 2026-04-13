@@ -136,6 +136,7 @@ function createMockStore(overrides: Record<string, any> = {}) {
     parseFileScopeFromPrompt: vi.fn().mockResolvedValue([]),
     getSettings: vi.fn().mockResolvedValue({ ...DEFAULT_SETTINGS }),
     getRootDir: vi.fn().mockReturnValue("/tmp/root"),
+    getFusionDir: vi.fn().mockReturnValue("/tmp/root/.fusion"),
     getTasksDir: vi.fn().mockReturnValue("/tmp/root/.fusion/tasks"),
     updateStep: vi.fn().mockImplementation(async (id: string, step: number, status: StepStatus) => {
       return makeTaskDetail(id, "in-progress");

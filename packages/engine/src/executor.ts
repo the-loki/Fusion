@@ -30,6 +30,7 @@ import { StepSessionExecutor, type StepSessionExecutorOptions, type StepResult }
 import { resolveAgentInstructions, buildSystemPromptWithInstructions } from "./agent-instructions.js";
 import type { AgentReflectionService } from "./agent-reflection.js";
 import { createRunAuditor, generateSyntheticRunId, type EngineRunContext } from "./run-audit.js";
+import { evaluateSpecStaleness, getPromptPath } from "./spec-staleness.js";
 import {
   createReflectOnPerformanceTool,
   createTaskCreateTool as sharedCreateTaskCreateTool,
@@ -875,6 +876,24 @@ export class TaskExecutor {
 
     // Create run auditor for TaskStore-backed audit emission (no-ops if store doesn't support it)
     const audit = createRunAuditor(this.store, engineRunContext);
+
+    // Stale spec enforcement: check if PROMPT.md has aged beyond the configured threshold.
+    // When enabled, stale tasks are moved back to triage with status "needs-respecify"
+    // so they receive fresh specification before execution. This guard runs early in
+    // execute() to prevent stale tasks from entering worktree creation or agent sessions.
+    // If timestamp evaluation is skipped (missing/unreadable file), continue with execution
+    // so existing filesystem validation paths remain authoritative.
+    const tasksDir = join(this.store.getFusionDir(), "tasks");
+    const promptPath = getPromptPath(tasksDir, task.id);
+    const staleness = await evaluateSpecStaleness({ settings, promptPath });
+    if (staleness.isStale) {
+      executorLog.warn(`Task ${task.id} specification is stale — ${staleness.reason}`);
+      // Move to triage first, then set status so the task enters triage with needs-respecify
+      await this.store.moveTask(task.id, "triage");
+      await this.store.updateTask(task.id, { status: "needs-respecify" });
+      await this.store.logEntry(task.id, staleness.reason, undefined, this.currentRunContext);
+      return;
+    }
 
     // Hoist worktreePath so it's accessible in the catch block for dep-abort cleanup
     // Determine worktree name based on settings
