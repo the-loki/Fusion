@@ -6,6 +6,8 @@ export interface DirectoryPickerProps {
   value: string;
   onChange: (path: string) => void;
   placeholder?: string;
+  /** Optional keydown handler forwarded to the text input (e.g. Enter-to-submit). */
+  onInputKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
 }
 
 interface BrowserState {
@@ -18,7 +20,7 @@ interface BrowserState {
   showHidden: boolean;
 }
 
-export function DirectoryPicker({ value, onChange, placeholder }: DirectoryPickerProps) {
+export function DirectoryPicker({ value, onChange, placeholder, onInputKeyDown }: DirectoryPickerProps) {
   const [browser, setBrowser] = useState<BrowserState>({
     isOpen: false,
     loading: false,
@@ -105,6 +107,7 @@ export function DirectoryPicker({ value, onChange, placeholder }: DirectoryPicke
           className="directory-picker-input"
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onKeyDown={onInputKeyDown}
           placeholder={placeholder || "/path/to/your/project"}
         />
         <button

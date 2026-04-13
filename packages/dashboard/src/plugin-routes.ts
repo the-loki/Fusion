@@ -16,8 +16,8 @@
  */
 
 import { Router, type Request, type Response } from "express";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, statSync } from "node:fs";
+import { join, isAbsolute, dirname, basename } from "node:path";
 import type {
   PluginInstallation,
   PluginLoader,
@@ -39,6 +39,137 @@ interface PluginRunner {
   getPluginRoutes(): Array<{ pluginId: string; route: import("@fusion/core").PluginRouteDefinition }>;
 }
 
+// ── Install-Source Resolution Helpers ──────────────────────────────────
+// Exported for reuse in routes.ts and for direct testing.
+
+/**
+ * Validate plugin installation source.
+ * Must have either `path` (local directory) or `package` (npm package name).
+ * Enforces absolute path requirement and rejects path traversal.
+ */
+export function validateInstallSource(body: unknown): { path?: string; package?: string } {
+  if (!body || typeof body !== "object") {
+    throw badRequest("Request body is required");
+  }
+
+  const b = body as Record<string, unknown>;
+
+  if (b.path !== undefined && typeof b.path === "string") {
+    const p = b.path;
+    if (!p.trim()) {
+      throw badRequest("Path must not be empty");
+    }
+    if (!isAbsolute(p)) {
+      throw badRequest("Plugin path must be absolute");
+    }
+    // Reject path traversal sequences
+    if (p.includes("..")) {
+      throw badRequest("Plugin path must not contain path traversal (..)");
+    }
+    return { path: p };
+  }
+
+  if (b.package !== undefined && typeof b.package === "string") {
+    return { package: b.package };
+  }
+
+  throw badRequest("Request body must have either 'path' or 'package' field");
+}
+
+/**
+ * Well-known directory names that indicate a build output folder.
+ * When the user selects one of these, we look for manifest.json
+ * in the parent directory before giving up.
+ */
+export const DIST_DIR_NAMES = new Set(["dist", "build", "out", "output", "lib"]);
+
+/**
+ * Resolve an install path to the directory that contains `manifest.json`.
+ *
+ * Resolution order:
+ * 1. `<path>/manifest.json`                  — user selected package root
+ * 2. `<parent>/manifest.json`                — user selected a dist/build folder
+ *    (only when `basename(path)` is a well-known build output name)
+ *
+ * Returns `{ manifestDir, manifest }` where `manifestDir` is the canonical
+ * path the plugin-loader should use (the directory containing manifest.json).
+ */
+export async function resolvePluginManifest(
+  sourcePath: string,
+): Promise<{ manifestDir: string; manifest: import("@fusion/core").PluginManifest }> {
+  // Validate the path exists and is a directory
+  if (!existsSync(sourcePath)) {
+    throw notFound(`Path does not exist: ${sourcePath}`);
+  }
+  let stat;
+  try {
+    stat = statSync(sourcePath);
+  } catch {
+    throw badRequest(`Cannot access path: ${sourcePath}`);
+  }
+  if (!stat.isDirectory()) {
+    throw badRequest(`Path is not a directory: ${sourcePath}`);
+  }
+
+  const { readFile } = await import("node:fs/promises");
+
+  // 1. Try manifest.json directly in the provided path
+  const directManifestPath = join(sourcePath, "manifest.json");
+  if (existsSync(directManifestPath)) {
+    const manifest = await readAndValidateManifest(readFile, directManifestPath);
+    return { manifestDir: sourcePath, manifest };
+  }
+
+  // 2. If the selected dir is a well-known dist folder, check the parent
+  const dirName = basename(sourcePath).toLowerCase();
+  if (DIST_DIR_NAMES.has(dirName)) {
+    const parentDir = dirname(sourcePath);
+    const parentManifestPath = join(parentDir, "manifest.json");
+    if (existsSync(parentManifestPath)) {
+      const manifest = await readAndValidateManifest(readFile, parentManifestPath);
+      // Return the parent (package root) as the canonical install dir
+      return { manifestDir: parentDir, manifest };
+    }
+  }
+
+  // Neither location has a manifest
+  throw notFound(
+    `Plugin manifest not found. Looked for manifest.json in: ${sourcePath}` +
+    (DIST_DIR_NAMES.has(dirName) ? ` and ${dirname(sourcePath)}` : ""),
+  );
+}
+
+/**
+ * Read and validate a manifest.json file.
+ */
+async function readAndValidateManifest(
+  readFile: (path: string, encoding: BufferEncoding) => Promise<string>,
+  manifestPath: string,
+): Promise<import("@fusion/core").PluginManifest> {
+  let content: string;
+  try {
+    content = await readFile(manifestPath, "utf-8");
+  } catch (err) {
+    throw badRequest(`Cannot read manifest at ${manifestPath}: ${(err as Error).message}`);
+  }
+
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(content);
+  } catch {
+    throw badRequest(`Invalid JSON in manifest at: ${manifestPath}`);
+  }
+
+  const validation = validatePluginManifest(manifest);
+  if (!validation.valid) {
+    throw badRequest(`Invalid plugin manifest: ${validation.errors.join(", ")}`);
+  }
+
+  return manifest as import("@fusion/core").PluginManifest;
+}
+
+// ── Router Factory ────────────────────────────────────────────────────
+
 /**
  * Create the plugin management router.
  *
@@ -56,63 +187,6 @@ export function createPluginRouter(
   // ── Error Handler ───────────────────────────────────────────────
 
   router.use(catchHandler);
-
-  // ── Helper Functions ────────────────────────────────────────────
-
-  /**
-   * Validate plugin installation source.
-   * Must have either `path` (local directory) or `package` (npm package name).
-   */
-  function validateInstallSource(body: unknown): { path?: string; package?: string } {
-    if (!body || typeof body !== "object") {
-      throw badRequest("Request body is required");
-    }
-
-    const b = body as Record<string, unknown>;
-
-    if (b.path !== undefined && typeof b.path === "string") {
-      return { path: b.path };
-    }
-
-    if (b.package !== undefined && typeof b.package === "string") {
-      return { package: b.package };
-    }
-
-    throw badRequest("Request body must have either 'path' or 'package' field");
-  }
-
-  /**
-   * Load plugin manifest from a path or package.
-   */
-  async function loadPluginManifest(source: { path?: string; package?: string }): Promise<import("@fusion/core").PluginManifest> {
-    if (source.path) {
-      // Load from local path
-      const manifestPath = join(source.path, "manifest.json");
-      if (!existsSync(manifestPath)) {
-        throw notFound(`Plugin manifest not found at: ${manifestPath}`);
-      }
-
-      const { readFile } = await import("node:fs/promises");
-      const content = await readFile(manifestPath, "utf-8");
-      const manifest = JSON.parse(content);
-
-      // Validate manifest
-      const validation = validatePluginManifest(manifest);
-      if (!validation.valid) {
-        throw badRequest(`Invalid plugin manifest: ${validation.errors.join(", ")}`);
-      }
-
-      return manifest as import("@fusion/core").PluginManifest;
-    }
-
-    if (source.package) {
-      // Load from npm package - this would require dynamic import
-      // For now, throw an error indicating this is not yet supported
-      throw badRequest("Installing plugins from npm packages is not yet implemented");
-    }
-
-    throw badRequest("Invalid source");
-  }
 
   // ── Management Routes ───────────────────────────────────────────
 
@@ -145,15 +219,25 @@ export function createPluginRouter(
   /**
    * POST /plugins/install
    * Install a plugin from a local path or npm package.
+   * Supports package root and dist-folder selections via resolvePluginManifest.
    */
   router.post("/install", catchHandler(async (req: Request, res: Response) => {
     const source = validateInstallSource(req.body);
 
-    // Load manifest from source
-    const manifest = await loadPluginManifest(source);
+    // Resolve manifest — supports package root and dist-folder selections
+    let manifest: import("@fusion/core").PluginManifest;
+    let installPath: string;
 
-    // Determine the path to store
-    const installPath = source.path ?? source.package ?? "";
+    if (source.path) {
+      const resolved = await resolvePluginManifest(source.path);
+      manifest = resolved.manifest;
+      installPath = resolved.manifestDir;
+    } else if (source.package) {
+      // npm packages not yet supported
+      throw badRequest("Installing plugins from npm packages is not yet implemented");
+    } else {
+      throw badRequest("Invalid source");
+    }
 
     // Register the plugin
     try {

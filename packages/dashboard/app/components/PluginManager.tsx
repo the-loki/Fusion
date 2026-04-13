@@ -13,6 +13,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Package, Settings, Trash2, Plus, X, RefreshCw, RotateCcw } from "lucide-react";
 import { fetchPlugins, installPlugin, enablePlugin, disablePlugin, uninstallPlugin, fetchPluginSettings, updatePluginSettings, reloadPlugin } from "../api";
+import { DirectoryPicker } from "./DirectoryPicker";
 import type { PluginInstallation, PluginState } from "@fusion/core";
 import type { ToastType } from "../hooks/useToast";
 
@@ -429,18 +430,25 @@ export function PluginManager({ addToast, projectId }: PluginManagerProps) {
 
       {showInstall && (
         <div className="plugin-install-form">
-          <input
-            type="text"
-            placeholder="Local path to plugin directory"
+          <p className="plugin-install-hint">
+            Browse to a plugin package root (contains <code>manifest.json</code>) or a built <code>dist</code> directory.
+          </p>
+          <DirectoryPicker
             value={installPath}
-            onChange={(e) => setInstallPath(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleInstall()}
+            onChange={setInstallPath}
+            placeholder="Absolute path to plugin directory or dist folder"
+            onInputKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleInstall();
+              }
+            }}
           />
           <div className="plugin-install-actions">
-            <button className="btn-primary" onClick={handleInstall} disabled={installing}>
-              {installing ? "Installing..." : "Install"}
+            <button className="btn-primary" onClick={handleInstall} disabled={installing || !installPath.trim()}>
+              {installing ? "Installing..." : "Install Plugin"}
             </button>
-            <button className="btn-secondary" onClick={() => setShowInstall(false)}>
+            <button className="btn-secondary" onClick={() => { setShowInstall(false); setInstallPath(""); }}>
               Cancel
             </button>
           </div>

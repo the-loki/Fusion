@@ -73,6 +73,11 @@ vi.mock("../../api", () => ({
     settings: {},
     settingsSchema: {},
   })),
+  browseDirectory: vi.fn(() => Promise.resolve({
+    currentPath: "/home",
+    parentPath: "/",
+    entries: [{ name: "plugins", path: "/home/plugins", hasChildren: true }],
+  })),
 }));
 
 // Import after vi.mock so the mock is in place
@@ -175,7 +180,7 @@ describe("PluginManager", () => {
     });
 
     expect(screen.getByText("No plugins installed.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Install$/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Install$/ })).toBeTruthy();
   });
 
   it("renders plugin list when plugins are available", async () => {
@@ -192,17 +197,24 @@ describe("PluginManager", () => {
     expect(screen.getByText("v2.0.0")).toBeTruthy();
   });
 
-  it("shows install form when Install button is clicked", async () => {
+  it("shows install form with directory picker and hint when Install button is clicked", async () => {
     render(<PluginManager addToast={addToast} />);
 
     await waitFor(() => {
       expect(fetchPlugins).toHaveBeenCalled();
     });
 
-    const installButton = screen.getByRole("button", { name: /Install$/ });
+    const installButton = screen.getByRole("button", { name: /^Install$/ });
     await userEvent.click(installButton);
 
-    expect(screen.getByPlaceholderText("Local path to plugin directory")).toBeTruthy();
+    // Directory picker input is present
+    expect(screen.getByPlaceholderText("Absolute path to plugin directory or dist folder")).toBeTruthy();
+    // Browse button from DirectoryPicker is present
+    expect(screen.getByRole("button", { name: /Browse directories|Close directory browser/i })).toBeTruthy();
+    // Hint text about valid selections
+    expect(screen.getByText(/manifest\.json/)).toBeTruthy();
+    expect(screen.getByText(/dist/)).toBeTruthy();
+    // Cancel button
     expect(screen.getByRole("button", { name: /Cancel/i })).toBeTruthy();
   });
 
@@ -214,16 +226,16 @@ describe("PluginManager", () => {
     });
 
     // Click the header Install button
-    const headerInstallButton = screen.getByRole("button", { name: /Install$/ });
+    const headerInstallButton = screen.getByRole("button", { name: /^Install$/ });
     await userEvent.click(headerInstallButton);
 
-    const input = screen.getByPlaceholderText("Local path to plugin directory");
+    const input = screen.getByPlaceholderText("Absolute path to plugin directory or dist folder");
     await userEvent.type(input, "/path/to/plugin");
 
-    // Get the form container and find the Install button within it
-    const formContainer = screen.getByPlaceholderText("Local path to plugin directory").closest(".plugin-install-form");
+    // Get the form container and find the Install Plugin button within it
+    const formContainer = screen.getByPlaceholderText("Absolute path to plugin directory or dist folder").closest(".plugin-install-form");
     expect(formContainer).toBeTruthy();
-    const formInstallButton = within(formContainer as HTMLElement).getByRole("button", { name: /Install$/ });
+    const formInstallButton = within(formContainer as HTMLElement).getByRole("button", { name: /Install Plugin/ });
     await userEvent.click(formInstallButton);
 
     await waitFor(() => {
@@ -240,15 +252,15 @@ describe("PluginManager", () => {
       expect(fetchPlugins).toHaveBeenCalled();
     });
 
-    const headerInstallButton = screen.getByRole("button", { name: /Install$/ });
+    const headerInstallButton = screen.getByRole("button", { name: /^Install$/ });
     await userEvent.click(headerInstallButton);
 
-    const input = screen.getByPlaceholderText("Local path to plugin directory");
+    const input = screen.getByPlaceholderText("Absolute path to plugin directory or dist folder");
     await userEvent.type(input, "/path/to/plugin");
 
-    const formContainer = screen.getByPlaceholderText("Local path to plugin directory").closest(".plugin-install-form");
+    const formContainer = screen.getByPlaceholderText("Absolute path to plugin directory or dist folder").closest(".plugin-install-form");
     expect(formContainer).toBeTruthy();
-    const formInstallButton = within(formContainer as HTMLElement).getByRole("button", { name: /Install$/ });
+    const formInstallButton = within(formContainer as HTMLElement).getByRole("button", { name: /Install Plugin/ });
     await userEvent.click(formInstallButton);
 
     await waitFor(() => {

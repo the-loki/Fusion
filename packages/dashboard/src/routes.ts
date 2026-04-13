@@ -58,6 +58,7 @@ import {
   unauthorized,
 } from "./api-error.js";
 import { rateLimit, RATE_LIMITS } from "./rate-limit.js";
+import { resolvePluginManifest } from "./plugin-routes.js";
 
 /**
  * Minimal interface matching pi-coding-agent's ModelRegistry API surface
@@ -11933,6 +11934,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       }
     } else if (mode === "install") {
       // Install mode: requires path, loads manifest from path
+      // Supports package root and dist-folder selections via resolvePluginManifest
       if (typeof body.path !== "string" || !body.path.trim()) {
         throw badRequest("'path' is required for install mode and must be a non-empty string");
       }
@@ -11942,42 +11944,13 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         throw badRequest("Plugin install mode is not supported: plugin loader not available");
       }
 
-      const { existsSync } = await import("node:fs");
-      const { join: pathJoin } = await import("node:path");
-      const { readFile } = await import("node:fs/promises");
-      const { validatePluginManifest } = await import("@fusion/core");
-
-      const installPath = body.path as string;
-      const manifestPath = pathJoin(installPath, "manifest.json");
-
-      if (!existsSync(manifestPath)) {
-        throw notFound(`Plugin manifest not found at: ${manifestPath}`);
-      }
-
-      let manifestContent: string;
-      try {
-        manifestContent = await readFile(manifestPath, "utf-8");
-      } catch (readErr) {
-        throw internalError(`Failed to read manifest: ${readErr instanceof Error ? readErr.message : "Unknown error"}`);
-      }
-
-      let manifest: import("@fusion/core").PluginManifest;
-      try {
-        manifest = JSON.parse(manifestContent);
-      } catch {
-        throw badRequest("Plugin manifest is not valid JSON");
-      }
-
-      // Validate manifest
-      const validation = validatePluginManifest(manifest);
-      if (!validation.valid) {
-        throw badRequest(`Invalid plugin manifest: ${validation.errors.join(", ")}`);
-      }
+      // Resolve manifest — supports package root and dist-folder selections
+      const { manifestDir, manifest } = await resolvePluginManifest(body.path as string);
 
       try {
         const plugin = await pluginStore.registerPlugin({
           manifest,
-          path: installPath,
+          path: manifestDir,
         });
 
         // If enabled, try to load the plugin

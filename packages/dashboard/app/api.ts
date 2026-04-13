@@ -4627,9 +4627,9 @@ export async function installPlugin(
   source: { path: string } | { package: string },
   projectId?: string,
 ): Promise<PluginInstallation> {
-  return api<PluginInstallation>(withProjectId("/plugins/install", projectId), {
+  return api<PluginInstallation>(withProjectId("/plugins", projectId), {
     method: "POST",
-    body: JSON.stringify(source),
+    body: JSON.stringify({ mode: "install", ...source }),
   });
 }
 
