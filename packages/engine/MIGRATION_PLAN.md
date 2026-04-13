@@ -1,6 +1,6 @@
 # ProjectEngine Migration Plan
 
-Status: In progress
+Status: Complete (Phases 1-3)
 Last updated: 2026-04-12
 
 ## Goal
@@ -69,31 +69,31 @@ candidates are marked with priority.
 
 ## Migration sequence
 
-### Phase 1 (current — in progress)
+### Phase 1 (complete)
 - [x] Add TriageProcessor to InProcessRuntime
 - [x] Create ProjectEngine wrapper
 - [x] Migrate child-process-worker to ProjectEngine
 - [x] Shared global semaphore from ProjectManager
 - [x] Move richer merge logic (verification handling, cooldown retry) into ProjectEngine
-- [ ] Migrate serve.ts to use ProjectEngine (agent in progress)
-- [ ] Migrate dashboard.ts to use ProjectEngine (agent in progress)
+- [x] Migrate serve.ts to use ProjectEngine (1209→583 lines)
+- [x] Migrate dashboard.ts to use ProjectEngine (1446→~790 lines)
 
-### Phase 2 (next)
-- [ ] Move MissionAutopilot + MissionExecutionLoop into ProjectEngine
-  - Add `missionStore` to ProjectEngineOptions
-  - Create MissionAutopilot internally, wire setScheduler after start
-  - Expose via `getMissionAutopilot()` / `getMissionExecutionLoop()`
-- [ ] Move SelfHealingManager into ProjectEngine
-  - Wire callbacks to internal runtime's executor/triage
+### Phase 2 (complete)
+- [x] Move MissionAutopilot + MissionExecutionLoop into InProcessRuntime
+  - Created internally, wired setScheduler after start
+  - Exposed via `getMissionAutopilot()` / `getMissionExecutionLoop()`
+  - serve.ts + dashboard.ts access via engine getters
+- [x] Move SelfHealingManager into InProcessRuntime
+  - Wired callbacks to internal executor/triage
   - No external configuration needed
 
-### Phase 3 (later)
-- [ ] Move HeartbeatMonitor + HeartbeatTriggerScheduler into ProjectEngine
-  - Add heartbeat callbacks to ProjectEngineOptions
-  - Keep as utility path (no semaphore)
-  - Expose via `getHeartbeatMonitor()`
-- [ ] Audit serve.ts / dashboard.ts for remaining inline engine wiring
-- [ ] Consider making `createServer` accept a ProjectEngine directly
+### Phase 3 (complete)
+- [x] Move HeartbeatMonitor + HeartbeatTriggerScheduler into InProcessRuntime
+  - Created during `start()`, exposed via getters
+  - ProjectEngine delegates via `getHeartbeatMonitor()` / `getHeartbeatTriggerScheduler()`
+  - Dashboard dev mode creates inline fallback instances
+- [x] Audit serve.ts / dashboard.ts for remaining inline engine wiring
+- [ ] Consider making `createServer` accept a ProjectEngine directly (future)
 
 ## Design principles
 

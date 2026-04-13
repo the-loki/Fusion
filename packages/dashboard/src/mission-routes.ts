@@ -734,41 +734,45 @@ export function createMissionRouter(
         // Update interview state to completed
         missionStore.updateMission(mission.id, { interviewState: "completed" as InterviewState });
 
-        // Create milestones, slices, and features
-        // Verification criteria are appended to descriptions since the schema
-        // doesn't have dedicated verification fields yet.
-        for (const milestoneData of summary.milestones) {
-          let msDesc = milestoneData.description || "";
-          if (milestoneData.verification) {
-            msDesc += msDesc ? "\n\n" : "";
-            msDesc += `**Verification:** ${milestoneData.verification}`;
-          }
+        // Create milestones, slices, and features with verification in dedicated fields.
+        // For each feature, auto-generate a linked contract assertion.
+        for (const milestoneData of (summary.milestones ?? [])) {
+          // Use dedicated verification field instead of concatenating into description
           const milestone = missionStore.addMilestone(mission.id, {
             title: milestoneData.title,
-            description: msDesc || undefined,
+            description: milestoneData.description || undefined,
+            verification: milestoneData.verification,
           });
 
-          if (Array.isArray(milestoneData.slices)) {
-            for (const sliceData of milestoneData.slices) {
-              let slDesc = sliceData.description || "";
-              if (sliceData.verification) {
-                slDesc += slDesc ? "\n\n" : "";
-                slDesc += `**Verification:** ${sliceData.verification}`;
-              }
-              const slice = missionStore.addSlice(milestone.id, {
-                title: sliceData.title,
-                description: slDesc || undefined,
+          for (const sliceData of (milestoneData.slices ?? [])) {
+            // Use dedicated verification field instead of concatenating into description
+            const slice = missionStore.addSlice(milestone.id, {
+              title: sliceData.title,
+              description: sliceData.description || undefined,
+              verification: sliceData.verification,
+            });
+
+            for (const featureData of (sliceData.features ?? [])) {
+              const feature = missionStore.addFeature(slice.id, {
+                title: featureData.title,
+                description: featureData.description,
+                acceptanceCriteria: featureData.acceptanceCriteria,
               });
 
-              if (Array.isArray(sliceData.features)) {
-                for (const featureData of sliceData.features) {
-                  missionStore.addFeature(slice.id, {
-                    title: featureData.title,
-                    description: featureData.description,
-                    acceptanceCriteria: featureData.acceptanceCriteria,
-                  });
-                }
-              }
+              // Auto-generate a contract assertion for this feature
+              // Assertion text source priority: acceptanceCriteria -> description -> fallback
+              const assertionText = featureData.acceptanceCriteria
+                || featureData.description
+                || `Verify implementation of: ${featureData.title}`;
+
+              const assertion = missionStore.addContractAssertion(milestone.id, {
+                title: featureData.title,
+                assertion: assertionText,
+                status: "pending",
+              });
+
+              // Link the assertion to the feature
+              missionStore.linkFeatureToAssertion(feature.id, assertion.id);
             }
           }
         }
@@ -780,6 +784,10 @@ export function createMissionRouter(
         const result = missionStore.getMissionWithHierarchy(mission.id);
         res.status(201).json(result);
       } catch (err: any) {
+        // Re-throw ApiError subclasses without wrapping
+        if (err instanceof ApiError) {
+          throw err;
+        }
         if (err.name === "SessionNotFoundError") {
           throw notFound(err.message);
         } else {

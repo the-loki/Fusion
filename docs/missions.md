@@ -48,6 +48,15 @@ The dashboard supports mission planning workflows where you can:
 - Associate features to executable tasks
 - Track progress at each layer
 
+### Auto-Generated Assertions
+
+When missions are created through the interview planning workflow, Fusion automatically generates contract assertions for each feature:
+
+- **Assertion text source priority**: `acceptanceCriteria` → `feature.description` → fallback text (`"Verify implementation of: {feature.title}"`)
+- **Assertions are linked to features**: Each auto-generated assertion is automatically linked to its feature, enabling mission validation rollup and enriched triage context
+- **Verification fields**: Milestone and slice verification criteria from the interview are stored in dedicated `verification` fields rather than concatenated into descriptions
+- **Partial plans handled**: Auto-generation is robust to partial plans (missing slices/features or empty criteria) without throwing errors
+
 ## Slice Activation and Progress
 
 Slices represent staged execution windows.
