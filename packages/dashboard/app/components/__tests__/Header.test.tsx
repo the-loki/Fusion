@@ -837,7 +837,8 @@ describe("Header", () => {
           onViewAllProjects={vi.fn()}
         />
       );
-      expect(screen.queryByTestId("header-projects-btn")).toBeNull();
+      // On mobile/tablet, back button is hidden (shown in overflow menu instead)
+      expect(screen.queryByTestId("back-to-projects-btn")).toBeNull();
     });
 
     it("shows switch project item in overflow menu on mobile when multiple projects", () => {
@@ -999,17 +1000,25 @@ describe("Header", () => {
     });
   });
 
-  // ── Split Project Button ────────────────────────────────────
+  // ── Project Selector ────────────────────────────────────
 
-  it("shows split project button when 1+ projects provided with onViewAllProjects", () => {
+  it("shows back to projects button when currentProject is set", () => {
     const projects = [
       { id: "proj_1", name: "Project One", path: "/path/1", status: "active" as const, isolationMode: "in-process" as const, createdAt: "", updatedAt: "" },
     ];
-    render(<Header projects={projects} onViewAllProjects={vi.fn()} />);
-    expect(screen.getByTestId("header-projects-btn")).toBeDefined();
+    render(<Header projects={projects} currentProject={projects[0]} onViewAllProjects={vi.fn()} />);
+    expect(screen.getByTestId("back-to-projects-btn")).toBeDefined();
   });
 
-  it("renders split project button within header-left when projects exist", () => {
+  it("does not show back button when no currentProject", () => {
+    const projects = [
+      { id: "proj_1", name: "Project One", path: "/path/1", status: "active" as const, isolationMode: "in-process" as const, createdAt: "", updatedAt: "" },
+    ];
+    render(<Header projects={projects} currentProject={null} onViewAllProjects={vi.fn()} />);
+    expect(screen.queryByTestId("back-to-projects-btn")).toBeNull();
+  });
+
+  it("renders project selector within header-left when projects exist", () => {
     const projects = [
       { id: "proj_1", name: "Project One", path: "/path/1", status: "active" as const, isolationMode: "in-process" as const, createdAt: "", updatedAt: "" },
       { id: "proj_2", name: "Project Two", path: "/path/2", status: "active" as const, isolationMode: "in-process" as const, createdAt: "", updatedAt: "" },
@@ -1022,25 +1031,25 @@ describe("Header", () => {
         onViewAllProjects={vi.fn()}
       />
     );
-    // SplitProjectButton should be inside header-left
+    // ProjectSelector should be inside header-left
     const headerLeft = container.querySelector(".header-left");
     expect(headerLeft).not.toBeNull();
-    const splitBtn = headerLeft!.querySelector(".split-project-btn");
-    expect(splitBtn).not.toBeNull();
-    expect(splitBtn!.querySelector("[data-testid='header-projects-btn']")).not.toBeNull();
+    const projectSelector = headerLeft!.querySelector(".project-selector");
+    expect(projectSelector).not.toBeNull();
+    expect(projectSelector!.querySelector("[data-testid='back-to-projects-btn']")).not.toBeNull();
   });
 
-  it("does not show split project button when no projects", () => {
+  it("does not show project selector when no projects", () => {
     const { container } = render(<Header projects={[]} />);
-    expect(container.querySelector(".split-project-btn")).toBeNull();
+    expect(container.querySelector(".project-selector")).toBeNull();
   });
 
-  it("does not show split project button without onViewAllProjects", () => {
+  it("does not show project selector without onViewAllProjects", () => {
     const projects = [
       { id: "proj_1", name: "Project One", path: "/path/1", status: "active" as const, isolationMode: "in-process" as const, createdAt: "", updatedAt: "" },
     ];
     const { container } = render(<Header projects={projects} />);
-    expect(container.querySelector(".split-project-btn")).toBeNull();
+    expect(container.querySelector(".project-selector")).toBeNull();
   });
 
   it("shows project dropdown arrow only when 2+ projects", () => {
@@ -1048,7 +1057,7 @@ describe("Header", () => {
       { id: "proj_1", name: "Project One", path: "/path/1", status: "active" as const, isolationMode: "in-process" as const, createdAt: "", updatedAt: "" },
       { id: "proj_2", name: "Project Two", path: "/path/2", status: "active" as const, isolationMode: "in-process" as const, createdAt: "", updatedAt: "" },
     ];
-    render(<Header projects={projects} onViewAllProjects={vi.fn()} />);
+    render(<Header projects={projects} currentProject={projects[0]} onViewAllProjects={vi.fn()} />);
     expect(screen.getByTestId("project-selector-trigger")).toBeDefined();
   });
 
@@ -1056,11 +1065,11 @@ describe("Header", () => {
     const projects = [
       { id: "proj_1", name: "Project One", path: "/path/1", status: "active" as const, isolationMode: "in-process" as const, createdAt: "", updatedAt: "" },
     ];
-    render(<Header projects={projects} onViewAllProjects={vi.fn()} />);
+    render(<Header projects={projects} currentProject={projects[0]} onViewAllProjects={vi.fn()} />);
     expect(screen.queryByTestId("project-selector-trigger")).toBeNull();
   });
 
-  it("left button calls onViewAllProjects when clicked", () => {
+  it("back button calls onViewAllProjects when clicked", () => {
     const projects = [
       { id: "proj_1", name: "Project One", path: "/path/1", status: "active" as const, isolationMode: "in-process" as const, createdAt: "", updatedAt: "" },
       { id: "proj_2", name: "Project Two", path: "/path/2", status: "active" as const, isolationMode: "in-process" as const, createdAt: "", updatedAt: "" },
@@ -1073,7 +1082,7 @@ describe("Header", () => {
         onViewAllProjects={onViewAllProjects}
       />
     );
-    fireEvent.click(screen.getByTestId("header-projects-btn"));
+    fireEvent.click(screen.getByTestId("back-to-projects-btn"));
     expect(onViewAllProjects).toHaveBeenCalled();
   });
 
@@ -1099,7 +1108,7 @@ describe("Header", () => {
     expect(onSelectProject).toHaveBeenCalledWith(projects[1]);
   });
 
-  it("shows current project name in left button", () => {
+  it("shows 'Back to All Projects' text in back button", () => {
     const projects = [
       { id: "proj_1", name: "Project One", path: "/path/1", status: "active" as const, isolationMode: "in-process" as const, createdAt: "", updatedAt: "" },
       { id: "proj_2", name: "Project Two", path: "/path/2", status: "active" as const, isolationMode: "in-process" as const, createdAt: "", updatedAt: "" },
@@ -1113,25 +1122,9 @@ describe("Header", () => {
       />
     );
 
-    // Left button should show current project name
-    const leftBtn = screen.getByTestId("header-projects-btn");
-    expect(leftBtn.textContent).toContain("Project One");
-  });
-
-  it("shows 'Projects' label when no current project", () => {
-    const projects = [
-      { id: "proj_1", name: "Project One", path: "/path/1", status: "active" as const, isolationMode: "in-process" as const, createdAt: "", updatedAt: "" },
-    ];
-    render(
-      <Header
-        projects={projects}
-        currentProject={null}
-        onViewAllProjects={vi.fn()}
-      />
-    );
-
-    const leftBtn = screen.getByTestId("header-projects-btn");
-    expect(leftBtn.textContent).toContain("Projects");
+    // Back button should show "Back to All Projects"
+    const backBtn = screen.getByTestId("back-to-projects-btn");
+    expect(backBtn.textContent).toContain("Back to All Projects");
   });
 
   // ── Modal Overlay Visibility ──────────────────────────────────

@@ -18,11 +18,11 @@ const PROJECT_STATUS_CONFIG: Record<ProjectStatus, { color: string }> = {
 };
 
 /**
- * SplitProjectButton - A two-stage button for project navigation.
- * Left half: navigates to "all projects" view.
- * Right half: opens a dropdown to select a specific project.
+ * ProjectSelector - A component for project navigation.
+ * Shows "Back to All Projects" button with ChevronLeft icon when currentProject is set.
+ * Shows project dropdown for switching when 2+ projects exist.
  */
-function SplitProjectButton({
+function ProjectSelector({
   projects,
   currentProject,
   onViewAll,
@@ -69,23 +69,25 @@ function SplitProjectButton({
   );
 
   return (
-    <div className="split-project-btn" ref={dropdownRef}>
-      {/* Left half: projects view button */}
-      <button
-        className="split-project-btn__left"
-        onClick={onViewAll}
-        title="View all projects"
-        data-testid="header-projects-btn"
-      >
-        <Grid3X3 size={14} />
-        <span>{currentProject?.name || "Projects"}</span>
-      </button>
-      {/* Right half: dropdown arrow (only when multiple projects) */}
+    <div className="project-selector" ref={dropdownRef}>
+      {/* Back to All Projects button - shown when a project is selected */}
+      {currentProject && (
+        <button
+          className="header-back-button"
+          onClick={onViewAll}
+          title="Back to All Projects"
+          data-testid="back-to-projects-btn"
+        >
+          <ChevronLeft size={14} />
+          <span>Back to All Projects</span>
+        </button>
+      )}
+
+      {/* Project dropdown - shown when 2+ projects exist */}
       {projects.length > 1 && (
         <>
-          <div className="split-project-btn__divider" />
           <button
-            className={`split-project-btn__right${isOpen ? " split-project-btn__right--open" : ""}`}
+            className={`project-selector-trigger${isOpen ? " project-selector-trigger--open" : ""}`}
             onClick={() => setIsOpen((prev) => !prev)}
             title="Switch project"
             aria-label="Switch project"
@@ -93,11 +95,11 @@ function SplitProjectButton({
             aria-haspopup="listbox"
             data-testid="project-selector-trigger"
           >
-            <ChevronDown size={12} className={`split-project-btn__chevron${isOpen ? " split-project-btn__chevron--open" : ""}`} />
+            <ChevronDown size={12} className={`project-selector-chevron${isOpen ? " project-selector-chevron--open" : ""}`} />
           </button>
           {isOpen && (
             <div
-              className="split-project-btn__dropdown"
+              className="project-selector-dropdown"
               role="listbox"
               aria-label="Select project"
               data-testid="project-selector-dropdown"
@@ -108,22 +110,22 @@ function SplitProjectButton({
                 return (
                   <button
                     key={project.id}
-                    className={`split-project-btn__item${isCurrent ? " split-project-btn__item--current" : ""}`}
+                    className={`project-selector-item${isCurrent ? " project-selector-item--current" : ""}`}
                     onClick={() => handleSelectProject(project)}
                     role="option"
                     aria-selected={isCurrent}
                   >
                     <span
-                      className="split-project-btn__item-dot"
+                      className="project-selector-dot"
                       style={{ backgroundColor: statusColor || "var(--text-muted)" }}
                     />
-                    <div className="split-project-btn__item-info">
-                      <span className="split-project-btn__item-name">{project.name}</span>
-                      <span className="split-project-btn__item-path">
+                    <div className="project-selector-info">
+                      <span className="project-selector-name">{project.name}</span>
+                      <span className="project-selector-path">
                         {project.path.split("/").slice(-2).join("/")}
                       </span>
                     </div>
-                    {isCurrent && <Check size={14} className="split-project-btn__item-check" />}
+                    {isCurrent && <Check size={14} className="project-selector-check" />}
                   </button>
                 );
               })}
@@ -436,9 +438,9 @@ export function Header({
           <h1 className="logo">Fusion</h1>
         </div>
 
-        {/* Split-button Project Selector - left: projects view, right: project dropdown (desktop only) */}
+        {/* Project Selector - Back button when project selected, dropdown when 2+ projects (desktop only) */}
         {!isCompact && projects.length >= 1 && onViewAllProjects && (
-          <SplitProjectButton
+          <ProjectSelector
             projects={projects}
             currentProject={currentProject ?? null}
             onViewAll={onViewAllProjects}

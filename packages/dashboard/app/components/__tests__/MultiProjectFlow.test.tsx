@@ -111,7 +111,7 @@ describe("MultiProjectFlow", () => {
     expect(storage[taskViewKey]).toBe("board");
   });
 
-  describe("Projects button navigation", () => {
+  describe("Back to All Projects button navigation", () => {
     const singleProject: ProjectInfo = {
       id: "proj_1",
       name: "Solo Project",
@@ -122,7 +122,7 @@ describe("MultiProjectFlow", () => {
       updatedAt: "2026-01-01T00:00:00.000Z",
     };
 
-    it("shows Projects button and navigates to overview on click", () => {
+    it("shows Back to All Projects button and navigates to overview on click", () => {
       mockDesktopMatchMedia();
 
       let viewMode: "overview" | "project" = "project";
@@ -139,21 +139,22 @@ describe("MultiProjectFlow", () => {
           onToggleGlobalPause={noop}
           onToggleEnginePause={noop}
           projects={[singleProject]}
+          currentProject={singleProject}
           onViewAllProjects={handleViewAllProjects}
         />
       );
 
-      // The Projects button should be visible for single-project users
-      const projectsBtn = screen.getByTestId("header-projects-btn");
-      expect(projectsBtn).toBeDefined();
+      // The Back to All Projects button should be visible when currentProject is set
+      const backBtn = screen.getByTestId("back-to-projects-btn");
+      expect(backBtn).toBeDefined();
 
       // Clicking should trigger navigation to overview
-      fireEvent.click(projectsBtn);
+      fireEvent.click(backBtn);
       expect(handleViewAllProjects).toHaveBeenCalled();
       expect(viewMode).toBe("overview");
     });
 
-    it("shows Projects button with current project name when currentProject is set", () => {
+    it("shows Back to All Projects button text when currentProject is set", () => {
       mockDesktopMatchMedia();
 
       render(
@@ -170,10 +171,10 @@ describe("MultiProjectFlow", () => {
         />
       );
 
-      // The split button should show the current project name
-      const projectsBtn = screen.getByTestId("header-projects-btn");
-      expect(projectsBtn).toBeDefined();
-      expect(projectsBtn.textContent).toContain("Solo Project");
+      // The back button should show "Back to All Projects"
+      const backBtn = screen.getByTestId("back-to-projects-btn");
+      expect(backBtn).toBeDefined();
+      expect(backBtn.textContent).toContain("Back to All Projects");
     });
   });
 });

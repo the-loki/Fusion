@@ -6476,8 +6476,8 @@ body {
     padding-top: max(var(--space-md), env(safe-area-inset-top, 0px));
   }
 
-  /* Hide split project button on mobile (belt-and-suspenders with conditional rendering) */
-  .split-project-btn {
+  /* Hide project selector on mobile (belt-and-suspenders with conditional rendering) */
+  .project-selector {
     display: none;
   }
 
@@ -6947,8 +6947,8 @@ body {
     padding: var(--space-md) var(--space-lg);
   }
 
-  /* Hide split project button on tablet (controlled by React rendering too) */
-  .split-project-btn {
+  /* Hide project selector on tablet (controlled by React rendering too) */
+  .project-selector {
     display: none;
   }
 
@@ -18332,79 +18332,70 @@ html .column.drag-over * {
 }
 
 /* === Split Project Button === */
-.split-project-btn {
-  position: relative;
-  display: inline-flex;
-  align-items: stretch;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--surface);
-  overflow: visible;
-  transition: border-color var(--transition-fast);
-}
-
-.split-project-btn:hover {
-  border-color: var(--text-dim);
-}
-
-.split-project-btn__left {
+/* === Header Back Button === */
+.header-back-button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
   background: transparent;
-  border: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   color: var(--text-muted);
   font-size: 12px;
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
   white-space: nowrap;
-  border-radius: var(--radius-md) 0 0 var(--radius-md);
 }
 
-.split-project-btn__left:hover {
+.header-back-button:hover {
   background: var(--card-hover);
   color: var(--text);
+  border-color: var(--text-dim);
 }
 
-.split-project-btn__divider {
-  width: 1px;
-  background: var(--border);
-  align-self: stretch;
-  margin: 4px 0;
+/* === Project Selector === */
+.project-selector {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  overflow: visible;
 }
 
-.split-project-btn__right {
+.project-selector-trigger {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 6px 6px;
   background: transparent;
-  border: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   color: var(--text-muted);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
-  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
 
-.split-project-btn__right:hover {
+.project-selector-trigger:hover {
   background: var(--card-hover);
   color: var(--text);
+  border-color: var(--text-dim);
 }
 
-.split-project-btn__right--open {
+.project-selector-trigger--open {
   color: var(--text);
+  border-color: var(--text-dim);
 }
 
-.split-project-btn__chevron {
+.project-selector-chevron {
   transition: transform var(--transition-fast);
 }
 
-.split-project-btn__chevron--open {
+.project-selector-chevron--open {
   transform: rotate(180deg);
 }
 
-.split-project-btn__dropdown {
+.project-selector-dropdown {
   position: absolute;
   top: calc(100% + 8px);
   left: 0;
@@ -18418,7 +18409,7 @@ html .column.drag-over * {
   box-shadow: var(--shadow-lg);
 }
 
-.split-project-btn__item {
+.project-selector-item {
   width: 100%;
   display: flex;
   align-items: center;
@@ -18434,22 +18425,22 @@ html .column.drag-over * {
   transition: background var(--transition-fast);
 }
 
-.split-project-btn__item:hover {
+.project-selector-item:hover {
   background: var(--card-hover);
 }
 
-.split-project-btn__item--current {
+.project-selector-item--current {
   background: var(--card-hover);
 }
 
-.split-project-btn__item-dot {
+.project-selector-dot {
   flex-shrink: 0;
   width: 8px;
   height: 8px;
   border-radius: 50%;
 }
 
-.split-project-btn__item-info {
+.project-selector-info {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -18457,14 +18448,14 @@ html .column.drag-over * {
   gap: 2px;
 }
 
-.split-project-btn__item-name {
+.project-selector-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 500;
 }
 
-.split-project-btn__item-path {
+.project-selector-path {
   font-size: 11px;
   color: var(--text-muted);
   overflow: hidden;
@@ -18472,33 +18463,25 @@ html .column.drag-over * {
   white-space: nowrap;
 }
 
-.split-project-btn__item-check {
+.project-selector-check {
   flex-shrink: 0;
   color: var(--todo);
 }
 
-/* Light theme overrides for split project button */
-[data-theme="light"] .split-project-btn {
+/* Light theme overrides for project selector */
+[data-theme="light"] .project-selector-trigger:hover {
+  background: var(--card-hover);
+}
+
+[data-theme="light"] .project-selector-dropdown {
   background: var(--surface);
 }
 
-[data-theme="light"] .split-project-btn__left:hover {
+[data-theme="light"] .project-selector-item:hover {
   background: var(--card-hover);
 }
 
-[data-theme="light"] .split-project-btn__right:hover {
-  background: var(--card-hover);
-}
-
-[data-theme="light"] .split-project-btn__dropdown {
-  background: var(--surface);
-}
-
-[data-theme="light"] .split-project-btn__item:hover {
-  background: var(--card-hover);
-}
-
-[data-theme="light"] .split-project-btn__item--current {
+[data-theme="light"] .project-selector-item--current {
   background: rgba(88, 166, 255, 0.1);
 }
 
