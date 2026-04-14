@@ -6,8 +6,7 @@ import {
   SKILL_DIAGNOSTIC_MESSAGES,
   type SessionPurpose,
 } from "./session-skill-context.js";
-import type { Agent } from "@fusion/core";
-import type { AgentStore } from "@fusion/core";
+import type { Agent, AgentStore } from "@fusion/core";
 
 describe("normalizeAgentSkills", () => {
   it("returns empty array for non-array input", () => {
@@ -92,11 +91,11 @@ describe("buildSessionSkillContextSync", () => {
 
   describe("assigned agent skills", () => {
     it("uses assigned agent skills when available", () => {
-      const agent: Agent = {
+      const agent = {
         id: "agent-001",
         name: "Test Agent",
-        role: "executor",
-        state: "idle",
+        role: "executor" as const,
+        state: "idle" as const,
         metadata: { skills: ["triage", "executor"] },
       } as unknown as Agent;
 

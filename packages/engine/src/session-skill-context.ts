@@ -29,8 +29,7 @@
  * - Results are deduplicated preserving stable insertion order
  */
 
-import type { Agent } from "@fusion/core";
-import type { AgentStore } from "@fusion/core";
+import type { Agent, AgentStore } from "@fusion/core";
 import type { SkillSelectionContext } from "./skill-resolver.js";
 
 // ── Types ───────────────────────────────────────────────────────────────────
