@@ -29,8 +29,7 @@
  * - Results are deduplicated preserving stable insertion order
  */
 
-import type { TaskStore } from "@fusion/core";
-import type { Agent } from "@fusion/core";
+import type { Agent, AgentStore } from "@fusion/core";
 import type { SkillSelectionContext } from "./skill-resolver.js";
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -45,8 +44,8 @@ export type SessionPurpose = "triage" | "executor" | "reviewer" | "merger" | "he
  * Input parameters for building session skill context.
  */
 export interface SessionSkillContextInput {
-  /** Task store for looking up assigned agent */
-  taskStore: TaskStore;
+  /** Agent store for looking up assigned agent */
+  agentStore: AgentStore;
   /** Task with optional assignedAgentId */
   task: { assignedAgentId?: string | null };
   /** Purpose of the session (determines role fallback) */
@@ -173,13 +172,13 @@ export const SKILL_DIAGNOSTIC_MESSAGES = {
 export async function buildSessionSkillContext(
   input: SessionSkillContextInput,
 ): Promise<SessionSkillContextResult> {
-  const { taskStore, task, sessionPurpose, projectRootDir } = input;
+  const { agentStore, task, sessionPurpose, projectRootDir } = input;
   const { assignedAgentId } = task;
 
   // Rule 1: Check assigned agent
   if (assignedAgentId) {
     try {
-      const agent = await taskStore.getAgent(assignedAgentId);
+      const agent = await agentStore.getAgent(assignedAgentId);
       if (agent) {
         const agentSkills = normalizeAgentSkills(
           (agent.metadata as Record<string, unknown> | undefined)?.skills,

@@ -6,8 +6,7 @@ import {
   SKILL_DIAGNOSTIC_MESSAGES,
   type SessionPurpose,
 } from "./session-skill-context.js";
-import type { Agent } from "@fusion/core";
-import type { TaskStore } from "@fusion/core";
+import type { Agent, AgentStore } from "@fusion/core";
 
 describe("normalizeAgentSkills", () => {
   it("returns empty array for non-array input", () => {
@@ -92,13 +91,13 @@ describe("buildSessionSkillContextSync", () => {
 
   describe("assigned agent skills", () => {
     it("uses assigned agent skills when available", () => {
-      const agent: Agent = {
+      const agent = {
         id: "agent-001",
         name: "Test Agent",
-        role: "executor",
-        state: "idle",
+        role: "executor" as const,
+        state: "idle" as const,
         metadata: { skills: ["triage", "executor"] },
-      } as Agent;
+      } as unknown as Agent;
 
       const result = buildSessionSkillContextSync(agent, "executor", projectRootDir);
 
@@ -118,7 +117,7 @@ describe("buildSessionSkillContextSync", () => {
         role: "executor",
         state: "idle",
         metadata: { skills: [{ name: "triage" }, { name: "executor" }] },
-      } as Agent;
+      } as unknown as Agent;
 
       const result = buildSessionSkillContextSync(agent, "executor", projectRootDir);
 
@@ -133,7 +132,7 @@ describe("buildSessionSkillContextSync", () => {
         role: "executor",
         state: "idle",
         metadata: { skills: [] },
-      } as Agent;
+      } as unknown as Agent;
 
       const result = buildSessionSkillContextSync(agent, "executor", projectRootDir);
 
@@ -148,7 +147,7 @@ describe("buildSessionSkillContextSync", () => {
         role: "executor",
         state: "idle",
         metadata: {},
-      } as Agent;
+      } as unknown as Agent;
 
       const result = buildSessionSkillContextSync(agent, "executor", projectRootDir);
 
@@ -162,7 +161,7 @@ describe("buildSessionSkillContextSync", () => {
         name: "Test Agent",
         role: "executor",
         state: "idle",
-      } as Agent;
+      } as unknown as Agent;
 
       const result = buildSessionSkillContextSync(agent, "executor", projectRootDir);
 
@@ -215,7 +214,7 @@ describe("buildSessionSkillContextSync", () => {
         role: "executor",
         state: "idle",
         metadata: { skills: ["custom-skill-1", "custom-skill-2"] },
-      } as Agent;
+      } as unknown as Agent;
 
       const result = buildSessionSkillContextSync(agent, "executor", projectRootDir);
 
@@ -244,14 +243,14 @@ describe("buildSessionSkillContext", () => {
       role: "executor",
       state: "idle",
       metadata: { skills: ["triage", "executor"] },
-    } as Agent;
+    } as unknown as Agent;
 
-    const mockTaskStore = {
+    const mockAgentStore = {
       getAgent: vi.fn().mockResolvedValue(mockAgent),
-    } as unknown as TaskStore;
+    } as unknown as AgentStore;
 
     const result = await buildSessionSkillContext({
-      taskStore: mockTaskStore,
+      agentStore: mockAgentStore,
       task: { assignedAgentId: "agent-001" },
       sessionPurpose: "executor",
       projectRootDir,
@@ -259,16 +258,16 @@ describe("buildSessionSkillContext", () => {
 
     expect(result.skillSource).toBe("assigned-agent");
     expect(result.resolvedSkillNames).toEqual(["triage", "executor"]);
-    expect(mockTaskStore.getAgent).toHaveBeenCalledWith("agent-001");
+    expect(mockAgentStore.getAgent).toHaveBeenCalledWith("agent-001");
   });
 
   it("falls back to role when no assignedAgentId", async () => {
-    const mockTaskStore = {
+    const mockAgentStore = {
       getAgent: vi.fn(),
-    } as unknown as TaskStore;
+    } as unknown as AgentStore;
 
     const result = await buildSessionSkillContext({
-      taskStore: mockTaskStore,
+      agentStore: mockAgentStore,
       task: {},
       sessionPurpose: "executor",
       projectRootDir,
@@ -276,16 +275,16 @@ describe("buildSessionSkillContext", () => {
 
     expect(result.skillSource).toBe("role-fallback");
     expect(result.resolvedSkillNames).toEqual(["executor"]);
-    expect(mockTaskStore.getAgent).not.toHaveBeenCalled();
+    expect(mockAgentStore.getAgent).not.toHaveBeenCalled();
   });
 
   it("falls back to role when assigned agent not found", async () => {
-    const mockTaskStore = {
+    const mockAgentStore = {
       getAgent: vi.fn().mockResolvedValue(null),
-    } as unknown as TaskStore;
+    } as unknown as AgentStore;
 
     const result = await buildSessionSkillContext({
-      taskStore: mockTaskStore,
+      agentStore: mockAgentStore,
       task: { assignedAgentId: "nonexistent" },
       sessionPurpose: "triage",
       projectRootDir,
@@ -296,12 +295,12 @@ describe("buildSessionSkillContext", () => {
   });
 
   it("falls back to role when agent lookup throws", async () => {
-    const mockTaskStore = {
+    const mockAgentStore = {
       getAgent: vi.fn().mockRejectedValue(new Error("DB error")),
-    } as unknown as TaskStore;
+    } as unknown as AgentStore;
 
     const result = await buildSessionSkillContext({
-      taskStore: mockTaskStore,
+      agentStore: mockAgentStore,
       task: { assignedAgentId: "agent-001" },
       sessionPurpose: "reviewer",
       projectRootDir,
@@ -312,12 +311,12 @@ describe("buildSessionSkillContext", () => {
   });
 
   it("uses heartbeat with no skills when no assigned agent", async () => {
-    const mockTaskStore = {
+    const mockAgentStore = {
       getAgent: vi.fn(),
-    } as unknown as TaskStore;
+    } as unknown as AgentStore;
 
     const result = await buildSessionSkillContext({
-      taskStore: mockTaskStore,
+      agentStore: mockAgentStore,
       task: {},
       sessionPurpose: "heartbeat",
       projectRootDir,
