@@ -40,6 +40,8 @@ async function* idleStream(signal?: AbortSignal): AsyncIterable<unknown> {
   while (!signal?.aborted) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
+  // Yield to satisfy TypeScript/ESLint generator requirements
+  yield;
 }
 
 async function* eventStream(events: unknown[], signal?: AbortSignal): AsyncIterable<unknown> {

@@ -158,10 +158,12 @@ function getHandler<T = unknown>(
   return handler as (payload: unknown) => Promise<T>;
 }
 
+type SignalListener = (...args: unknown[]) => void;
+
 describe("child-process-worker", () => {
   const originalProcessSend = process.send;
-  let sigtermBaseline: Function[] = [];
-  let sigintBaseline: Function[] = [];
+  let sigtermBaseline: SignalListener[] = [];
+  let sigintBaseline: SignalListener[] = [];
 
   beforeEach(() => {
     vi.resetModules();
