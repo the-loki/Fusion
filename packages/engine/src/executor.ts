@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -7,7 +6,6 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import type { TaskStore, Task, TaskDetail, StepStatus, Settings, WorkflowStep, MissionStore, Slice, AgentState, AgentCapability, RunMutationContext } from "@fusion/core";
-
 import { buildExecutionMemoryInstructions, getTaskMergeBlocker, resolveAgentPrompt } from "@fusion/core";
 import { findWorktreeUser } from "./merger.js";
 import { generateWorktreeName, slugify } from "./worktree-names.js";
@@ -516,9 +514,10 @@ export class TaskExecutor {
                 } else {
                   executorLog.log(`${task.id}: model ${newProvider}/${newModelId} not found in registry for hot-swap`);
                 }
-              } catch (err: any) {
-                executorLog.error(`${task.id}: failed to hot-swap model: ${err.message}`);
-                await this.store.logEntry(task.id, `Model change failed: ${err.message}`, undefined, this.currentRunContext);
+              } catch (err: unknown) {
+                const errorMessage = err instanceof Error ? err.message : String(err);
+                executorLog.error(`${task.id}: failed to hot-swap model: ${errorMessage}`);
+                await this.store.logEntry(task.id, `Model change failed: ${errorMessage}`, undefined, this.currentRunContext);
               }
             }
           }
@@ -690,8 +689,9 @@ export class TaskExecutor {
       this.options.stuckTaskDetector?.untrackTask(task.id);
 
       executorLog.log(`Review handoff complete for ${task.id} — task moved to in-review`);
-    } catch (err: any) {
-      executorLog.error(`Failed to execute review handoff for ${task.id}: ${err.message}`);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      executorLog.error(`Failed to execute review handoff for ${task.id}: ${errorMessage}`);
     }
   }
 
@@ -729,8 +729,9 @@ export class TaskExecutor {
       executorLog.log(`✓ ${task.id} auto-recovered completed task → in-review`);
       this.options.onComplete?.(task);
       return true;
-    } catch (err: any) {
-      executorLog.error(`Failed to recover completed task ${task.id}: ${err.message}`);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      executorLog.error(`Failed to recover completed task ${task.id}: ${errorMessage}`);
       return false;
     }
   }
@@ -1007,14 +1008,15 @@ export class TaskExecutor {
               } else {
                 await this.store.logEntry(task.id, `Acquired worktree from pool: ${worktreePath}`, undefined, this.currentRunContext);
               }
-            } catch (poolErr: any) {
+            } catch (poolErr: unknown) {
               // Pool preparation failed — release the worktree back and fall through
               // to fresh worktree creation
+              const poolErrMessage = poolErr instanceof Error ? poolErr.message : String(poolErr);
               this.options.pool.release(pooled);
-              executorLog.log(`Pool prepareForTask failed, falling through to fresh worktree: ${poolErr.message}`);
+              executorLog.log(`Pool prepareForTask failed, falling through to fresh worktree: ${poolErrMessage}`);
               await this.store.logEntry(
                 task.id,
-                `Pool worktree preparation failed (${poolErr.message}), creating fresh worktree`,
+                `Pool worktree preparation failed (${poolErrMessage}), creating fresh worktree`,
                 undefined,
                 this.currentRunContext,
               );
@@ -1049,8 +1051,11 @@ export class TaskExecutor {
                 timeout: 120_000,
               });
               await this.store.logEntry(task.id, "Worktree init command completed", settings.worktreeInitCommand, this.currentRunContext);
-            } catch (err: any) {
-              const message = err.stderr?.toString() || err.message || "Unknown error";
+            } catch (err: unknown) {
+              const execError = err instanceof Error ? err : new Error(String(err));
+              const message = "stderr" in execError && typeof (execError as Record<string, unknown>).stderr === "string"
+                ? String((execError as Record<string, unknown>).stderr)
+                : execError.message;
               await this.store.logEntry(task.id, `Worktree init command failed: ${message}`, undefined, this.currentRunContext);
             }
           }
@@ -1065,8 +1070,11 @@ export class TaskExecutor {
                   timeout: 120_000,
                 });
                 await this.store.logEntry(task.id, `Setup script '${settings.setupScript}' completed`, scriptCommand, this.currentRunContext);
-              } catch (err: any) {
-                const message = err.stderr?.toString() || err.message || "Unknown error";
+              } catch (err: unknown) {
+                const execError = err instanceof Error ? err : new Error(String(err));
+                const message = "stderr" in execError && typeof (execError as Record<string, unknown>).stderr === "string"
+                  ? String((execError as Record<string, unknown>).stderr)
+                  : execError.message;
                 await this.store.logEntry(task.id, `Setup script '${settings.setupScript}' failed: ${message}`, undefined, this.currentRunContext);
               }
             } else {
@@ -1101,8 +1109,9 @@ export class TaskExecutor {
           executorLog.log(`${task.id}: captured baseCommitSha ${baseCommitSha.slice(0, 7)}`);
           // Audit trail: record base commit capture for later diff computation (FN-1404)
           await audit.git({ type: "commit:create", target: baseCommitSha, metadata: { purpose: "base" } });
-        } catch (err: any) {
-          executorLog.log(`Failed to capture baseCommitSha for ${task.id}: ${err.message}`);
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          executorLog.log(`Failed to capture baseCommitSha for ${task.id}: ${errorMessage}`);
           // Non-fatal: task can continue without baseCommitSha
         }
       }
@@ -1260,7 +1269,8 @@ export class TaskExecutor {
           } else {
             await retryableStepWork();
           }
-        } catch (err: any) {
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
           if (this.depAborted.has(task.id)) {
             this.depAborted.delete(task.id);
             await this.handleDepAbortCleanup(task.id, worktreePath);
@@ -1271,9 +1281,9 @@ export class TaskExecutor {
           } else if (this.stuckAborted.has(task.id)) {
             stuckRequeue = this.stuckAborted.get(task.id) ?? true;
             this.stuckAborted.delete(task.id);
-          } else if (this.options.usageLimitPauser && isUsageLimitError(err.message)) {
-            await this.options.usageLimitPauser.onUsageLimitHit("executor", task.id, err.message);
-          } else if (isTransientError(err.message)) {
+          } else if (this.options.usageLimitPauser && isUsageLimitError(errorMessage)) {
+            await this.options.usageLimitPauser.onUsageLimitHit("executor", task.id, errorMessage);
+          } else if (isTransientError(errorMessage)) {
             const decision = computeRecoveryDecision({
               recoveryRetryCount: task.recoveryRetryCount,
               nextRecoveryAt: task.nextRecoveryAt,
@@ -1282,17 +1292,17 @@ export class TaskExecutor {
             if (decision.shouldRetry) {
               const attempt = decision.nextState.recoveryRetryCount;
               const delay = formatDelay(decision.delayMs);
-              if (!isSilentTransientError(err.message)) {
-                executorLog.warn(`⚡ ${task.id} transient error — retry ${attempt}/${MAX_RECOVERY_RETRIES} in ${delay}: ${err.message}`);
-                await this.store.logEntry(task.id, `Transient error (retry ${attempt}/${MAX_RECOVERY_RETRIES} in ${delay}): ${err.message}`, undefined, this.currentRunContext);
+              if (!isSilentTransientError(errorMessage)) {
+                executorLog.warn(`⚡ ${task.id} transient error — retry ${attempt}/${MAX_RECOVERY_RETRIES} in ${delay}: ${errorMessage}`);
+                await this.store.logEntry(task.id, `Transient error (retry ${attempt}/${MAX_RECOVERY_RETRIES} in ${delay}): ${errorMessage}`, undefined, this.currentRunContext);
               }
               if (worktreePath && existsSync(worktreePath)) {
                 try {
                   await execAsync(`git worktree remove "${worktreePath}" --force`, { cwd: this.rootDir });
                   // Audit trail: record worktree removal (FN-1404)
                   await audit.git({ type: "worktree:remove", target: worktreePath });
-                } catch (_err) {
-                  // Ignore errors during worktree cleanup on stuck kill
+                } catch {
+                  // Worktree removal failed - ignoring since we're cleaning up anyway
                 }
               }
               await this.store.updateTask(task.id, {
@@ -1306,23 +1316,23 @@ export class TaskExecutor {
               return;
             }
 
-            executorLog.error(`✗ ${task.id} transient error retries exhausted: ${err.message}`);
+            executorLog.error(`✗ ${task.id} transient error retries exhausted: ${errorMessage}`);
             await this.store.updateTask(task.id, {
               status: "failed",
-              error: err.message,
+              error: errorMessage,
               recoveryRetryCount: null,
               nextRecoveryAt: null,
             });
             await this.store.moveTask(task.id, "in-review");
             executorLog.log(`✗ ${task.id} transient retries exhausted → in-review`);
-            this.options.onError?.(task, err);
+            this.options.onError?.(task, err instanceof Error ? err : new Error(errorMessage));
           } else {
-            executorLog.error(`✗ ${task.id} step-session execution failed:`, err.message);
-            await this.store.logEntry(task.id, `Step-session execution failed: ${err.message}`, undefined, this.currentRunContext);
-            await this.store.updateTask(task.id, { status: "failed", error: err.message });
+            executorLog.error(`✗ ${task.id} step-session execution failed:`, errorMessage);
+            await this.store.logEntry(task.id, `Step-session execution failed: ${errorMessage}`, undefined, this.currentRunContext);
+            await this.store.updateTask(task.id, { status: "failed", error: errorMessage });
             await this.store.moveTask(task.id, "in-review");
             executorLog.log(`✗ ${task.id} step-session execution failed → in-review`);
-            this.options.onError?.(task, err);
+            this.options.onError?.(task, err instanceof Error ? err : new Error(errorMessage));
           }
         } finally {
           this.executing.delete(task.id);
@@ -1342,8 +1352,8 @@ export class TaskExecutor {
               if (worktreePath && existsSync(worktreePath)) {
                 try {
                   await execAsync(`git worktree remove "${worktreePath}" --force`, { cwd: this.rootDir });
-                } catch (_err) {
-                  // Ignore errors during worktree cleanup on stuck kill
+                } catch {
+                  // Worktree removal failed - ignoring since we're cleaning up anyway
                 }
               }
               await this.store.updateTask(task.id, { status: "stuck-killed", worktree: null, branch: null });
@@ -1351,8 +1361,9 @@ export class TaskExecutor {
                 await this.store.moveTask(task.id, "todo");
                 executorLog.log(`${task.id} moved to todo for retry after stuck kill`);
               }
-            } catch (err: any) {
-              executorLog.error(`Failed to requeue stuck task ${task.id}: ${err.message}`);
+            } catch (err: unknown) {
+              const errorMessage = err instanceof Error ? err.message : String(err);
+              executorLog.error(`Failed to requeue stuck task ${task.id}: ${errorMessage}`);
             }
             stuckRequeue = null; // Prevent outer finally from re-processing
           }
@@ -1438,6 +1449,7 @@ export class TaskExecutor {
           executorInstructions,
         );
 
+        // sessionFile must be let because it's destructured alongside session which is reassigned
         // eslint-disable-next-line prefer-const
         let { session, sessionFile } = await createKbAgent({
           cwd: worktreePath,
@@ -1493,6 +1505,7 @@ export class TaskExecutor {
         executorLog.log(`${task.id}: session registered (model=${describeModel(session)}, stuckDetector=${!!stuckDetector})`);
 
         // Invoke plugin onAgentRunStart hook (fire-and-forget)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         void (this.options.pluginRunner as any)?.invokeHook("onAgentRunStart", task.id);
 
         try {
@@ -1783,6 +1796,7 @@ export class TaskExecutor {
             this.store.updateTask(task.id, { sessionFile: null }).catch(() => {});
           }
           // Invoke plugin onAgentRunEnd hook (fire-and-forget)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           void (this.options.pluginRunner as any)?.invokeHook("onAgentRunEnd", task.id);
         }
       };
@@ -1800,26 +1814,28 @@ export class TaskExecutor {
       } else {
         await retryableWork();
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
       if (this.depAborted.has(task.id)) {
         // Dependency added mid-execution — discard worktree and move to triage
         this.depAborted.delete(task.id);
         await this.handleDepAbortCleanup(task.id, worktreePath);
-      } else if (err.message?.includes("Invalid transition")) {
+      } else if (errorMessage.includes("Invalid transition")) {
         // Task was moved by user/process while executor was running — already in desired state
         // This check must come before pausedAborted since it's more specific
-        const transitionMatch = err.message.match(/Invalid transition: '([^']+)' → '([^']+)'/);
+        const transitionMatch = errorMessage.match(/Invalid transition: '([^']+)' → '([^']+)'/);
         const fromColumn = transitionMatch?.[1] ?? "unknown";
         const toColumn = transitionMatch?.[2] ?? "unknown";
         const logMessage = `Task already moved from '${fromColumn}' — skipping transition to '${toColumn}'`;
         executorLog.log(`${task.id} ${logMessage}`);
-        await this.store.logEntry(task.id, logMessage, err.message, this.currentRunContext);
+        await this.store.logEntry(task.id, logMessage, errorMessage, this.currentRunContext);
         if (fromColumn === "in-review" && toColumn === "in-review") {
           try {
             const finalizeResult = await this.finalizeAlreadyReviewedTask(task.id);
             executorLog.log(`${task.id} duplicate in-review finalization result: ${finalizeResult}`);
-          } catch (finalizeErr: any) {
-            executorLog.warn(`${task.id} failed to finalize duplicate in-review transition: ${finalizeErr.message}`);
+          } catch (finalizeErr: unknown) {
+            const finalizeErrMessage = finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr);
+            executorLog.warn(`${task.id} failed to finalize duplicate in-review transition: ${finalizeErrMessage}`);
           }
         }
         // Task finished successfully (just already moved), so call onComplete
@@ -1840,8 +1856,9 @@ export class TaskExecutor {
               executorLog.log(`Removed old worktree for paused task: ${worktreePath}`);
               // Audit trail: record worktree removal (FN-1404)
               await audit.git({ type: "worktree:remove", target: worktreePath });
-            } catch (cleanupErr: any) {
-              executorLog.warn(`Failed to remove old worktree ${worktreePath}: ${cleanupErr.message}`);
+            } catch (cleanupErr: unknown) {
+              const cleanupErrMessage = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
+              executorLog.warn(`Failed to remove old worktree ${worktreePath}: ${cleanupErrMessage}`);
             }
           }
           await this.store.updateTask(task.id, { worktree: undefined, branch: undefined });
@@ -1855,10 +1872,6 @@ export class TaskExecutor {
         this.stuckAborted.delete(task.id);
         executorLog.log(`${task.id} terminated by stuck task detector — will ${stuckRequeue ? "retry" : "not retry (budget exhausted)"}`);
       } else {
-        // Normalize error message for consistent handling across different error types.
-        // This ensures we don't make assumptions about error object structure.
-        const errorMessage = typeof err === "string" ? err : err?.message ?? String(err);
-
         // Check if the error is a context-limit error and attempt bounded recovery
         // before falling through to the normal failure path. Recovery strategy:
         // 1. Try compact-and-resume (compacts session history, then resumes with same prompt)
@@ -1905,9 +1918,9 @@ export class TaskExecutor {
                 // without marking the task as failed. The agent will continue execution
                 // and call task_done or complete implicitly.
                 return;
-              } catch (resumeErr: any) {
+              } catch (resumeErr: unknown) {
                 // Resume after context compaction failed — fall through to reduced-prompt retry
-                const resumeErrorMessage = resumeErr?.message ?? String(resumeErr);
+                const resumeErrorMessage = resumeErr instanceof Error ? resumeErr.message : String(resumeErr);
                 executorLog.error(`${task.id} resume after context compaction failed: ${resumeErrorMessage}`);
                 await this.store.logEntry(task.id, `Resume after context compaction failed: ${resumeErrorMessage}`, undefined, this.currentRunContext);
                 // Fall through to reduced-prompt retry below
@@ -1944,8 +1957,8 @@ export class TaskExecutor {
                 executorLog.log(`${task.id} reduced-prompt recovery succeeded — continuing`);
                 await this.store.logEntry(task.id, "Reduced-prompt recovery succeeded — continuing execution", undefined, this.currentRunContext);
                 return;
-              } catch (reducedErr: any) {
-                const reducedErrorMessage = reducedErr?.message ?? String(reducedErr);
+              } catch (reducedErr: unknown) {
+                const reducedErrorMessage = reducedErr instanceof Error ? reducedErr.message : String(reducedErr);
                 executorLog.error(`${task.id} reduced-prompt recovery also failed: ${reducedErrorMessage}`);
                 await this.store.logEntry(task.id, `Reduced-prompt recovery failed: ${reducedErrorMessage}`, undefined, this.currentRunContext);
                 // Fall through to mark task as failed
@@ -1976,8 +1989,9 @@ export class TaskExecutor {
                 executorLog.log(`Removed old worktree for transient retry: ${worktreePath}`);
                 // Audit trail: record worktree removal (FN-1404)
                 await audit.git({ type: "worktree:remove", target: worktreePath });
-              } catch (cleanupErr: any) {
-                executorLog.warn(`Failed to remove old worktree ${worktreePath}: ${cleanupErr.message}`);
+              } catch (cleanupErr: unknown) {
+                const cleanupErrMessage = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
+                executorLog.warn(`Failed to remove old worktree ${worktreePath}: ${cleanupErrMessage}`);
               }
             }
             await this.store.updateTask(task.id, {
@@ -2001,7 +2015,7 @@ export class TaskExecutor {
           });
           await this.store.moveTask(task.id, "in-review");
           executorLog.log(`✗ ${task.id} transient retries exhausted → in-review`);
-          this.options.onError?.(task, err);
+          this.options.onError?.(task, err instanceof Error ? err : new Error(errorMessage));
           return;
         }
         executorLog.error(`✗ ${task.id} execution failed:`, errorMessage);
@@ -2009,7 +2023,7 @@ export class TaskExecutor {
         await this.store.updateTask(task.id, { status: "failed", error: errorMessage });
         await this.store.moveTask(task.id, "in-review");
         executorLog.log(`✗ ${task.id} execution failed → in-review`);
-        this.options.onError?.(task, err);
+        this.options.onError?.(task, err instanceof Error ? err : new Error(errorMessage));
       }
     } finally {
       this.executing.delete(task.id);
@@ -2038,8 +2052,9 @@ export class TaskExecutor {
               executorLog.log(`Removed old worktree for stuck-killed retry: ${worktreePath}`);
               // Audit trail: record worktree removal (FN-1404)
               await audit.git({ type: "worktree:remove", target: worktreePath });
-            } catch (cleanupErr: any) {
-              executorLog.warn(`Failed to remove old worktree ${worktreePath}: ${cleanupErr.message}`);
+            } catch (cleanupErr: unknown) {
+              const cleanupErrMessage = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
+              executorLog.warn(`Failed to remove old worktree ${worktreePath}: ${cleanupErrMessage}`);
             }
           }
           await this.store.updateTask(task.id, { status: "stuck-killed", worktree: null, branch: null });
@@ -2054,8 +2069,9 @@ export class TaskExecutor {
           } else {
             executorLog.log(`${task.id} already in todo — skipping redundant move`);
           }
-        } catch (err: any) {
-          executorLog.error(`Failed to requeue stuck task ${task.id}: ${err.message}`);
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          executorLog.error(`Failed to requeue stuck task ${task.id}: ${errorMessage}`);
         }
       }
     }
@@ -2389,8 +2405,9 @@ export class TaskExecutor {
                 try {
                   await execAsync(`git reset --hard ${baseline}`, { cwd: worktreePath });
                   executorLog.log(`${taskId}: RETHINK — git reset --hard ${baseline}`);
-                } catch (gitErr: any) {
-                  executorLog.error(`${taskId}: RETHINK git reset failed: ${gitErr.message}`);
+                } catch (gitErr: unknown) {
+                  const gitErrMessage = gitErr instanceof Error ? gitErr.message : String(gitErr);
+                  executorLog.error(`${taskId}: RETHINK git reset failed: ${gitErrMessage}`);
                 }
               } else if (reviewType === "code") {
                 executorLog.log(`${taskId}: RETHINK — no baseline SHA, skipping git reset`);
@@ -2410,8 +2427,9 @@ export class TaskExecutor {
                       `RETHINK: ${result.summary || "Approach rejected by reviewer"}`,
                     );
                     executorLog.log(`${taskId}: RETHINK — branched from checkpoint ${checkpointId}`);
-                  } catch (branchErr: any) {
-                    executorLog.error(`${taskId}: RETHINK session rewind failed: ${branchErr.message}`);
+                  } catch (branchErr: unknown) {
+                    const branchErrMessage = branchErr instanceof Error ? branchErr.message : String(branchErr);
+                    executorLog.error(`${taskId}: RETHINK session rewind failed: ${branchErrMessage}`);
                   }
                 }
               } else {
@@ -2442,11 +2460,12 @@ export class TaskExecutor {
           }
 
           return { content: [{ type: "text" as const, text }], details: {} };
-        } catch (err: any) {
-          reviewerLog.error(`${taskId}: review failed: ${err.message}`);
-          await store.logEntry(taskId, `${reviewType} review failed: ${err.message}`);
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          reviewerLog.error(`${taskId}: review failed: ${errorMessage}`);
+          await store.logEntry(taskId, `${reviewType} review failed: ${errorMessage}`);
           return {
-            content: [{ type: "text" as const, text: `UNAVAILABLE — reviewer error: ${err.message}` }],
+            content: [{ type: "text" as const, text: `UNAVAILABLE — reviewer error: ${errorMessage}` }],
             details: {},
           };
         }
@@ -2539,8 +2558,9 @@ export class TaskExecutor {
         await this.store.moveTask(task.id, "todo");
         await this.store.moveTask(task.id, "in-progress");
         executorLog.log(`${task.id}: revision rerun scheduled — moved to todo then in-progress`);
-      } catch (err: any) {
-        executorLog.error(`${task.id}: failed to schedule revision rerun: ${err.message}`);
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        executorLog.error(`${task.id}: failed to schedule revision rerun: ${errorMessage}`);
         // Fallback: log entry and let scheduler pick it up on next tick
         await this.store.logEntry(
           task.id,
@@ -2608,8 +2628,9 @@ ${feedback}
     try {
       await writeFile(promptPath, newContent);
       executorLog.log(`${task.id}: injected workflow revision instructions into PROMPT.md`);
-    } catch (err: any) {
-      executorLog.error(`${task.id}: failed to inject revision instructions: ${err.message}`);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      executorLog.error(`${task.id}: failed to inject revision instructions: ${errorMessage}`);
     }
   }
 
@@ -2667,8 +2688,9 @@ ${feedback}
         await this.store.moveTask(task.id, "todo");
         await this.store.moveTask(task.id, "in-progress");
         executorLog.log(`${task.id}: workflow step retry scheduled — moved to todo then in-progress`);
-      } catch (err: any) {
-        executorLog.error(`${task.id}: failed to schedule workflow step retry: ${err.message}`);
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        executorLog.error(`${task.id}: failed to schedule workflow step retry: ${errorMessage}`);
         // Fallback: log entry and let scheduler pick it up on next tick
         await this.store.logEntry(
           task.id,
@@ -2757,8 +2779,9 @@ ${failureFeedback}
     try {
       await writeFile(promptPath, newContent);
       executorLog.log(`${task.id}: injected workflow step failure instructions into PROMPT.md (retry ${retryCount}/${MAX_WORKFLOW_STEP_RETRIES})`);
-    } catch (err: any) {
-      executorLog.error(`${task.id}: failed to inject workflow step failure instructions: ${err.message}`);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      executorLog.error(`${task.id}: failed to inject workflow step failure instructions: ${errorMessage}`);
     }
   }
 
@@ -2811,8 +2834,9 @@ ${failureFeedback}
       }
 
       return output.split("\n").filter(Boolean);
-    } catch (err: any) {
-      executorLog.log(`Failed to capture modified files: ${err.message}`);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      executorLog.log(`Failed to capture modified files: ${errorMessage}`);
       return [];
     }
   }
@@ -2981,21 +3005,22 @@ ${failureFeedback}
             stepName: ws.name,
           };
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
         const completedAt = new Date().toISOString();
         await this.store.logEntry(
           task.id,
           `[pre-merge] Workflow step failed: ${ws.name}`,
-          err.message || "Unknown error",
+          errorMessage,
         );
-        executorLog.error(`${task.id} — [pre-merge] workflow step error: ${ws.name} — ${err.message}`);
+        executorLog.error(`${task.id} — [pre-merge] workflow step error: ${ws.name} — ${errorMessage}`);
         // Update existing pending entry in place
         const existingIdx = results.findIndex(r => r.workflowStepId === ws.id);
         if (existingIdx >= 0) {
           results[existingIdx] = {
             ...results[existingIdx],
             status: "failed",
-            output: err.message || "Workflow step error",
+            output: errorMessage || "Workflow step error",
             completedAt,
           };
         }
@@ -3003,7 +3028,7 @@ ${failureFeedback}
         return {
           allPassed: false,
           revisionRequested: false,
-          feedback: err.message || "Workflow step error",
+          feedback: errorMessage || "Workflow step error",
           stepName: ws.name,
         };
       }
@@ -3043,15 +3068,16 @@ ${failureFeedback}
         timeout: 120_000,
       });
       return { success: true, output: `Script '${scriptName}' completed successfully` };
-    } catch (err: any) {
-      const stderr = err.stderr?.toString()?.trim() || "";
-      const stdout = err.stdout?.toString()?.trim() || "";
-      const exitCode = err.code ?? err.status;
+    } catch (err: unknown) {
+      const execError = err instanceof Error ? err : new Error(String(err));
+      const stderr = "stderr" in execError && typeof execError.stderr === "string" ? execError.stderr.trim() : "";
+      const stdout = "stdout" in execError && typeof execError.stdout === "string" ? execError.stdout.trim() : "";
+      const exitCode = "code" in execError ? execError.code : ("status" in execError ? execError.status : undefined);
       const parts: string[] = [];
       if (exitCode !== undefined) parts.push(`Exit code: ${exitCode}`);
       if (stdout) parts.push(`stdout: ${truncateWorkflowScriptOutput(stdout)}`);
       if (stderr) parts.push(`stderr: ${truncateWorkflowScriptOutput(stderr)}`);
-      if (!parts.length) parts.push(err.message || "Unknown error");
+      if (!parts.length) parts.push(execError.message || "Unknown error");
       const errorOutput = parts.join("\n");
       return { success: false, error: errorOutput };
     }
@@ -3196,9 +3222,10 @@ and show an appropriate message to the user.\`
       }
 
       return { success: true, output };
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
       await agentLogger.flush();
-      return { success: false, error: err.message };
+      return { success: false, error: errorMessage };
     }
   }
 
@@ -3227,17 +3254,18 @@ and show an appropriate message to the user.\`
     for (let attempt = 0; attempt < this.MAX_WORKTREE_RETRIES; attempt++) {
       try {
         return await this.tryCreateWorktree(branch, currentPath, taskId, startPoint, attempt);
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
         const isLastAttempt = attempt === this.MAX_WORKTREE_RETRIES - 1;
 
         if (isLastAttempt) {
           await this.store.logEntry(
             taskId,
             `Worktree creation failed after ${this.MAX_WORKTREE_RETRIES} attempts`,
-            error.message,
+            errorMessage,
           );
           throw new Error(
-            `Failed to create worktree after ${this.MAX_WORKTREE_RETRIES} attempts: ${error.message}`,
+            `Failed to create worktree after ${this.MAX_WORKTREE_RETRIES} attempts: ${errorMessage}`,
           );
         }
 
@@ -3272,8 +3300,9 @@ and show an appropriate message to the user.\`
         );
         try {
           await execAsync(`rm -rf "${path}"`, { cwd: this.rootDir });
-        } catch (e: any) {
-          throw new Error(`Failed to remove existing directory ${path}: ${e.message}`);
+        } catch (e: unknown) {
+          const eMessage = e instanceof Error ? e.message : String(e);
+          throw new Error(`Failed to remove existing directory ${path}: ${eMessage}`);
         }
       } else {
         executorLog.log(`Worktree already exists: ${path}`);
@@ -3299,7 +3328,7 @@ and show an appropriate message to the user.\`
         await this.store.logEntry(taskId, `Worktree created on attempt ${attemptNumber + 1}`, path);
       }
       return { path, branch };
-    } catch (initialError: any) {
+    } catch (initialError: unknown) {
       const conflictInfo = this.extractWorktreeConflictInfo(initialError);
 
       // Handle "already used by worktree" conflict
@@ -3345,7 +3374,8 @@ and show an appropriate message to the user.\`
         await createFromExistingBranch();
         executorLog.log(`Worktree created from existing branch: ${path}`);
         return { path, branch };
-      } catch (fallbackError: any) {
+      } catch (fallbackError: unknown) {
+        const fallbackErrorMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
         // Check if the fallback also hit an "already used" conflict
         const fallbackConflictInfo = this.extractWorktreeConflictInfo(fallbackError);
         if (fallbackConflictInfo.type === "already-used" && fallbackConflictInfo.path) {
@@ -3374,7 +3404,7 @@ and show an appropriate message to the user.\`
           }
         }
 
-        throw new Error(`Failed to create worktree: ${fallbackError.message}`);
+        throw new Error(`Failed to create worktree: ${fallbackErrorMessage}`);
       }
     }
   }
@@ -3413,7 +3443,7 @@ and show an appropriate message to the user.\`
             newPath,
           );
           return await this.tryCreateWorktree(suffixedBranch, newPath, taskId, startPoint, attemptNumber);
-        } catch (suffixErr: any) {
+        } catch (suffixErr: unknown) {
           const info = this.extractWorktreeConflictInfo(suffixErr);
           if (info.type === "already-used") {
             // This suffixed branch is also in use — try next suffix
@@ -3481,18 +3511,15 @@ and show an appropriate message to the user.\`
           cwd: this.rootDir,
         });
         await this.store.logEntry(taskId, `Unlocked worktree`, worktreePath);
-      } catch (_err) {
+      } catch {
         // Unlock failed - worktree wasn't locked, that's fine
       }
 
       // Remove the worktree
-      try {
-        await execAsync(`git worktree remove "${worktreePath}" --force`, {
-          cwd: this.rootDir,
-        });
-      } finally {
-        await this.store.logEntry(taskId, `Removed conflicting worktree`, worktreePath);
-      }
+      await execAsync(`git worktree remove "${worktreePath}" --force`, {
+        cwd: this.rootDir,
+      });
+      await this.store.logEntry(taskId, `Removed conflicting worktree`, worktreePath);
 
       // Delete the branch if it exists
       try {
@@ -3505,11 +3532,12 @@ and show an appropriate message to the user.\`
       }
 
       return true;
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       await this.store.logEntry(
         taskId,
         `Failed to clean up conflicting worktree`,
-        `${worktreePath}: ${error.message}`,
+        `${worktreePath}: ${errorMessage}`,
       );
       return false;
     }
@@ -3544,11 +3572,12 @@ and show an appropriate message to the user.\`
       });
       await this.store.logEntry(taskId, `Removed stale branch`, branch);
       return true;
-    } catch (branchDeleteError: any) {
+    } catch (branchDeleteError: unknown) {
+      const branchDeleteErrorMessage = branchDeleteError instanceof Error ? branchDeleteError.message : String(branchDeleteError);
       await this.store.logEntry(
         taskId,
         `git branch -D failed for stale branch, trying update-ref`,
-        `${branch}: ${branchDeleteError.message}`,
+        `${branch}: ${branchDeleteErrorMessage}`,
       );
     }
 
@@ -3560,11 +3589,12 @@ and show an appropriate message to the user.\`
       });
       await this.store.logEntry(taskId, `Force-removed stale branch reference via update-ref`, refPath);
       return true;
-    } catch (updateRefError: any) {
+    } catch (updateRefError: unknown) {
+      const updateRefErrorMessage = updateRefError instanceof Error ? updateRefError.message : String(updateRefError);
       await this.store.logEntry(
         taskId,
         `Failed to remove stale branch reference`,
-        `${branch}: ${updateRefError.message}`,
+        `${branch}: ${updateRefErrorMessage}`,
       );
       return false;
     }
@@ -3578,12 +3608,17 @@ and show an appropriate message to the user.\`
    * - "could not create leading directories"
    * - "working tree already exists"
    */
-  private extractWorktreeConflictInfo(error: any): {
+  private extractWorktreeConflictInfo(error: unknown): {
     type: "already-used" | "invalid-reference" | "leading-directories" | "already-exists" | "unknown";
     path?: string;
     message?: string;
   } {
-    const output = [error?.message, error?.stderr?.toString?.(), error?.stdout?.toString?.()]
+    const execError = error instanceof Error ? error : new Error(String(error));
+    const output = [
+      execError.message,
+      "stderr" in execError && typeof execError.stderr === "string" ? execError.stderr.toString() : undefined,
+      "stdout" in execError && typeof execError.stdout === "string" ? execError.stdout.toString() : undefined,
+    ]
       .filter(Boolean)
       .join("\n");
 
@@ -3639,8 +3674,9 @@ and show an appropriate message to the user.\`
     try {
       await execAsync(`git worktree remove "${worktreePath}" --force`, { cwd: this.rootDir });
       executorLog.log(`Cleaned up worktree for ${taskId}`);
-    } catch (err: any) {
-      executorLog.error(`Failed to clean up worktree for ${taskId}:`, err.message);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      executorLog.error(`Failed to clean up worktree for ${taskId}:`, errorMessage);
     }
   }
 
@@ -3740,8 +3776,9 @@ and show an appropriate message to the user.\`
           this.executing.delete(taskId);
           this.stuckAborted.delete(taskId);
           executorLog.log(`${taskId} force-requeued to todo`);
-        } catch (err: any) {
-          executorLog.error(`Failed to force-requeue stuck task ${taskId}: ${err.message}`);
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          executorLog.error(`Failed to force-requeue stuck task ${taskId}: ${errorMessage}`);
         }
       }, FORCE_REQUEUE_GRACE_MS);
     }
@@ -3805,8 +3842,9 @@ and show an appropriate message to the user.\`
         "approach. Do NOT repeat the same actions. Advance to the next step if the " +
         "current work is complete.",
       );
-    } catch (err: any) {
-      executorLog.error(`${taskId} failed to steer after compaction: ${err.message}`);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      executorLog.error(`${taskId} failed to steer after compaction: ${errorMessage}`);
       // Recovery-pending is still set — the execution flow will handle it
     }
 
@@ -3876,12 +3914,13 @@ and show an appropriate message to the user.\`
       try {
         await this.options.agentStore?.updateAgentState(agentId, "active");
       } catch { /* non-critical */ }
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Error during execution — mark as error
       try {
         await this.options.agentStore?.updateAgentState(agentId, "error");
       } catch { /* non-critical */ }
-      executorLog.warn(`Child agent ${agentId} failed: ${err.message}`);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      executorLog.warn(`Child agent ${agentId} failed: ${errorMessage}`);
     } finally {
       this.childSessions.delete(agentId);
       this.totalSpawnedCount = Math.max(0, this.totalSpawnedCount - 1);
@@ -3987,8 +4026,9 @@ and show an appropriate message to the user.\`
           this.totalSpawnedCount++;
 
           // Run child asynchronously (don't await — parent continues working)
-          this.runSpawnedChild(agent.id, childSession, taskPrompt).catch((err: any) => {
-            executorLog.warn(`Child agent ${agent.id} async error: ${err.message}`);
+          this.runSpawnedChild(agent.id, childSession, taskPrompt).catch((err: unknown) => {
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            executorLog.warn(`Child agent ${agent.id} async error: ${errorMessage}`);
           });
 
           const result: SpawnAgentResult = {
@@ -4003,10 +4043,11 @@ and show an appropriate message to the user.\`
             content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
             details: result,
           };
-        } catch (err: any) {
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
           return {
-            content: [{ type: "text" as const, text: `Failed to spawn agent: ${err.message}` }],
-            details: { agentId: "", state: "error", message: err.message },
+            content: [{ type: "text" as const, text: `Failed to spawn agent: ${errorMessage}` }],
+            details: { agentId: "", state: "error", message: errorMessage },
           };
         }
       },

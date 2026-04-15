@@ -823,10 +823,11 @@ export class TriageProcessor {
       } else {
         await retryableWork();
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
       // Race condition: task was deleted (e.g. as a duplicate) between listTasks()
       // and specifyTask(). The file is gone, so just log and skip — no point retrying.
-      if (err.code === "ENOENT") {
+      if ((err as Record<string, unknown>).code === "ENOENT") {
         triageLog.log(`${task.id} no longer exists — skipping`);
       } else if (this.pauseAborted.has(task.id)) {
         // Pause (global or engine) — clear specifying status without reporting an error
@@ -845,13 +846,13 @@ export class TriageProcessor {
         await this.store.updateTask(task.id, { status: restoreStatus }).catch(() => {});
       } else {
         // Check if the error is a usage-limit error and trigger global pause
-        if (this.options.usageLimitPauser && isUsageLimitError(err.message)) {
+        if (this.options.usageLimitPauser && isUsageLimitError(errorMessage)) {
           await this.options.usageLimitPauser.onUsageLimitHit(
             "triage",
             task.id,
-            err.message,
+            errorMessage,
           );
-        } else if (isTransientError(err.message)) {
+        } else if (isTransientError(errorMessage)) {
           // Transient network/infrastructure error — use bounded recovery policy
           const decision = computeRecoveryDecision({
             recoveryRetryCount: task.recoveryRetryCount,
@@ -862,9 +863,9 @@ export class TriageProcessor {
             const attempt = decision.nextState.recoveryRetryCount;
             const delay = formatDelay(decision.delayMs);
             // Silent transient errors (e.g., "request was aborted") are noisy — skip logging
-            if (!isSilentTransientError(err.message)) {
-              triageLog.warn(`⚡ ${task.id} transient error during triage — retry ${attempt}/${MAX_RECOVERY_RETRIES} in ${delay}: ${err.message}`);
-              await this.store.logEntry(task.id, `Transient error during specification (retry ${attempt}/${MAX_RECOVERY_RETRIES} in ${delay}): ${err.message}`).catch(() => {});
+            if (!isSilentTransientError(errorMessage)) {
+              triageLog.warn(`⚡ ${task.id} transient error during triage — retry ${attempt}/${MAX_RECOVERY_RETRIES} in ${delay}: ${errorMessage}`);
+              await this.store.logEntry(task.id, `Transient error during specification (retry ${attempt}/${MAX_RECOVERY_RETRIES} in ${delay}): ${errorMessage}`).catch(() => {});
             }
             const restoreStatus = task.status === "needs-respecify" ? "needs-respecify" : null;
             await this.store.updateTask(task.id, {
@@ -876,22 +877,22 @@ export class TriageProcessor {
           }
 
           // Recovery budget exhausted — freeze in triage with error for manual intervention
-          triageLog.error(`✗ ${task.id} transient error retries exhausted (${MAX_RECOVERY_RETRIES} attempts): ${err.message}`);
-          await this.store.logEntry(task.id, `Specification failed after ${MAX_RECOVERY_RETRIES} transient errors: ${err.message}`).catch(() => {});
+          triageLog.error(`✗ ${task.id} transient error retries exhausted (${MAX_RECOVERY_RETRIES} attempts): ${errorMessage}`);
+          await this.store.logEntry(task.id, `Specification failed after ${MAX_RECOVERY_RETRIES} transient errors: ${errorMessage}`).catch(() => {});
           await this.store.updateTask(task.id, {
-            error: `Specification failed after ${MAX_RECOVERY_RETRIES} transient errors: ${err.message}`,
+            error: `Specification failed after ${MAX_RECOVERY_RETRIES} transient errors: ${errorMessage}`,
             recoveryRetryCount: null,
             nextRecoveryAt: null,
           }).catch(() => {});
-          this.options.onSpecifyError?.(task, err);
+          this.options.onSpecifyError?.(task, err instanceof Error ? err : new Error(errorMessage));
           return;
         }
         // For re-specification, restore needs-respecify status so it can be retried;
         // otherwise clear to null so the next poll can re-pick the task up.
         const restoreStatus = task.status === "needs-respecify" ? "needs-respecify" : null;
         await this.store.updateTask(task.id, { status: restoreStatus }).catch(() => {});
-        triageLog.error(`✗ ${task.id} specification failed:`, err.message);
-        this.options.onSpecifyError?.(task, err);
+        triageLog.error(`✗ ${task.id} specification failed:`, errorMessage);
+        this.options.onSpecifyError?.(task, err instanceof Error ? err : new Error(errorMessage));
       }
     } finally {
       this.processing.delete(task.id);
@@ -1035,12 +1036,12 @@ export class TriageProcessor {
             ],
             details: { taskId: newTask.id },
           };
-        } catch (err: any) {
+        } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
           return {
             content: [
               {
                 type: "text" as const,
-                text: `ERROR: Failed to create task: ${err.message}`,
+                text: `ERROR: Failed to create task: ${errorMessage}`,
               },
             ],
             details: {},
@@ -1131,6 +1132,7 @@ export class TriageProcessor {
           // Re-read task detail to get latest user comments for the reviewer
           const currentDetail = await store.getTask(taskId);
           const currentUserComments = (currentDetail.comments || []).filter(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (c: any) => c.author === "user",
           );
 
@@ -1199,9 +1201,10 @@ export class TriageProcessor {
                     triageLog.log(
                       `${taskId}: RETHINK — branched from checkpoint ${checkpointId}`,
                     );
-                  } catch (branchErr: any) {
+                  } catch (branchErr: unknown) {
+                    const branchErrMessage = branchErr instanceof Error ? branchErr.message : String(branchErr);
                     triageLog.error(
-                      `${taskId}: RETHINK session rewind failed: ${branchErr.message}`,
+                      `${taskId}: RETHINK session rewind failed: ${branchErrMessage}`,
                     );
                   }
                 }
@@ -1224,14 +1227,14 @@ export class TriageProcessor {
           }
 
           return { content: [{ type: "text" as const, text }], details: {} };
-        } catch (err: any) {
-          reviewerLog.error(`${taskId}: spec review failed: ${err.message}`);
-          await store.logEntry(taskId, `Spec review failed: ${err.message}`);
+        } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+          reviewerLog.error(`${taskId}: spec review failed: ${errorMessage}`);
+          await store.logEntry(taskId, `Spec review failed: ${errorMessage}`);
           return {
             content: [
               {
                 type: "text" as const,
-                text: `UNAVAILABLE — reviewer error: ${err.message}`,
+                text: `UNAVAILABLE — reviewer error: ${errorMessage}`,
               },
             ],
             details: {},
@@ -1265,6 +1268,7 @@ export class TriageProcessor {
     }
 
     const parsedDeps = await this.store.parseDependenciesFromPrompt(task.id);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const taskUpdates: Record<string, any> = { status: null, error: null };
 
     if (parsedDeps.length > 0) {

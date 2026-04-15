@@ -143,9 +143,8 @@ import { execSync } from "node:child_process";
 import { findWorktreeUser, aiMergeTask } from "./merger.js";
 import { WorktreePool } from "./worktree-pool.js";
 import { generateWorktreeName, slugify } from "./worktree-names.js";
-import type { Column, Task, TaskDetail } from "@fusion/core";
+import type { Task, TaskDetail } from "@fusion/core";
 import { SessionManager } from "@mariozechner/pi-coding-agent";
-import { StuckTaskDetector } from "./stuck-task-detector.js";
 import { StepSessionExecutor } from "./step-session-executor.js";
 import { executorLog } from "./logger.js";
 
@@ -155,16 +154,18 @@ const mockedGenerateWorktreeName = vi.mocked(generateWorktreeName);
 const mockedFindWorktreeUser = vi.mocked(findWorktreeUser);
 const mockedStepSessionExecutor = vi.mocked(StepSessionExecutor);
 
+type EventListener = (...args: unknown[]) => void;
+
 function createMockStore() {
-  const listeners = new Map<string, Function[]>();
+  const listeners = new Map<string, EventListener[]>();
   const store = {
-    on: vi.fn((event: string, fn: Function) => {
+    on: vi.fn((event: string, fn: EventListener) => {
       const existing = listeners.get(event) || [];
       existing.push(fn);
       listeners.set(event, existing);
     }),
     /** Trigger registered listeners for an event (test helper). */
-    _trigger(event: string, ...args: any[]) {
+    _trigger(event: string, ...args: unknown[]) {
       for (const fn of listeners.get(event) || []) fn(...args);
     },
     emit: vi.fn(),

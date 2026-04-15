@@ -203,8 +203,8 @@ export class SelfHealingManager {
       // Note: if the rate limit is still active, the next agent session will
       // hit it again → UsageLimitPauser triggers globalPause → our listener
       // catches the transition and schedules the next attempt with escalated backoff.
-    } catch (err: any) {
-      log.error(`Auto-unpause failed: ${err.message}`);
+    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`Auto-unpause failed: ${errorMessage}`);
     }
   }
 
@@ -242,10 +242,11 @@ export class SelfHealingManager {
         });
         try {
           await this.store.moveTask(taskId, "in-review");
-        } catch (moveErr: any) {
+        } catch (moveErr: unknown) {
           // moveTask may fail if task was concurrently moved (e.g., dep-abort).
           // The task is already marked failed — don't allow requeue.
-          log.warn(`${taskId} moveTask("in-review") failed (${moveErr.message}) — task already marked failed, not re-queuing`);
+          const moveErrMessage = moveErr instanceof Error ? moveErr.message : String(moveErr);
+          log.warn(`${taskId} moveTask("in-review") failed (${moveErrMessage}) — task already marked failed, not re-queuing`);
         }
         await this.store.logEntry(
           taskId,
@@ -262,8 +263,8 @@ export class SelfHealingManager {
         `Stuck kill ${newCount}/${maxKills} — re-queuing for retry`,
       );
       return true;
-    } catch (err: any) {
-      log.error(`checkStuckBudget failed for ${taskId}: ${err.message}`);
+    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`checkStuckBudget failed for ${taskId}: ${errorMessage}`);
       // On error, allow re-queue — safer than permanently failing
       return true;
     }
@@ -357,8 +358,8 @@ export class SelfHealingManager {
 
       const elapsedMs = Date.now() - startMs;
       log.log(`Maintenance cycle completed in ${elapsedMs}ms`);
-    } catch (err: any) {
-      log.error(`Maintenance cycle failed: ${err.message}`);
+    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`Maintenance cycle failed: ${errorMessage}`);
     }
   }
 
@@ -399,8 +400,8 @@ export class SelfHealingManager {
         try {
           await this.store.archiveTask(task.id);
           archived++;
-        } catch (err: any) {
-          log.error(`Failed to auto-archive ${task.id}: ${err.message}`);
+        } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+          log.error(`Failed to auto-archive ${task.id}: ${errorMessage}`);
         }
       }
 
@@ -408,8 +409,8 @@ export class SelfHealingManager {
         log.log(`Auto-archived ${archived} stale done task(s)`);
       }
       return archived;
-    } catch (err: any) {
-      log.error(`Auto-archive sweep failed: ${err.message}`);
+    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`Auto-archive sweep failed: ${errorMessage}`);
       return 0;
     }
   }
@@ -457,8 +458,8 @@ export class SelfHealingManager {
         log.log(`Recovered ${recovered} completed task(s) → in-review`);
       }
       return recovered;
-    } catch (err: any) {
-      log.error(`Completed task recovery failed: ${err.message}`);
+    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`Completed task recovery failed: ${errorMessage}`);
       return 0;
     }
   }
@@ -497,8 +498,8 @@ export class SelfHealingManager {
           );
           log.log(`Recovered mergeable review task ${task.id}: merged to done`);
           recovered++;
-        } catch (err: any) {
-          log.error(`Failed to recover mergeable review task ${task.id}: ${err.message}`);
+        } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+          log.error(`Failed to recover mergeable review task ${task.id}: ${errorMessage}`);
         }
       }
 
@@ -506,8 +507,8 @@ export class SelfHealingManager {
         log.log(`Recovered ${recovered} mergeable review task(s) → done`);
       }
       return recovered;
-    } catch (err: any) {
-      log.error(`Mergeable review recovery failed: ${err.message}`);
+    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`Mergeable review recovery failed: ${errorMessage}`);
       return 0;
     }
   }
@@ -551,8 +552,8 @@ export class SelfHealingManager {
           );
           log.log(`Recovered merged task ${task.id}: moved to done`);
           recovered++;
-        } catch (err: any) {
-          log.error(`Failed to recover merged task ${task.id}: ${err.message}`);
+        } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+          log.error(`Failed to recover merged task ${task.id}: ${errorMessage}`);
         }
       }
 
@@ -560,8 +561,8 @@ export class SelfHealingManager {
         log.log(`Recovered ${recovered} merged task(s) → done`);
       }
       return recovered;
-    } catch (err: any) {
-      log.error(`Merged review recovery failed: ${err.message}`);
+    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`Merged review recovery failed: ${errorMessage}`);
       return 0;
     }
   }
@@ -605,8 +606,8 @@ export class SelfHealingManager {
           );
           log.log(`Recovered misclassified failure ${task.id}: ${task.title || task.description?.slice(0, 60) || "(untitled)"}`);
           recovered++;
-        } catch (err: any) {
-          log.error(`Failed to recover misclassified failure ${task.id}: ${err.message}`);
+        } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+          log.error(`Failed to recover misclassified failure ${task.id}: ${errorMessage}`);
         }
       }
 
@@ -614,8 +615,8 @@ export class SelfHealingManager {
         log.log(`Recovered ${recovered} misclassified failure(s) → cleared for review`);
       }
       return recovered;
-    } catch (err: any) {
-      log.error(`Misclassified failure recovery failed: ${err.message}`);
+    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`Misclassified failure recovery failed: ${errorMessage}`);
       return 0;
     }
   }
@@ -669,8 +670,8 @@ export class SelfHealingManager {
           );
           await this.store.moveTask(task.id, "todo");
           recovered++;
-        } catch (err: any) {
-          log.error(`Failed to recover orphaned executor task ${task.id}: ${err.message}`);
+        } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+          log.error(`Failed to recover orphaned executor task ${task.id}: ${errorMessage}`);
         }
       }
 
@@ -678,8 +679,8 @@ export class SelfHealingManager {
         log.log(`Recovered ${recovered} orphaned executor task(s) → todo`);
       }
       return recovered;
-    } catch (err: any) {
-      log.error(`Orphaned executor recovery failed: ${err.message}`);
+    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`Orphaned executor recovery failed: ${errorMessage}`);
       return 0;
     }
   }
@@ -731,8 +732,8 @@ export class SelfHealingManager {
           );
           await this.store.moveTask(task.id, "todo");
           recovered++;
-        } catch (err: any) {
-          log.error(`Failed to recover no-progress no-task_done failure ${task.id}: ${err.message}`);
+        } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+          log.error(`Failed to recover no-progress no-task_done failure ${task.id}: ${errorMessage}`);
         }
       }
 
@@ -740,8 +741,8 @@ export class SelfHealingManager {
         log.log(`Recovered ${recovered} no-progress no-task_done failure(s) → todo`);
       }
       return recovered;
-    } catch (err: any) {
-      log.error(`No-progress no-task_done recovery failed: ${err.message}`);
+    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`No-progress no-task_done recovery failed: ${errorMessage}`);
       return 0;
     }
   }
@@ -822,8 +823,8 @@ export class SelfHealingManager {
         log.log(`Recovered ${recovered} approved triage task(s) out of specifying`);
       }
       return recovered;
-    } catch (err: any) {
-      log.error(`Approved triage recovery failed: ${err.message}`);
+    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`Approved triage recovery failed: ${errorMessage}`);
       return 0;
     }
   }
@@ -869,8 +870,8 @@ export class SelfHealingManager {
             "Auto-recovered orphaned specifying task — agent session lost, cleared for re-specification",
           );
           recovered++;
-        } catch (err: any) {
-          log.error(`Failed to recover orphaned specifying task ${task.id}: ${err.message}`);
+        } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+          log.error(`Failed to recover orphaned specifying task ${task.id}: ${errorMessage}`);
         }
       }
 
@@ -878,8 +879,8 @@ export class SelfHealingManager {
         log.log(`Recovered ${recovered} orphaned specifying task(s) — cleared for re-specification`);
       }
       return recovered;
-    } catch (err: any) {
-      log.error(`Orphaned specifying task recovery failed: ${err.message}`);
+    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`Orphaned specifying task recovery failed: ${errorMessage}`);
       return 0;
     }
   }
@@ -892,8 +893,8 @@ export class SelfHealingManager {
         timeout: 30_000,
       });
       log.log("Worktree prune completed");
-    } catch (err: any) {
-      log.error(`Worktree prune failed: ${err.message}`);
+    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`Worktree prune failed: ${errorMessage}`);
     }
   }
 
@@ -926,8 +927,8 @@ export class SelfHealingManager {
         log.log(`Cleaned ${cleaned} orphaned worktree(s)`);
       }
       return cleaned;
-    } catch (err: any) {
-      log.error(`Orphan cleanup failed: ${err.message}`);
+    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`Orphan cleanup failed: ${errorMessage}`);
       return 0;
     }
   }
@@ -979,8 +980,8 @@ export class SelfHealingManager {
         log.log(`Cleaned ${cleaned} orphaned branch(es)`);
       }
       return cleaned;
-    } catch (err: any) {
-      log.error(`Orphaned branch cleanup failed: ${err.message}`);
+    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`Orphaned branch cleanup failed: ${errorMessage}`);
       return 0;
     }
   }
@@ -993,8 +994,8 @@ export class SelfHealingManager {
         log.log(`WAL checkpoint: ${result.checkpointed}/${result.log} pages checkpointed` +
           (result.busy > 0 ? ` (${result.busy} busy)` : ""));
       }
-    } catch (err: any) {
-      log.error(`WAL checkpoint failed: ${err.message}`);
+    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`WAL checkpoint failed: ${errorMessage}`);
     }
   }
 
@@ -1045,8 +1046,8 @@ export class SelfHealingManager {
       if (removed > 0) {
         log.warn(`Worktree cap: removed ${removed} idle worktree(s) (was ${dirs.length}, cap ${cap})`);
       }
-    } catch (err: any) {
-      log.error(`Worktree cap enforcement failed: ${err.message}`);
+    } catch (err: unknown) { const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`Worktree cap enforcement failed: ${errorMessage}`);
     }
   }
 }

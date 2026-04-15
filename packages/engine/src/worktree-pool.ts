@@ -186,8 +186,11 @@ export class WorktreePool {
         cwd: worktreePath,
       });
       return branchName;
-    } catch (err: any) {
-      const stderr = err?.stderr?.toString() ?? err?.message ?? "";
+    } catch (err: unknown) {
+      const execError = err instanceof Error ? err : new Error(String(err));
+      const stderr = "stderr" in execError && typeof execError.stderr === "string"
+        ? execError.stderr.toString()
+        : execError.message;
       const match = stderr.match(/already used by worktree at '([^']+)'/);
       if (!match) {
         throw err;
@@ -211,8 +214,11 @@ export class WorktreePool {
         try {
           await execAsync(suffixedCmd, { cwd: worktreePath });
           return suffixedName;
-        } catch (suffixErr: any) {
-          const suffixStderr = suffixErr?.stderr?.toString() ?? "";
+        } catch (suffixErr: unknown) {
+          const suffixExecError = suffixErr instanceof Error ? suffixErr : new Error(String(suffixErr));
+          const suffixStderr = "stderr" in suffixExecError && typeof suffixExecError.stderr === "string"
+            ? suffixExecError.stderr.toString()
+            : "";
           if (!suffixStderr.includes("already used by worktree")) {
             throw suffixErr;
           }
@@ -333,8 +339,9 @@ export async function cleanupOrphanedWorktrees(rootDir: string, store: TaskStore
       }
       worktreePoolLog.log(`Cleaned up orphaned worktree: ${worktreePath}`);
       cleaned++;
-    } catch (err: any) {
-      worktreePoolLog.log(`Failed to remove orphaned worktree ${worktreePath}: ${err.message}`);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      worktreePoolLog.log(`Failed to remove orphaned worktree ${worktreePath}: ${errorMessage}`);
     }
   }
 

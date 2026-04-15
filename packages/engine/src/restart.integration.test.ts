@@ -12,6 +12,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AgentSemaphore } from "./concurrency.js";
 
+type EventListener = (...args: unknown[]) => void;
+
 // ── Module-level mocks (matching existing test patterns) ──────────────────
 
 vi.mock("./pi.js", () => ({
@@ -28,10 +30,10 @@ vi.mock("./pi.js", () => ({
 vi.mock("./reviewer.js", () => ({
   reviewStep: vi.fn(),
 }));
-vi.mock("node:child_process", () => {
-  const { promisify } = require("node:util");
+vi.mock("node:child_process", async () => {
+  const { promisify } = await import("node:util");
   const execSyncFn = vi.fn().mockReturnValue(Buffer.from(""));
-  const execFn: any = vi.fn((cmd: any, opts: any, cb: any) => {
+  const execFn: any = vi.fn((cmd: string, opts: unknown, cb: unknown) => {
     const callback = typeof opts === "function" ? opts : cb;
     const forwardedOpts = typeof opts === "function" ? undefined : opts;
     try {
@@ -47,7 +49,7 @@ vi.mock("node:child_process", () => {
   // Mirror real child_process.exec: promisify resolves to { stdout, stderr }.
   execFn[promisify.custom] = (cmd: any, opts?: any) =>
     new Promise((resolve, reject) => {
-      execFn(cmd, opts, (err: any, stdout: any, stderr: any) => {
+      execFn(cmd, opts, (err: any, stdout: any, stderr: (...args: unknown[]) => void) => {
         if (err) {
           err.stdout = stdout;
           err.stderr = stderr;
@@ -116,9 +118,9 @@ const DEFAULT_SETTINGS: Settings = {
 };
 
 function createMockStore(overrides: Record<string, any> = {}) {
-  const listeners = new Map<string, Function[]>();
+  const listeners = new Map<string, EventListener[]>();
   return {
-    on: vi.fn((event: string, fn: Function) => {
+    on: vi.fn((event: string, fn: EventListener) => {
       const existing = listeners.get(event) || [];
       existing.push(fn);
       listeners.set(event, existing);
@@ -141,7 +143,7 @@ function createMockStore(overrides: Record<string, any> = {}) {
     updateStep: vi.fn().mockImplementation(async (id: string, step: number, status: StepStatus) => {
       return makeTaskDetail(id, "in-progress");
     }),
-    createTask: vi.fn().mockImplementation(async (input: any) => {
+    createTask: vi.fn().mockImplementation(async (input: (...args: unknown[]) => void) => {
       return makeTask("FN-NEW", "triage");
     }),
     deleteTask: vi.fn().mockResolvedValue(undefined),
@@ -208,7 +210,7 @@ function mockAgentFailure(error = "agent crashed") {
  * multiple tasks execute concurrently.
  */
 function createAgentWithTaskDone() {
-  mockedCreateHaiAgent.mockImplementation((async (opts: any) => {
+  mockedCreateHaiAgent.mockImplementation((async (opts: (...args: unknown[]) => void) => {
     // Capture tools per-session to avoid race conditions with concurrent tasks
     const localCustomTools = opts.customTools || [];
     const session = {
@@ -230,7 +232,7 @@ function createAgentWithTaskDone() {
 beforeEach(() => {
   vi.clearAllMocks();
   mockedExistsSync.mockReturnValue(true); // Default: worktrees exist (resume scenario)
-  mockedExecSync.mockImplementation((cmd: any) => {
+  mockedExecSync.mockImplementation((cmd: (...args: unknown[]) => void) => {
     if (String(cmd) === "git worktree list --porcelain") {
       return [
         "worktree /tmp/test",
@@ -534,7 +536,7 @@ describe("In-review merge handling after restart", () => {
     store.moveTask.mockResolvedValue(makeTask("FN-051", "done"));
 
     // Branch exists, merge succeeds, no conflicts
-    mockedExecSync.mockImplementation((cmd: any) => {
+    mockedExecSync.mockImplementation((cmd: (...args: unknown[]) => void) => {
       const cmdStr = String(cmd);
       // Post-squash check: squash staged changes → "1"
       if (cmdStr.includes("diff --cached --quiet")) return "1" as any;
@@ -561,7 +563,7 @@ describe("In-review merge handling after restart", () => {
       store.getTask.mockResolvedValue(makeTaskDetail(taskId, "in-review"));
       store.moveTask.mockResolvedValue(makeTask(taskId, "done"));
 
-      mockedExecSync.mockImplementation((cmd: any) => {
+      mockedExecSync.mockImplementation((cmd: (...args: unknown[]) => void) => {
         const cmdStr = String(cmd);
         if (cmdStr.includes("diff --cached --quiet")) return "1" as any;
         if (cmdStr.includes("diff --cached")) return "0" as any;
@@ -580,7 +582,7 @@ describe("In-review merge handling after restart", () => {
     store.getTask.mockResolvedValue(makeTaskDetail("FN-055", "in-review"));
 
     // Branch exists, merge starts, agent creates but prompt fails
-    mockedExecSync.mockImplementation((cmd: any) => {
+    mockedExecSync.mockImplementation((cmd: (...args: unknown[]) => void) => {
       const cmdStr = String(cmd);
       // Make merge fail so all attempts exhaust
       if (cmdStr.includes("merge --squash") || cmdStr.includes("merge -X")) {
@@ -627,7 +629,7 @@ describe("In-review merge handling after restart", () => {
     store.moveTask.mockResolvedValue(makeTask("FN-056", "done"));
 
     // git rev-parse --verify throws (branch not found)
-    mockedExecSync.mockImplementation((cmd: any) => {
+    mockedExecSync.mockImplementation((cmd: (...args: unknown[]) => void) => {
       if (typeof cmd === "string" && cmd.includes("git rev-parse --verify")) {
         throw new Error("branch not found");
       }
@@ -677,7 +679,7 @@ describe("Triage re-pick after restart", () => {
     store.getTask.mockResolvedValue(makeTaskDetail("FN-062", "triage"));
 
     // Slow agent to keep task in processing
-    let resolvePrompt: Function;
+    let resolvePrompt: () => void;
     mockedCreateHaiAgent.mockResolvedValue({
       session: {
         prompt: vi.fn().mockImplementation(() => new Promise((r) => { resolvePrompt = r; })),
@@ -879,7 +881,7 @@ describe("Crash scenario edge cases", () => {
     const store = createMockStore();
     store.getTask.mockResolvedValue(makeTaskDetail("FN-091", "in-review"));
 
-    mockedExecSync.mockImplementation((cmd: any) => {
+    mockedExecSync.mockImplementation((cmd: (...args: unknown[]) => void) => {
       const cmdStr = String(cmd);
       // Make merge fail so all attempts exhaust
       if (cmdStr.includes("merge --squash") || cmdStr.includes("merge -X")) {
@@ -928,7 +930,7 @@ describe("Crash scenario edge cases", () => {
     store.listTasks.mockResolvedValue([task]);
     store.getTask.mockResolvedValue(makeTaskDetail("FN-092", "in-progress"));
 
-    let resolvePrompt: Function;
+    let resolvePrompt: () => void;
     mockedCreateHaiAgent.mockResolvedValue({
       session: {
         prompt: vi.fn().mockImplementation(() => new Promise((r) => { resolvePrompt = r; })),
@@ -996,7 +998,7 @@ function makeDirEntry(name: string) {
 }
 
 function mockRegisteredWorktrees(rootDir: string, names: string[]) {
-  mockedExecSync.mockImplementation((cmd: any) => {
+  mockedExecSync.mockImplementation((cmd: (...args: unknown[]) => void) => {
     if (String(cmd) === "git worktree list --porcelain") {
       return [
         `worktree ${rootDir}`,
