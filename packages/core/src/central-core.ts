@@ -234,6 +234,7 @@ export class CentralCore extends EventEmitter<CentralCoreEvents> {
     path: string;
     isolationMode?: IsolationMode;
     settings?: ProjectSettings;
+    nodeId?: string;
   }): Promise<RegisteredProject> {
     this.ensureInitialized();
 
@@ -261,6 +262,7 @@ export class CentralCore extends EventEmitter<CentralCoreEvents> {
       path: input.path,
       status: "initializing",
       isolationMode: input.isolationMode ?? "in-process",
+      nodeId: input.nodeId,
       createdAt: now,
       updatedAt: now,
       lastActivityAt: now,
@@ -270,8 +272,8 @@ export class CentralCore extends EventEmitter<CentralCoreEvents> {
     this.db!.transaction(() => {
       // Insert project
       this.db!.prepare(
-        `INSERT INTO projects (id, name, path, status, isolationMode, createdAt, updatedAt, lastActivityAt, settings)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO projects (id, name, path, status, isolationMode, createdAt, updatedAt, lastActivityAt, nodeId, settings)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         project.id,
         project.name,
@@ -281,6 +283,7 @@ export class CentralCore extends EventEmitter<CentralCoreEvents> {
         project.createdAt,
         project.updatedAt,
         project.lastActivityAt ?? null,
+        project.nodeId ?? null,
         toJsonNullable(project.settings)
       );
 

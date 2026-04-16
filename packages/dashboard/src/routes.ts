@@ -13185,11 +13185,72 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
   /**
    * GET /api/browse-directory
    * Browse filesystem directories for the directory picker.
-   * Query: { path?: string, showHidden?: "true" }
+   * Query: { path?: string, showHidden?: "true", nodeId?: string }
    * Returns: { currentPath: string, parentPath: string | null, entries: Array<{ name: string, path: string, hasChildren: boolean }> }
    */
   router.get("/browse-directory", async (req, res) => {
     try {
+      const nodeId = req.query.nodeId as string | undefined;
+
+      // Node-aware proxying: route to remote node if nodeId is provided and not local
+      if (nodeId) {
+        const { CentralCore } = await import("@fusion/core");
+        const central = new CentralCore();
+        await central.init();
+
+        const localNodes = await central.listNodes();
+        const localNode = localNodes.find((n: any) => n.type === "local");
+
+        if (localNode && localNode.id === nodeId) {
+          // Local node — fall through to existing filesystem logic below
+          await central.close();
+        } else {
+          // Remote node — look up node config and proxy directly
+          const node = await central.getNode(nodeId);
+          await central.close();
+
+          if (!node) {
+            throw notFound("Node not found");
+          }
+          if (!node.url) {
+            throw badRequest("Node has no URL configured");
+          }
+
+          const queryString = req.url.split('?').slice(1).join('?');
+          const targetUrl = `${node.url.replace(/\/$/, '')}/api/browse-directory${queryString ? '?' + queryString : ''}`;
+          const headers: Record<string, string> = { "Content-Type": "application/json" };
+          if (node.apiKey) {
+            headers["Authorization"] = `Bearer ${node.apiKey}`;
+          }
+
+          try {
+            const proxyRes = await fetch(targetUrl, {
+              method: "GET",
+              headers,
+              signal: AbortSignal.timeout(30000),
+            });
+
+            const body = Buffer.from(await proxyRes.arrayBuffer());
+            // Filter hop-by-hop headers
+            const skipHeaders = new Set(["connection", "keep-alive", "transfer-encoding", "upgrade"]);
+            for (const [key, value] of proxyRes.headers.entries()) {
+              if (!skipHeaders.has(key.toLowerCase())) {
+                res.setHeader(key, value);
+              }
+            }
+            res.status(proxyRes.status);
+            res.send(body);
+          } catch (fetchErr: any) {
+            if (fetchErr.name === "AbortError" || fetchErr.code === "ETIMEDOUT") {
+              throw new ApiError(504, `Remote node timeout: ${fetchErr.message}`);
+            }
+            throw new ApiError(502, `Remote node error: ${fetchErr.message}`);
+          }
+          return;
+        }
+      }
+
+      // Local node logic
       const { resolve, dirname, join } = await import("node:path");
       const { readdir, stat } = await import("node:fs/promises");
 
@@ -13288,7 +13349,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
    */
   router.post("/projects", async (req, res) => {
     try {
-      const { name, path, isolationMode = "in-process" } = req.body;
+      const { name, path, isolationMode = "in-process", nodeId } = req.body;
       
       if (!name || typeof name !== "string" || !name.trim()) {
         throw badRequest("name is required and must be a non-empty string");
@@ -13316,6 +13377,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         name: name.trim(),
         path: path.trim(),
         isolationMode,
+        nodeId,
       });
 
       // Activate the project (registration sets it to 'initializing')

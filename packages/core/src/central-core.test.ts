@@ -213,6 +213,39 @@ describe("CentralCore", () => {
       expect(health?.totalTasksCompleted).toBe(0);
       expect(health?.totalTasksFailed).toBe(0);
     });
+
+    it("should persist nodeId when provided on registration", async () => {
+      const projectPath = join(tempDir, "node-project");
+      mkdirSync(projectPath);
+      projectPaths.push(projectPath);
+
+      const project = await central.registerProject({
+        name: "Node On Register",
+        path: projectPath,
+        nodeId: "node_abc123",
+      });
+
+      expect(project.nodeId).toBe("node_abc123");
+
+      const retrieved = await central.getProject(project.id);
+      expect(retrieved?.nodeId).toBe("node_abc123");
+    });
+
+    it("should have undefined nodeId when not provided on registration", async () => {
+      const projectPath = join(tempDir, "no-node-project");
+      mkdirSync(projectPath);
+      projectPaths.push(projectPath);
+
+      const project = await central.registerProject({
+        name: "No Node",
+        path: projectPath,
+      });
+
+      expect(project.nodeId).toBeUndefined();
+
+      const retrieved = await central.getProject(project.id);
+      expect(retrieved?.nodeId).toBeUndefined();
+    });
   });
 
   describe("project unregistration", () => {

@@ -3013,6 +3013,7 @@ export interface ProjectCreateInput {
   name: string;
   path: string;
   isolationMode?: "in-process" | "child-process";
+  nodeId?: string;
 }
 
 /** Node information returned by node endpoints */
@@ -3244,12 +3245,23 @@ export interface BrowseDirectoryResult {
   entries: Array<{ name: string; path: string; hasChildren: boolean }>;
 }
 
-export function browseDirectory(path?: string, showHidden?: boolean): Promise<BrowseDirectoryResult> {
+export function browseDirectory(
+  path?: string,
+  showHidden?: boolean,
+  nodeId?: string,
+  localNodeId?: string,
+): Promise<BrowseDirectoryResult> {
   const params = new URLSearchParams();
   if (path) params.set("path", path);
   if (showHidden) params.set("showHidden", "true");
+  if (nodeId) params.set("nodeId", nodeId);
   const qs = params.toString();
-  return api<BrowseDirectoryResult>(`/browse-directory${qs ? `?${qs}` : ""}`);
+  const fullPath = `/browse-directory${qs ? `?${qs}` : ""}`;
+  // If nodeId is for a remote node, route through proxy
+  if (nodeId && nodeId !== localNodeId) {
+    return proxyApi<BrowseDirectoryResult>(fullPath, { nodeId, localNodeId });
+  }
+  return api<BrowseDirectoryResult>(fullPath);
 }
 
 /** Register a new project */

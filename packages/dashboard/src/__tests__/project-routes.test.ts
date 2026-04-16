@@ -28,6 +28,8 @@ const {
   mockClose,
   mockReconcileProjectStatuses,
   mockGetOrCreateProjectStore,
+  mockListNodes,
+  mockGetNode,
 } = vi.hoisted(() => ({
   mockListProjects: vi.fn().mockResolvedValue([]),
   mockGetProject: vi.fn().mockResolvedValue(null),
@@ -77,6 +79,8 @@ const {
   mockReconcileProjectStatuses: vi.fn().mockResolvedValue([]),
   // Mock store registry - can be configured per-test to return specific stores per project ID
   mockGetOrCreateProjectStore: vi.fn(),
+  mockListNodes: vi.fn().mockResolvedValue([]),
+  mockGetNode: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("@fusion/core", async () => {
@@ -96,6 +100,8 @@ vi.mock("@fusion/core", async () => {
       getGlobalConcurrencyState: mockGetGlobalConcurrencyState,
       updateGlobalConcurrency: mockUpdateGlobalConcurrency,
       reconcileProjectStatuses: mockReconcileProjectStatuses,
+      listNodes: mockListNodes,
+      getNode: mockGetNode,
     })),
   };
 });
@@ -586,6 +592,31 @@ describe("POST /api/projects route handler", () => {
     });
     expect(mockUpdateProject).toHaveBeenCalledWith("proj_test123", { status: "active" });
     expect((res.body as any).status).toBe("active");
+  });
+
+  it("passes nodeId to registerProject when provided", async () => {
+    const store = new MockStoreForRoutes();
+    const app = createServer(store as any);
+
+    const res = await request(
+      app,
+      "POST",
+      "/api/projects",
+      JSON.stringify({
+        name: "Remote Project",
+        path: "/remote/path",
+        nodeId: "node-remote-1",
+      }),
+      { "Content-Type": "application/json" },
+    );
+
+    expect(res.status).toBe(201);
+    expect(mockRegisterProject).toHaveBeenCalledWith({
+      name: "Remote Project",
+      path: "/remote/path",
+      isolationMode: "in-process",
+      nodeId: "node-remote-1",
+    });
   });
 });
 
