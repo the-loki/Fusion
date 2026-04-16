@@ -28424,6 +28424,17 @@ html .column.drag-over * {
   color: var(--text-secondary);
 }
 
+.chat-model-tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--surface-bg, rgba(255, 255, 255, 0.08));
+  color: var(--text-secondary);
+  margin-left: 6px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
 .chat-message-content {
   white-space: pre-wrap;
 }

@@ -36,6 +36,72 @@ function formatRelativeTime(dateStr: string): string {
 }
 
 /**
+ * Format a model provider and ID into a human-readable tag.
+ * Returns null if provider or modelId is missing/empty.
+ */
+function formatModelTag(provider?: string | null, modelId?: string | null): string | null {
+  if (!provider || !modelId) return null;
+
+  // Handle known provider/model patterns
+  const normalizedModel = modelId.toLowerCase();
+
+  // Claude models: "claude-sonnet-4-5" -> "Claude Sonnet 4.5"
+  if (normalizedModel.includes("claude")) {
+    let formatted = modelId
+      .replace(/^claude[- ]/i, "Claude ")
+      .replace(/sonnet[- ](\d+)[- ](\d+)/i, "Sonnet $1.$2")
+      .replace(/sonnet[- ](\d+)/i, "Sonnet $1")
+      .replace(/haiku[- ](\d+)/i, "Haiku $1")
+      .replace(/opus[- ](\d+)/i, "Opus $1")
+      .replace(/sonnet/i, "Sonnet")
+      .replace(/haiku/i, "Haiku")
+      .replace(/opus/i, "Opus")
+      .replace(/-/g, " ")
+      .trim();
+    // Fix double spaces
+    formatted = formatted.replace(/\s+/g, " ");
+    return formatted.length > 30 ? formatted.slice(0, 30) + "…" : formatted;
+  }
+
+  // OpenAI models: "gpt-4o" -> "GPT-4o", "gpt-4-turbo" -> "GPT-4 Turbo"
+  if (normalizedModel.includes("gpt") || normalizedModel.includes("openai")) {
+    // Format GPT model names: handle special cases first, then capitalize
+    // Note: We don't replace hyphens globally because special cases preserve them
+    const formatted = modelId
+      .replace(/^gpt-4-turbo$/i, "GPT-4 Turbo")
+      .replace(/^gpt-4o-mini$/i, "GPT-4o Mini")
+      .replace(/^gpt-4o$/i, "GPT-4o")
+      .replace(/^gpt-4$/i, "GPT-4")
+      .replace(/^gpt-o1-preview$/i, "GPT-o1 Preview")
+      .replace(/^gpt-o1-mini$/i, "GPT-o1 Mini")
+      .replace(/^gpt-o1$/i, "GPT-o1")
+      .replace(/^gpt/i, "GPT")  // Capitalize remaining GPT prefix
+      .trim();
+    return formatted.length > 30 ? formatted.slice(0, 30) + "…" : formatted;
+  }
+
+  // Gemini models: "gemini-2.5-pro" -> "Gemini 2.5 Pro"
+  if (normalizedModel.includes("gemini")) {
+    let formatted = modelId
+      .replace(/^gemini[- ]/i, "Gemini ")
+      .replace(/pro[- ](\d+)[- ](\d+)/i, "Pro $1.$2")
+      .replace(/pro[- ](\d+)/i, "Pro $1")
+      .replace(/-/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return formatted.length > 30 ? formatted.slice(0, 30) + "…" : formatted;
+  }
+
+  // Generic fallback: capitalize first letter, replace hyphens with spaces
+  let formatted = modelId
+    .replace(/-/g, " ")
+    .replace(/^\w/, (c) => c.toUpperCase())
+    .replace(/\s+/g, " ")
+    .trim();
+  return formatted.length > 30 ? formatted.slice(0, 30) + "…" : formatted;
+}
+
+/**
  * Constant agent ID for the built-in kb agent.
  * The chat system always uses createKbAgent with CHAT_SYSTEM_PROMPT regardless
  * of the agentId stored on the session. This ID serves as metadata only.
@@ -350,7 +416,7 @@ export function ChatView({ projectId, addToast }: ChatViewProps) {
                   {session.lastMessagePreview || "No messages"}
                 </div>
                 <div className="chat-session-meta">
-                  <span>{agentsMap.get(session.agentId)?.name || (session.agentId === KB_AGENT_ID ? "AI Assistant" : session.agentId.slice(0, 30))}</span>
+                  <span>{agentsMap.get(session.agentId)?.name || (session.agentId === KB_AGENT_ID ? "Fusion" : session.agentId.slice(0, 30))}</span>
                   <span>{session.updatedAt ? formatRelativeTime(session.updatedAt) : ""}</span>
                 </div>
               </div>
@@ -420,8 +486,14 @@ export function ChatView({ projectId, addToast }: ChatViewProps) {
           )}
           <Bot size={16} />
           <span className="chat-thread-header-title">
-            {activeSession?.title || agentsMap.get(activeSession?.agentId ?? "")?.name || activeSession?.agentId || "Chat"}
+            {activeSession?.agentId === KB_AGENT_ID
+              ? "Fusion"
+              : activeSession?.title || agentsMap.get(activeSession?.agentId ?? "")?.name || activeSession?.agentId || "Chat"}
           </span>
+          {activeSession && (() => {
+            const modelTag = formatModelTag(activeSession.modelProvider, activeSession.modelId);
+            return modelTag ? <span className="chat-model-tag">{modelTag}</span> : null;
+          })()}
         </div>
 
         {/* Messages */}
@@ -445,7 +517,11 @@ export function ChatView({ projectId, addToast }: ChatViewProps) {
                   {message.role === "assistant" && (
                     <div className="chat-message-avatar">
                       <Bot size={14} />
-                      <span>Assistant</span>
+                      <span>Fusion</span>
+                      {activeSession && (() => {
+                        const modelTag = formatModelTag(activeSession.modelProvider, activeSession.modelId);
+                        return modelTag ? <span className="chat-model-tag">{modelTag}</span> : null;
+                      })()}
                     </div>
                   )}
                   <div className="chat-message-content">{message.content}</div>
@@ -462,7 +538,11 @@ export function ChatView({ projectId, addToast }: ChatViewProps) {
                 <div className="chat-message chat-message--assistant chat-message--streaming">
                   <div className="chat-message-avatar">
                     <Bot size={14} />
-                    <span>Assistant</span>
+                    <span>Fusion</span>
+                    {activeSession && (() => {
+                      const modelTag = formatModelTag(activeSession.modelProvider, activeSession.modelId);
+                      return modelTag ? <span className="chat-model-tag">{modelTag}</span> : null;
+                    })()}
                   </div>
                   <div className="chat-message-content">{streamingText}</div>
                   {streamingThinking && (
