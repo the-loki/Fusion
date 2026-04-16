@@ -21,7 +21,7 @@ import {
 import type { TaskStore } from "@fusion/core";
 
 // Mock node:fs/promises - use vi.hoisted for proper hoisting with ES modules
-const { mockReaddir, mockReadFile, mockWriteFile, mockStat, mockCopyFile, mockRename, mockRm, mockMkdir } = vi.hoisted(() => ({
+const { mockReaddir, mockReadFile, mockWriteFile, mockStat, mockCopyFile, mockRename, mockRm, mockMkdir, mockAccess } = vi.hoisted(() => ({
   mockReaddir: vi.fn(),
   mockReadFile: vi.fn(),
   mockWriteFile: vi.fn(),
@@ -30,6 +30,7 @@ const { mockReaddir, mockReadFile, mockWriteFile, mockStat, mockCopyFile, mockRe
   mockRename: vi.fn(),
   mockRm: vi.fn(),
   mockMkdir: vi.fn(),
+  mockAccess: vi.fn(),
 }));
 
 // Mock node:fs
@@ -50,6 +51,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
       rename: mockRename,
       rm: mockRm,
       mkdir: mockMkdir,
+      access: mockAccess,
     },
     readdir: mockReaddir,
     readFile: mockReadFile,
@@ -59,6 +61,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     rename: mockRename,
     rm: mockRm,
     mkdir: mockMkdir,
+    access: mockAccess,
   };
 });
 
@@ -444,6 +447,7 @@ describe("task file operations", () => {
     mockReadFile.mockReset();
     mockWriteFile.mockReset();
     mockExistsSync.mockReset();
+    mockAccess.mockReset();
   });
 
   describe("getTaskBasePath", () => {
@@ -454,7 +458,7 @@ describe("task file operations", () => {
         id: "FN-123",
         worktree: worktreePath,
       });
-      mockExistsSync.mockReturnValue(true);
+      mockAccess.mockResolvedValue(undefined);
       mockStat.mockResolvedValue({
         isFile: () => true,
         size: 100,
@@ -477,7 +481,7 @@ describe("task file operations", () => {
         worktree: "/missing/worktree",
       });
       mockGetRootDir.mockReturnValue("/project");
-      mockExistsSync.mockReturnValue(false);
+      mockAccess.mockRejectedValue(new Error("not found"));
       mockStat.mockResolvedValue({
         isFile: () => true,
         size: 100,

@@ -118,7 +118,9 @@ export async function resolvePluginManifest(
     await access(directManifestPath);
     const manifest = await readAndValidateManifest(directManifestPath);
     return { manifestDir: sourcePath, manifest };
-  } catch {
+  } catch (err) {
+    // Re-throw ApiErrors (badRequest) from validation; only catch true ENOENT
+    if (err instanceof ApiError) throw err;
     // Not found at direct path
   }
 
@@ -132,7 +134,9 @@ export async function resolvePluginManifest(
       const manifest = await readAndValidateManifest(parentManifestPath);
       // Return the parent (package root) as the canonical install dir
       return { manifestDir: parentDir, manifest };
-    } catch {
+    } catch (err) {
+      // Re-throw ApiErrors (badRequest) from validation; only catch true ENOENT
+      if (err instanceof ApiError) throw err;
       // Not found at parent path
     }
   }

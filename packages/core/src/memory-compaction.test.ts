@@ -1,7 +1,11 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   compactMemoryWithAi,
   COMPACT_MEMORY_SYSTEM_PROMPT,
+  createAutoSummarizeAutomation,
+  syncAutoSummarizeAutomation,
+  AUTO_SUMMARIZE_SCHEDULE_NAME,
+  DEFAULT_AUTO_SUMMARIZE_SCHEDULE,
   AiServiceError,
   __resetCompactionState,
 } from "./memory-compaction.js";
@@ -28,6 +32,196 @@ describe("memory-compaction", () => {
     it("should have system prompt that instructs to remove redundant info", () => {
       expect(COMPACT_MEMORY_SYSTEM_PROMPT).toContain("Remove");
       expect(COMPACT_MEMORY_SYSTEM_PROMPT).toContain("redundant");
+    });
+
+    it("should have correct auto-summarize schedule name", () => {
+      expect(AUTO_SUMMARIZE_SCHEDULE_NAME).toBe("Memory Auto-Summarize");
+    });
+
+    it("should have correct default schedule", () => {
+      expect(DEFAULT_AUTO_SUMMARIZE_SCHEDULE).toBe("0 3 * * *");
+    });
+  });
+
+  // ── createAutoSummarizeAutomation ───────────────────────────────────────────
+
+  describe("createAutoSummarizeAutomation", () => {
+    it("should create automation with default settings", () => {
+      const automation = createAutoSummarizeAutomation({});
+
+      expect(automation.name).toBe(AUTO_SUMMARIZE_SCHEDULE_NAME);
+      expect(automation.scheduleType).toBe("custom");
+      expect(automation.cronExpression).toBe(DEFAULT_AUTO_SUMMARIZE_SCHEDULE);
+      expect(automation.enabled).toBe(true);
+      expect(automation.steps!).toHaveLength(1);
+      expect(automation.steps![0].type).toBe("ai-prompt");
+      expect(automation.steps![0].id).toBe("memory-auto-summarize");
+    });
+
+    it("should use custom schedule when provided", () => {
+      const automation = createAutoSummarizeAutomation({
+        memoryAutoSummarizeSchedule: "0 */6 * * *",
+      });
+
+      expect(automation.cronExpression).toBe("0 */6 * * *");
+    });
+
+    it("should include threshold in prompt", () => {
+      const automation = createAutoSummarizeAutomation({
+        memoryAutoSummarizeThresholdChars: 75000,
+      });
+
+      expect(automation.steps![0].prompt).toContain("75000");
+    });
+
+    it("should include model provider in step when provided", () => {
+      const automation = createAutoSummarizeAutomation(
+        {},
+        "anthropic",
+        "claude-sonnet-4-5"
+      );
+
+      expect(automation.steps![0].modelProvider).toBe("anthropic");
+      expect(automation.steps![0].modelId).toBe("claude-sonnet-4-5");
+    });
+
+    it("should not include model fields when not provided", () => {
+      const automation = createAutoSummarizeAutomation({});
+
+      expect(automation.steps![0]).not.toHaveProperty("modelProvider");
+      expect(automation.steps![0]).not.toHaveProperty("modelId");
+    });
+
+    it("should set correct timeout", () => {
+      const automation = createAutoSummarizeAutomation({});
+
+      expect(automation.steps![0].timeoutMs).toBe(120_000);
+    });
+
+    it("should prompt to preserve core sections", () => {
+      const automation = createAutoSummarizeAutomation({});
+
+      expect(automation.steps![0].prompt).toContain("Architecture");
+      expect(automation.steps![0].prompt).toContain("Conventions");
+      expect(automation.steps![0].prompt).toContain("Pitfalls");
+    });
+
+    it("should prompt to check threshold and skip when below", () => {
+      const automation = createAutoSummarizeAutomation({});
+
+      expect(automation.steps![0].prompt).toContain("Below threshold");
+      expect(automation.steps![0].prompt).toContain("skipped");
+    });
+
+    it("should prompt to write compacted content to file", () => {
+      const automation = createAutoSummarizeAutomation({});
+
+      expect(automation.steps![0].prompt).toContain(".fusion/memory.md");
+    });
+  });
+
+  // ── syncAutoSummarizeAutomation ─────────────────────────────────────────────
+
+  describe("syncAutoSummarizeAutomation", () => {
+    it("should delete schedule when auto-summarize is disabled", async () => {
+      const mockStore = {
+        listSchedules: vi.fn().mockResolvedValue([
+          { id: "sched-1", name: AUTO_SUMMARIZE_SCHEDULE_NAME },
+        ]),
+        deleteSchedule: vi.fn().mockResolvedValue(undefined),
+      };
+
+      await syncAutoSummarizeAutomation(mockStore as any, {
+        memoryAutoSummarizeEnabled: false,
+      });
+
+      expect(mockStore.deleteSchedule).toHaveBeenCalledWith("sched-1");
+    });
+
+    it("should not delete schedule when auto-summarize is disabled but no schedule exists", async () => {
+      const mockStore = {
+        listSchedules: vi.fn().mockResolvedValue([]),
+        deleteSchedule: vi.fn().mockResolvedValue(undefined),
+      };
+
+      await syncAutoSummarizeAutomation(mockStore as any, {
+        memoryAutoSummarizeEnabled: false,
+      });
+
+      expect(mockStore.deleteSchedule).not.toHaveBeenCalled();
+    });
+
+    it("should create new schedule when auto-summarize is enabled and no schedule exists", async () => {
+      const mockStore = {
+        listSchedules: vi.fn().mockResolvedValue([]),
+        createSchedule: vi.fn().mockResolvedValue({ id: "new-sched-1" }),
+      };
+
+      const result = await syncAutoSummarizeAutomation(mockStore as any, {
+        memoryAutoSummarizeEnabled: true,
+      });
+
+      expect(mockStore.createSchedule).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: AUTO_SUMMARIZE_SCHEDULE_NAME,
+          scheduleType: "custom",
+          enabled: true,
+        })
+      );
+      expect(result).toEqual({ id: "new-sched-1" });
+    });
+
+    it("should update existing schedule when auto-summarize is enabled", async () => {
+      const mockStore = {
+        listSchedules: vi.fn().mockResolvedValue([
+          { id: "existing-sched", name: AUTO_SUMMARIZE_SCHEDULE_NAME },
+        ]),
+        updateSchedule: vi.fn().mockResolvedValue({ id: "existing-sched" }),
+      };
+
+      await syncAutoSummarizeAutomation(mockStore as any, {
+        memoryAutoSummarizeEnabled: true,
+        memoryAutoSummarizeSchedule: "0 3 * * 1",
+      });
+
+      expect(mockStore.updateSchedule).toHaveBeenCalledWith(
+        "existing-sched",
+        expect.objectContaining({
+          scheduleType: "custom",
+          cronExpression: "0 3 * * 1",
+          enabled: true,
+        })
+      );
+    });
+
+    it("should use default schedule when not specified", async () => {
+      const mockStore = {
+        listSchedules: vi.fn().mockResolvedValue([]),
+        createSchedule: vi.fn().mockResolvedValue({ id: "new-sched" }),
+      };
+
+      await syncAutoSummarizeAutomation(mockStore as any, {
+        memoryAutoSummarizeEnabled: true,
+      });
+
+      expect(mockStore.createSchedule).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cronExpression: DEFAULT_AUTO_SUMMARIZE_SCHEDULE,
+        })
+      );
+    });
+
+    it("should throw error for invalid cron expression", async () => {
+      const mockStore = {
+        listSchedules: vi.fn().mockResolvedValue([]),
+      };
+
+      await expect(
+        syncAutoSummarizeAutomation(mockStore as any, {
+          memoryAutoSummarizeEnabled: true,
+          memoryAutoSummarizeSchedule: "not-a-cron",
+        })
+      ).rejects.toThrow("Invalid auto-summarize schedule");
     });
   });
 

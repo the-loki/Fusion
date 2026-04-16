@@ -150,6 +150,9 @@ Defaults from `DEFAULT_PROJECT_SETTINGS`; key scope from `PROJECT_SETTINGS_KEYS`
 | `insightExtractionMinIntervalMs` | `number` | `86400000` | Minimum interval between insight extraction runs (24h). |
 | `memoryEnabled` | `boolean` | `true` | Enable project memory integration. |
 | `memoryBackendType` | `string` | `"file"` | Memory backend type: `file`, `readonly`, `qmd`, or custom backend. Unknown types are accepted and persisted verbatim; the system falls back to `file` at runtime. |
+| `memoryAutoSummarizeEnabled` | `boolean` | `false` | Enable automatic AI-powered memory summarization when memory exceeds threshold. |
+| `memoryAutoSummarizeThresholdChars` | `number` | `50000` | Character count threshold for triggering auto-summarization. |
+| `memoryAutoSummarizeSchedule` | `string` | `"0 3 * * *"` | Cron schedule for auto-summarize checks (daily at 3 AM by default). |
 | `runStepsInNewSessions` | `boolean` | `false` | Run each task step in a fresh agent session. |
 | `maxParallelSteps` | `number` | `2` | Max concurrent step sessions (1–4). |
 | `aiSessionTtlMs` | `number` | `604800000` | TTL in ms for persisted AI planning, subtask breakdown, and mission interview sessions. Valid range: 600000 (10 min) to 2592000000 (30 days). |

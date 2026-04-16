@@ -175,6 +175,10 @@ export {
 export {
   compactMemoryWithAi,
   COMPACT_MEMORY_SYSTEM_PROMPT,
+  createAutoSummarizeAutomation,
+  syncAutoSummarizeAutomation,
+  AUTO_SUMMARIZE_SCHEDULE_NAME,
+  DEFAULT_AUTO_SUMMARIZE_SCHEDULE,
   __resetCompactionState,
 } from "./memory-compaction.js";
 // Note: AiServiceError is shared with ai-summarize.ts and re-exported from there

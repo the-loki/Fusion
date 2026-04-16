@@ -10,7 +10,11 @@
  * - Read-only tool access (prevents accidental memory modification during compaction)
  * - Session disposal in finally block to prevent leaks
  * - AiServiceError for AI-related failures
+ * - Auto-summarize automation integration for scheduled compaction
  */
+
+import type { ProjectSettings } from "./types.js";
+import type { ScheduledTaskCreateInput } from "./automation.js";
 
 // Dynamic import for @fusion/engine to avoid resolution issues in test environment
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -211,4 +215,151 @@ export async function compactMemoryWithAi(
  */
 export function __resetCompactionState(): void {
   // No-op: no caches to reset in current implementation
+}
+
+// ── Automation Integration ───────────────────────────────────────────────
+
+/** Constant name for the auto-summarize automation schedule. */
+export const AUTO_SUMMARIZE_SCHEDULE_NAME = "Memory Auto-Summarize";
+
+/** Default schedule for auto-summarize: daily at 3 AM. */
+export const DEFAULT_AUTO_SUMMARIZE_SCHEDULE = "0 3 * * *";
+
+/**
+ * Create the automation config for auto-summarize memory compaction.
+ *
+ * Returns a `ScheduledTaskCreateInput` ready for `AutomationStore.createSchedule()`.
+ * The automation uses a single `ai-prompt` step that checks memory size and
+ * compacts it if it exceeds the configured threshold.
+ *
+ * The AI model provider and ID are optional — when not specified, the
+ * automation system falls back to the project's default model.
+ *
+ * @param settings - Project settings for schedule and threshold configuration.
+ * @param modelProvider - Optional AI model provider override.
+ * @param modelId - Optional AI model ID override.
+ * @returns The automation creation input.
+ */
+export function createAutoSummarizeAutomation(
+  settings: Partial<ProjectSettings>,
+  modelProvider?: string,
+  modelId?: string,
+): ScheduledTaskCreateInput {
+  const schedule = settings.memoryAutoSummarizeSchedule ?? DEFAULT_AUTO_SUMMARIZE_SCHEDULE;
+  const threshold = settings.memoryAutoSummarizeThresholdChars ?? 50_000;
+
+  // Build the prompt that reads working memory, checks size, and compacts if needed.
+  // Note: At automation execution time, the AI agent has access to the filesystem.
+  const prompt = `You are the Memory Auto-Summarization agent. Your job is to check the project's working memory file size and compress it when it exceeds the configured threshold.
+
+## Your Task
+
+1. Read the working memory file at \`.fusion/memory.md\` using your file reading tools
+2. Check if the file size exceeds the threshold of ${threshold} characters
+3. If the file is BELOW the threshold: output JSON indicating no compaction needed:
+   \`\`\`json
+   {"skipped": true, "reason": "Below threshold", "currentSize": <actual_size>}
+   \`\`\`
+4. If the file is AT OR ABOVE the threshold:
+   a) Distill the memory to ONLY the most important insights
+   b) Preserve at least 2 of these 3 core sections: Architecture, Conventions, Pitfalls
+   c) Write the compacted content back to \`.fusion/memory.md\`
+   d) Output JSON indicating compaction was done:
+   \`\`\`json
+   {"skipped": false, "originalSize": <size_before>, "newSize": <size_after>, "reduction": "<percentage>%"}
+   \`\`\`
+
+## Compaction Guidelines
+
+**MUST PRESERVE (durable items):**
+- Architecture: Project structure, key abstractions, major components
+- Conventions: Coding standards, naming patterns, established practices
+- Pitfalls: Known issues to avoid, anti-patterns to watch for
+- Any section header (## <name>) should stay if it contains durable content
+
+**SHOULD REMOVE (transient items):**
+- One-time observations from completed tasks
+- Task-specific implementation notes
+- Verbose explanations that can be condensed
+- Outdated or superseded entries
+- Trivial gotchas that aren't critical
+
+**CRITICAL REQUIREMENTS:**
+- You MUST preserve at least 2 of these 3 core sections: Architecture, Conventions, Pitfalls
+- Output ONLY valid JSON — no markdown fences, no extra text
+- Use your file writing tools to update \`.fusion/memory.md\` with the compacted content`;
+
+  return {
+    name: AUTO_SUMMARIZE_SCHEDULE_NAME,
+    description: "Automatically compresses working memory when it exceeds the configured size threshold",
+    scheduleType: "custom",
+    cronExpression: schedule,
+    command: "", // Required by type but unused when steps are present
+    enabled: true,
+    steps: [
+      {
+        id: "memory-auto-summarize",
+        type: "ai-prompt",
+        name: "Auto-Summarize Memory",
+        prompt,
+        ...(modelProvider && modelId ? { modelProvider, modelId } : {}),
+        timeoutMs: 120_000, // 2 minutes
+      },
+    ],
+  };
+}
+
+/**
+ * Synchronize the auto-summarize automation with project settings.
+ *
+ * Creates, updates, or deletes the automation schedule based on whether
+ * auto-summarize is enabled in the project settings. Follows the same
+ * pattern as `syncInsightExtractionAutomation()`.
+ *
+ * @param automationStore - The AutomationStore instance.
+ * @param settings - Current project settings.
+ * @returns The created/updated schedule, or undefined if deleted/disabled.
+ */
+export async function syncAutoSummarizeAutomation(
+  automationStore: import("./automation-store.js").AutomationStore,
+  settings: Partial<ProjectSettings>,
+): Promise<import("./automation.js").ScheduledTask | undefined> {
+  const { AutomationStore } = await import("./automation-store.js");
+
+  // Find existing auto-summarize schedule by name
+  const schedules = await automationStore.listSchedules();
+  const existingSchedule = schedules.find(
+    (s) => s.name === AUTO_SUMMARIZE_SCHEDULE_NAME,
+  );
+
+  // If auto-summarize is disabled, delete existing schedule if present
+  if (!settings.memoryAutoSummarizeEnabled) {
+    if (existingSchedule) {
+      await automationStore.deleteSchedule(existingSchedule.id);
+    }
+    return undefined;
+  }
+
+  // Validate the cron schedule
+  const schedule = settings.memoryAutoSummarizeSchedule ?? DEFAULT_AUTO_SUMMARIZE_SCHEDULE;
+  if (!AutomationStore.isValidCron(schedule)) {
+    throw new Error(`Invalid auto-summarize schedule: ${schedule}`);
+  }
+
+  // Build the automation input
+  const input = createAutoSummarizeAutomation(settings);
+
+  if (existingSchedule) {
+    // Update existing schedule
+    return await automationStore.updateSchedule(existingSchedule.id, {
+      scheduleType: "custom",
+      cronExpression: schedule,
+      command: input.command,
+      steps: input.steps,
+      enabled: true,
+    });
+  } else {
+    // Create new schedule
+    return await automationStore.createSchedule(input);
+  }
 }

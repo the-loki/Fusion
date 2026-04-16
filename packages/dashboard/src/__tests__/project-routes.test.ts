@@ -13,6 +13,15 @@ vi.mock("node:fs", async () => {
   };
 });
 
+// Mock node:fs/promises access function for path validation
+vi.mock("node:fs/promises", async () => {
+  const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  return {
+    ...actual,
+    access: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
 // Use vi.hoisted() for mock functions that need to be accessible in hoisted vi.mock calls
 const {
   mockListProjects,
@@ -580,14 +589,14 @@ describe("POST /api/projects route handler", () => {
       app,
       "POST",
       "/api/projects",
-      JSON.stringify({ name: "Test Project", path: "/test/path" }),
+      JSON.stringify({ name: "Test Project", path: "/tmp" }),
       { "Content-Type": "application/json" },
     );
 
     expect(res.status).toBe(201);
     expect(mockRegisterProject).toHaveBeenCalledWith({
       name: "Test Project",
-      path: "/test/path",
+      path: "/tmp",
       isolationMode: "in-process",
     });
     expect(mockUpdateProject).toHaveBeenCalledWith("proj_test123", { status: "active" });
@@ -604,7 +613,7 @@ describe("POST /api/projects route handler", () => {
       "/api/projects",
       JSON.stringify({
         name: "Remote Project",
-        path: "/remote/path",
+        path: "/tmp",
         nodeId: "node-remote-1",
       }),
       { "Content-Type": "application/json" },
@@ -613,7 +622,7 @@ describe("POST /api/projects route handler", () => {
     expect(res.status).toBe(201);
     expect(mockRegisterProject).toHaveBeenCalledWith({
       name: "Remote Project",
-      path: "/remote/path",
+      path: "/tmp",
       isolationMode: "in-process",
       nodeId: "node-remote-1",
     });

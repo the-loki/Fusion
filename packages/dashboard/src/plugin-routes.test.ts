@@ -38,6 +38,8 @@ vi.mock("@fusion/core", async () => {
 // ── Mock node:fs (used by install mode) ──────────────────────────
 const mockExistsSync = vi.fn<(p: string) => boolean>().mockReturnValue(false);
 const mockStatSync = vi.fn<(p: string) => { isDirectory: () => boolean }>().mockReturnValue({ isDirectory: () => true });
+const mockAccess = vi.fn<(p: string) => Promise<void>>().mockRejectedValue(new Error("not found"));
+const mockStat = vi.fn<(p: string) => Promise<{ isDirectory: () => boolean }>>().mockResolvedValue({ isDirectory: () => true });
 const mockReadFile = vi.fn<(p: string, enc: string) => Promise<string>>().mockRejectedValue(new Error("not found"));
 
 vi.mock("node:fs", async () => {
@@ -53,6 +55,8 @@ vi.mock("node:fs/promises", async () => {
   const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
   return {
     ...actual,
+    access: (...args: Parameters<typeof actual.access>) => mockAccess(args[0] as string),
+    stat: (...args: Parameters<typeof actual.stat>) => mockStat(args[0] as string),
     readFile: (...args: Parameters<typeof actual.readFile>) =>
       mockReadFile(args[0] as string, (args[1] ?? "utf-8") as string),
   };
@@ -217,7 +221,10 @@ describe("POST /api/plugins mode:install — package root path", () => {
 
   it("accepts a package root with valid manifest.json and returns 201", async () => {
     const pkgRoot = "/home/user/plugins/my-plugin";
-    mockExistsSync.mockImplementation((p: string) => p === pkgRoot || p === `${pkgRoot}/manifest.json`);
+    mockAccess.mockImplementation((p: string) => {
+      if (p === pkgRoot || p === `${pkgRoot}/manifest.json`) return Promise.resolve();
+      return Promise.reject(new Error("not found"));
+    });
     mockReadFile.mockResolvedValue(JSON.stringify(VALID_MANIFEST));
     (pluginStore.registerPlugin as ReturnType<typeof vi.fn>).mockResolvedValue(INSTALLED_PLUGIN);
 
@@ -238,7 +245,10 @@ describe("POST /api/plugins mode:install — package root path", () => {
 
   it("accepts a dist folder path with valid manifest.json and returns 201", async () => {
     const distPath = "/home/user/plugins/my-plugin/dist";
-    mockExistsSync.mockImplementation((p: string) => p === distPath || p === `${distPath}/manifest.json`);
+    mockAccess.mockImplementation((p: string) => {
+      if (p === distPath || p === `${distPath}/manifest.json`) return Promise.resolve();
+      return Promise.reject(new Error("not found"));
+    });
     mockReadFile.mockResolvedValue(JSON.stringify(VALID_MANIFEST));
     (pluginStore.registerPlugin as ReturnType<typeof vi.fn>).mockResolvedValue({
       ...INSTALLED_PLUGIN,
@@ -259,7 +269,7 @@ describe("POST /api/plugins mode:install — package root path", () => {
 
   it("loads plugin after registration when enabled", async () => {
     const pkgRoot = "/some/path";
-    mockExistsSync.mockReturnValue(true);
+    mockAccess.mockReturnValue(Promise.resolve());
     mockReadFile.mockResolvedValue(JSON.stringify(VALID_MANIFEST));
     (pluginStore.registerPlugin as ReturnType<typeof vi.fn>).mockResolvedValue({
       ...INSTALLED_PLUGIN,
@@ -298,7 +308,7 @@ describe("POST /api/plugins mode:install — negative paths", () => {
   }
 
   it("returns 404 when path does not exist", async () => {
-    mockExistsSync.mockReturnValue(false);
+    mockAccess.mockRejectedValue(new Error("not found"));
 
     const res = await REQUEST(buildApp(), "POST", "/api/plugins", {
       mode: "install",
@@ -311,7 +321,10 @@ describe("POST /api/plugins mode:install — negative paths", () => {
 
   it("returns 404 when directory exists but manifest.json is missing", async () => {
     // Directory exists, but no manifest.json inside it
-    mockExistsSync.mockImplementation((p: string) => p === "/empty/dir");
+    mockAccess.mockImplementation((p: string) => {
+      if (p === "/empty/dir") return Promise.resolve();
+      return Promise.reject(new Error("not found"));
+    });
 
     const res = await REQUEST(buildApp(), "POST", "/api/plugins", {
       mode: "install",
@@ -323,7 +336,7 @@ describe("POST /api/plugins mode:install — negative paths", () => {
   });
 
   it("returns 400 when manifest.json is not valid JSON", async () => {
-    mockExistsSync.mockReturnValue(true);
+    mockAccess.mockReturnValue(Promise.resolve());
     mockReadFile.mockResolvedValue("not valid json {{{");
 
     const res = await REQUEST(buildApp(), "POST", "/api/plugins", {
@@ -336,7 +349,7 @@ describe("POST /api/plugins mode:install — negative paths", () => {
   });
 
   it("returns 400 when manifest is missing required 'id' field", async () => {
-    mockExistsSync.mockReturnValue(true);
+    mockAccess.mockReturnValue(Promise.resolve());
     mockReadFile.mockResolvedValue(
       JSON.stringify({ name: "No Id", version: "1.0.0" }),
     );
@@ -352,7 +365,7 @@ describe("POST /api/plugins mode:install — negative paths", () => {
   });
 
   it("returns 400 when manifest is missing required 'name' field", async () => {
-    mockExistsSync.mockReturnValue(true);
+    mockAccess.mockReturnValue(Promise.resolve());
     mockReadFile.mockResolvedValue(
       JSON.stringify({ id: "no-name", version: "1.0.0" }),
     );
@@ -368,7 +381,7 @@ describe("POST /api/plugins mode:install — negative paths", () => {
   });
 
   it("returns 400 when manifest is missing required 'version' field", async () => {
-    mockExistsSync.mockReturnValue(true);
+    mockAccess.mockReturnValue(Promise.resolve());
     mockReadFile.mockResolvedValue(
       JSON.stringify({ id: "no-ver", name: "No Version" }),
     );
@@ -422,7 +435,7 @@ describe("POST /api/plugins mode:install — negative paths", () => {
   });
 
   it("returns 409 when plugin is already registered", async () => {
-    mockExistsSync.mockReturnValue(true);
+    mockAccess.mockReturnValue(Promise.resolve());
     mockReadFile.mockResolvedValue(JSON.stringify(VALID_MANIFEST));
     (pluginStore.registerPlugin as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error('Plugin "my-plugin" is already registered'),
@@ -475,7 +488,7 @@ describe("POST /api/plugins mode:install — manifest validation edge cases", ()
   }
 
   it("rejects manifest with invalid id format (uppercase)", async () => {
-    mockExistsSync.mockReturnValue(true);
+    mockAccess.mockReturnValue(Promise.resolve());
     mockReadFile.mockResolvedValue(
       JSON.stringify({ id: "BadId", name: "Bad", version: "1.0.0" }),
     );
@@ -490,7 +503,7 @@ describe("POST /api/plugins mode:install — manifest validation edge cases", ()
   });
 
   it("rejects manifest that is an array", async () => {
-    mockExistsSync.mockReturnValue(true);
+    mockAccess.mockReturnValue(Promise.resolve());
     mockReadFile.mockResolvedValue(JSON.stringify([1, 2, 3]));
 
     const res = await REQUEST(buildApp(), "POST", "/api/plugins", {
@@ -511,7 +524,7 @@ describe("POST /api/plugins mode:install — manifest validation edge cases", ()
       author: "Test",
       homepage: "https://example.com",
     };
-    mockExistsSync.mockReturnValue(true);
+    mockAccess.mockReturnValue(Promise.resolve());
     mockReadFile.mockResolvedValue(JSON.stringify(fullManifest));
     (pluginStore.registerPlugin as ReturnType<typeof vi.fn>).mockResolvedValue({
       ...INSTALLED_PLUGIN,
@@ -566,9 +579,10 @@ describe("POST /api/plugins mode:install — dist-folder parent resolution", () 
     const distPath = "/home/user/plugins/my-plugin/dist";
     const parentPath = "/home/user/plugins/my-plugin";
     // dist exists, no manifest in dist, but manifest in parent
-    mockExistsSync.mockImplementation((p: string) =>
-      p === distPath || p === `${parentPath}/manifest.json`,
-    );
+    mockAccess.mockImplementation((p: string) => {
+      if (p === distPath || p === `${parentPath}/manifest.json`) return Promise.resolve();
+      return Promise.reject(new Error("not found"));
+    });
     mockReadFile.mockResolvedValue(JSON.stringify(VALID_MANIFEST));
 
     const res = await REQUEST(buildApp(), "POST", "/api/plugins", {
@@ -585,9 +599,10 @@ describe("POST /api/plugins mode:install — dist-folder parent resolution", () 
   it("resolves manifest from parent when build/ folder is selected", async () => {
     const buildPath = "/home/user/plugins/my-plugin/build";
     const parentPath = "/home/user/plugins/my-plugin";
-    mockExistsSync.mockImplementation((p: string) =>
-      p === buildPath || p === `${parentPath}/manifest.json`,
-    );
+    mockAccess.mockImplementation((p: string) => {
+      if (p === buildPath || p === `${parentPath}/manifest.json`) return Promise.resolve();
+      return Promise.reject(new Error("not found"));
+    });
     mockReadFile.mockResolvedValue(JSON.stringify(VALID_MANIFEST));
 
     const res = await REQUEST(buildApp(), "POST", "/api/plugins", {
@@ -604,9 +619,10 @@ describe("POST /api/plugins mode:install — dist-folder parent resolution", () 
   it("resolves manifest from parent when lib/ folder is selected", async () => {
     const libPath = "/home/user/plugins/my-plugin/lib";
     const parentPath = "/home/user/plugins/my-plugin";
-    mockExistsSync.mockImplementation((p: string) =>
-      p === libPath || p === `${parentPath}/manifest.json`,
-    );
+    mockAccess.mockImplementation((p: string) => {
+      if (p === libPath || p === `${parentPath}/manifest.json`) return Promise.resolve();
+      return Promise.reject(new Error("not found"));
+    });
     mockReadFile.mockResolvedValue(JSON.stringify(VALID_MANIFEST));
 
     const res = await REQUEST(buildApp(), "POST", "/api/plugins", {
@@ -623,9 +639,10 @@ describe("POST /api/plugins mode:install — dist-folder parent resolution", () 
   it("does NOT look in parent for non-dist directories like src/", async () => {
     const srcPath = "/home/user/plugins/my-plugin/src";
     const parentPath = "/home/user/plugins/my-plugin";
-    mockExistsSync.mockImplementation((p: string) =>
-      p === srcPath || p === `${parentPath}/manifest.json`,
-    );
+    mockAccess.mockImplementation((p: string) => {
+      if (p === srcPath || p === `${parentPath}/manifest.json`) return Promise.resolve();
+      return Promise.reject(new Error("not found"));
+    });
 
     const res = await REQUEST(buildApp(), "POST", "/api/plugins", {
       mode: "install",
@@ -640,9 +657,10 @@ describe("POST /api/plugins mode:install — dist-folder parent resolution", () 
     const distPath = "/home/user/plugins/my-plugin/dist";
     const parentPath = "/home/user/plugins/my-plugin";
     // Both dist and parent have manifest.json
-    mockExistsSync.mockImplementation((p: string) =>
-      p === distPath || p === `${distPath}/manifest.json` || p === `${parentPath}/manifest.json`,
-    );
+    mockAccess.mockImplementation((p: string) => {
+      if (p === distPath || p === `${distPath}/manifest.json` || p === `${parentPath}/manifest.json`) return Promise.resolve();
+      return Promise.reject(new Error("not found"));
+    });
     const distManifest = { ...VALID_MANIFEST, id: "dist-manifest" };
     mockReadFile.mockResolvedValue(JSON.stringify(distManifest));
 

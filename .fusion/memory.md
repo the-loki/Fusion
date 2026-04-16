@@ -601,6 +601,14 @@ The dashboard memory routes integrate with the pluggable memory backend system:
 - `resolveMemoryBackend(settings)` — Resolve backend from settings
 - `listMemoryBackendTypes()` — List registered backend types
 
+**Memory Compaction and Auto-Summarize (FN-1892):**
+- `compactMemoryWithAi(content, rootDir, provider?, modelId?)` — AI-powered memory compaction
+- `createAutoSummarizeAutomation(settings)` — Creates cron-based automation for scheduled compaction
+- `syncAutoSummarizeAutomation(automationStore, settings)` — Syncs automation schedule with project settings
+- `POST /api/memory/compact` — API endpoint to trigger manual memory compaction
+- New settings: `memoryAutoSummarizeEnabled`, `memoryAutoSummarizeThresholdChars`, `memoryAutoSummarizeSchedule`
+- Automation uses "coding" tools mode (needs write access to update memory file)
+
 ## FN-1719: Lint/Type/Test Baseline Restoration
 
 **ESLint flat config best practices:**

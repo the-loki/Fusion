@@ -1259,6 +1259,20 @@ export interface ProjectSettings {
    *  - Any registered custom backend type
    *  Default: "file" */
   memoryBackendType?: string;
+  /** When true, enables automatic AI-powered summarization and compression of the
+   *  working memory file when it exceeds the configured size threshold.
+   *  Creates an automation schedule that checks memory size and compacts when needed.
+   *  Default: false. */
+  memoryAutoSummarizeEnabled?: boolean;
+  /** Character count threshold that triggers automatic memory summarization.
+   *  When working memory exceeds this size, the auto-summarize automation will
+   *  compress it. Only used when memoryAutoSummarizeEnabled is true.
+   *  Default: 50000. */
+  memoryAutoSummarizeThresholdChars?: number;
+  /** Cron expression for the auto-summarize check schedule. Only used when
+   *  memoryAutoSummarizeEnabled is true.
+   *  Default: "0 3 * * *" (daily at 3 AM, offset from insight extraction at 2 AM). */
+  memoryAutoSummarizeSchedule?: string;
   /** Maximum token count before auto-compact triggers. When undefined, compact
    *  only on overflow errors. When set, the engine monitors token usage after
    *  each prompt and proactively compacts context when the token count reaches
