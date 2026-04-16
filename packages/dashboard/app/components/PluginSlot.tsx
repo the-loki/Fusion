@@ -1,4 +1,4 @@
-import type { JSX } from "react";
+import type { ReactNode } from "react";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { usePluginUiSlots } from "../hooks/usePluginUiSlots";
 
@@ -20,7 +20,7 @@ interface PluginSlotProps {
  * Future iterations will replace placeholder divs with dynamically loaded
  * components via the plugin's componentPath.
  */
-export function PluginSlot({ slotId, projectId }: PluginSlotProps): JSX.Element | null {
+export function PluginSlot({ slotId, projectId }: PluginSlotProps): ReactNode {
   const { getSlotsForId, loading, error } = usePluginUiSlots(projectId);
 
   // Non-critical failure — no visible UI when loading, errored, or no matching slots
