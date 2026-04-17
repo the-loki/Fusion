@@ -162,9 +162,9 @@ export function useChat(projectId?: string): UseChatReturn {
         const data = await fetchChatMessages(sessionId, { limit: 50, ...opts }, projectId);
         if (opts?.offset && opts.offset > 0) {
           // Prepend older messages
-          setMessages((prev) => [...data.messages.reverse(), ...prev]);
+          setMessages((prev) => [...data.messages, ...prev]);
         } else {
-          setMessages(data.messages.reverse());
+          setMessages(data.messages);
         }
         setHasMoreMessages(data.messages.length >= 50);
       } catch {

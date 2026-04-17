@@ -172,8 +172,7 @@ export function useQuickChat(
     setMessagesLoading(true);
     try {
       const data = await fetchChatMessages(activeSession.id, { limit: 50 }, projectId);
-      // Reverse to show oldest first
-      setMessages(data.messages.reverse());
+      setMessages(data.messages);
     } catch (err) {
       console.error("[useQuickChat] Failed to load messages:", err);
     } finally {
@@ -196,7 +195,7 @@ export function useQuickChat(
     setMessagesLoading(true);
     try {
       const data = await fetchChatMessages(activeSession.id, { limit: 50 }, projectId);
-      setMessages(data.messages.reverse());
+      setMessages(data.messages);
     } catch (err) {
       console.error("[useQuickChat] Failed to reload messages:", err);
     } finally {
