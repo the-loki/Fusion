@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -82,6 +82,74 @@ describe("createMemoryTools", () => {
 
     expect(getResult.content[0]!.text).toContain("Agent Memory: CEO");
     expect(getResult.content[0]!.text).toContain("roadmap sequencing");
+  });
+
+  it("creates daily and dreams files for per-agent memory lookup", async () => {
+    const [searchTool] = createMemoryTools(tempDir, { memoryBackendType: "file" }, {
+      agentMemory: {
+        agentId: "ceo-agent",
+        agentName: "CEO",
+        memory: "The CEO agent should prioritize roadmap sequencing and delegation.",
+      },
+    });
+
+    await (searchTool as any).execute("call-1", {
+      query: "roadmap",
+      limit: 5,
+    }, undefined, undefined, undefined);
+
+    const today = new Date().toISOString().slice(0, 10);
+    await expect(readFile(join(tempDir, ".fusion", "agent-memory", "ceo-agent", "MEMORY.md"), "utf-8"))
+      .resolves.toContain("Agent Memory: CEO");
+    await expect(readFile(join(tempDir, ".fusion", "agent-memory", "ceo-agent", "DREAMS.md"), "utf-8"))
+      .resolves.toContain("Agent Memory Dreams");
+    await expect(readFile(join(tempDir, ".fusion", "agent-memory", "ceo-agent", `${today}.md`), "utf-8"))
+      .resolves.toContain("Agent Daily Memory");
+  });
+
+  it("appends to this agent's daily memory through memory_append", async () => {
+    const tools = createMemoryTools(tempDir, { memoryBackendType: "file" }, {
+      agentMemory: {
+        agentId: "ceo-agent",
+        agentName: "CEO",
+        memory: "The CEO agent should prioritize roadmap sequencing and delegation.",
+      },
+    });
+    const appendTool = tools.find((tool) => tool.name === "memory_append")!;
+
+    const result = await (appendTool as any).execute("call-1", {
+      scope: "agent",
+      layer: "daily",
+      content: "- Follow up with execution agents after roadmap planning.",
+    }, undefined, undefined, undefined);
+
+    const today = new Date().toISOString().slice(0, 10);
+    await expect(readFile(join(tempDir, ".fusion", "agent-memory", "ceo-agent", `${today}.md`), "utf-8"))
+      .resolves.toContain("Follow up with execution agents");
+    expect(result.details).toEqual({ scope: "agent", layer: "daily" });
+  });
+
+  it("memory_get reads agent dreams returned by memory_search", async () => {
+    const [, getTool, appendTool] = createMemoryTools(tempDir, { memoryBackendType: "file" }, {
+      agentMemory: {
+        agentId: "ceo-agent",
+        agentName: "CEO",
+        memory: "The CEO agent should prioritize roadmap sequencing and delegation.",
+      },
+    });
+    await (appendTool as any).execute("call-1", {
+      scope: "agent",
+      layer: "daily",
+      content: "- Daily note",
+    }, undefined, undefined, undefined);
+
+    const getResult = await (getTool as any).execute("call-2", {
+      path: ".fusion/agent-memory/ceo-agent/DREAMS.md",
+      startLine: 1,
+      lineCount: 10,
+    }, undefined, undefined, undefined);
+
+    expect(getResult.content[0]!.text).toContain("Agent Memory Dreams");
   });
 
   it("builds qmd collection and search args for separate agent memory", () => {

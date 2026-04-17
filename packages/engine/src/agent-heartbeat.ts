@@ -143,7 +143,7 @@ Documents persist across sessions and are visible in the dashboard's Documents t
 ## Memory Boundaries
 
 You may receive an Agent Memory section and a Project Memory section.
-- Agent Memory is specific to you, including imported and user-created agents such as CEO-style coordinator agents. Use it for your durable operating preferences and role context.
+- Agent Memory is specific to you, including imported and user-created agents such as CEO-style coordinator agents. It has its own long-term memory, daily notes, dreams, and qmd-backed retrieval under .fusion/agent-memory/{agentId}/.
 - Project Memory is the workspace memory system under .fusion/memory/ with long-term memory, daily notes, dreams, and qmd-backed retrieval.
 - Keep these separate: do not copy personal agent operating notes into Project Memory unless they are genuinely useful to every future agent in this workspace.
 

@@ -7,7 +7,8 @@
  * The parameter schemas are canonical here — executor.ts imports and reuses them.
  */
 
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import type { AgentStore, AgentState, AgentCapability, TaskDocument, TaskDocumentCreateInput, TaskStore, RunMutationContext, MessageStore, Message } from "@fusion/core";
@@ -96,6 +97,10 @@ export const memoryGetParams = Type.Object({
 });
 
 export const memoryAppendParams = Type.Object({
+  scope: Type.Optional(Type.Union([
+    Type.Literal("project"),
+    Type.Literal("agent"),
+  ], { description: "project for workspace memory, agent for this agent's private memory" })),
   layer: Type.Union([
     Type.Literal("long-term"),
     Type.Literal("daily"),
@@ -129,8 +134,10 @@ type MemorySearchHit = {
 
 const AGENT_MEMORY_ROOT = ".fusion/agent-memory";
 const AGENT_MEMORY_FILENAME = "MEMORY.md";
+const AGENT_DREAMS_FILENAME = "DREAMS.md";
 const agentQmdRefreshState = new Map<string, { lastStartedAt: number; inFlight?: Promise<void> }>();
 const AGENT_QMD_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const DAILY_AGENT_MEMORY_RE = /^\d{4}-\d{2}-\d{2}\.md$/;
 
 function sanitizeAgentMemoryId(agentId: string): string {
   return agentId.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "agent";
@@ -140,12 +147,28 @@ function agentMemoryDisplayPath(agentId: string): string {
   return `${AGENT_MEMORY_ROOT}/${sanitizeAgentMemoryId(agentId)}/${AGENT_MEMORY_FILENAME}`;
 }
 
+function agentDreamsDisplayPath(agentId: string): string {
+  return `${AGENT_MEMORY_ROOT}/${sanitizeAgentMemoryId(agentId)}/${AGENT_DREAMS_FILENAME}`;
+}
+
+function agentDailyDisplayPath(agentId: string, date = new Date()): string {
+  return `${AGENT_MEMORY_ROOT}/${sanitizeAgentMemoryId(agentId)}/${date.toISOString().slice(0, 10)}.md`;
+}
+
 function agentMemoryDirectory(rootDir: string, agentId: string): string {
   return join(rootDir, AGENT_MEMORY_ROOT, sanitizeAgentMemoryId(agentId));
 }
 
 function agentMemoryFilePath(rootDir: string, agentId: string): string {
   return join(agentMemoryDirectory(rootDir, agentId), AGENT_MEMORY_FILENAME);
+}
+
+function agentDreamsFilePath(rootDir: string, agentId: string): string {
+  return join(agentMemoryDirectory(rootDir, agentId), AGENT_DREAMS_FILENAME);
+}
+
+function agentDailyFilePath(rootDir: string, agentId: string, date = new Date()): string {
+  return join(agentMemoryDirectory(rootDir, agentId), `${date.toISOString().slice(0, 10)}.md`);
 }
 
 export function qmdAgentMemoryCollectionName(rootDir: string, agentId: string): string {
@@ -179,18 +202,50 @@ export function buildQmdAgentMemorySearchArgs(rootDir: string, agentId: string, 
 
 async function syncAgentMemoryFile(rootDir: string, agentMemory?: AgentMemoryContext): Promise<string | null> {
   const content = agentMemory?.memory?.trim();
-  if (!agentMemory?.agentId || !content) {
+  if (!agentMemory?.agentId) {
     return null;
   }
 
   const dir = agentMemoryDirectory(rootDir, agentMemory.agentId);
   await mkdir(dir, { recursive: true });
-  const title = agentMemory.agentName?.trim()
-    ? `# Agent Memory: ${agentMemory.agentName.trim()}`
-    : "# Agent Memory";
-  const fileContent = `${title}\n\n<!-- Per-agent memory. Keep separate from workspace Project Memory. -->\n\n${content}\n`;
-  await writeFile(agentMemoryFilePath(rootDir, agentMemory.agentId), fileContent, "utf-8");
+  const longTermPath = agentMemoryFilePath(rootDir, agentMemory.agentId);
+  if (!existsSync(longTermPath)) {
+    const title = agentMemory.agentName?.trim()
+      ? `# Agent Memory: ${agentMemory.agentName.trim()}`
+      : "# Agent Memory";
+    const fileContent = `${title}\n\n<!-- Per-agent memory. Keep separate from workspace Project Memory. -->\n\n${content || ""}\n`;
+    await writeFile(longTermPath, fileContent, "utf-8");
+  }
+  const dreamsPath = agentDreamsFilePath(rootDir, agentMemory.agentId);
+  if (!existsSync(dreamsPath)) {
+    await writeFile(dreamsPath, "# Agent Memory Dreams\n\n<!-- Synthesized patterns from this agent's daily notes. -->\n", "utf-8");
+  }
+  const dailyPath = agentDailyFilePath(rootDir, agentMemory.agentId);
+  if (!existsSync(dailyPath)) {
+    await writeFile(dailyPath, `# Agent Daily Memory ${new Date().toISOString().slice(0, 10)}\n\n<!-- Running observations for this agent. -->\n`, "utf-8");
+  }
   return agentMemoryDisplayPath(agentMemory.agentId);
+}
+
+async function listAgentMemoryFiles(rootDir: string, agentMemory: AgentMemoryContext): Promise<Array<{ absPath: string; displayPath: string }>> {
+  await syncAgentMemoryFile(rootDir, agentMemory);
+  const dir = agentMemoryDirectory(rootDir, agentMemory.agentId);
+  const files = [
+    { absPath: agentMemoryFilePath(rootDir, agentMemory.agentId), displayPath: agentMemoryDisplayPath(agentMemory.agentId) },
+    { absPath: agentDreamsFilePath(rootDir, agentMemory.agentId), displayPath: agentDreamsDisplayPath(agentMemory.agentId) },
+  ];
+  for (const entry of await readdir(dir).catch(() => [] as string[])) {
+    if (!DAILY_AGENT_MEMORY_RE.test(entry)) continue;
+    const absPath = join(dir, entry);
+    const fileStat = await stat(absPath);
+    if (fileStat.isFile()) {
+      files.push({
+        absPath,
+        displayPath: `${AGENT_MEMORY_ROOT}/${sanitizeAgentMemoryId(agentMemory.agentId)}/${entry}`,
+      });
+    }
+  }
+  return files;
 }
 
 function scoreAgentMemorySnippet(snippet: string, query: string): number {
@@ -205,22 +260,24 @@ async function searchAgentMemoryFile(rootDir: string, agentMemory: AgentMemoryCo
     return [];
   }
 
-  const content = await readFile(agentMemoryFilePath(rootDir, agentMemory.agentId), "utf-8");
-  const lines = content.split("\n");
   const results: MemorySearchHit[] = [];
-  for (let index = 0; index < lines.length; index += 8) {
-    const chunk = lines.slice(index, index + 12).join("\n").trim();
-    if (!chunk) continue;
-    const score = scoreAgentMemorySnippet(chunk, query);
-    if (score === 0) continue;
-    results.push({
-      path: displayPath,
-      lineStart: index + 1,
-      lineEnd: Math.min(index + 12, lines.length),
-      snippet: chunk.slice(0, 1200),
-      score: score + 1000,
-      backend: "agent-memory",
-    });
+  for (const file of await listAgentMemoryFiles(rootDir, agentMemory)) {
+    const content = await readFile(file.absPath, "utf-8");
+    const lines = content.split("\n");
+    for (let index = 0; index < lines.length; index += 8) {
+      const chunk = lines.slice(index, index + 12).join("\n").trim();
+      if (!chunk) continue;
+      const score = scoreAgentMemorySnippet(chunk, query);
+      if (score === 0) continue;
+      results.push({
+        path: file.displayPath,
+        lineStart: index + 1,
+        lineEnd: Math.min(index + 12, lines.length),
+        snippet: chunk.slice(0, 1200),
+        score: score + 1000,
+        backend: "agent-memory",
+      });
+    }
   }
   return results.slice(0, limit);
 }
@@ -298,19 +355,36 @@ async function searchAgentMemoryWithQmd(rootDir: string, agentMemory: AgentMemor
   }
 }
 
+function resolveAgentMemoryPath(rootDir: string, agentId: string, path: string): { absPath: string; displayPath: string } | null {
+  const safeAgentId = sanitizeAgentMemoryId(agentId);
+  const prefix = `${AGENT_MEMORY_ROOT}/${safeAgentId}/`;
+  if (!path.startsWith(prefix)) {
+    return null;
+  }
+  const filename = path.slice(prefix.length);
+  if (filename !== AGENT_MEMORY_FILENAME && filename !== AGENT_DREAMS_FILENAME && !DAILY_AGENT_MEMORY_RE.test(filename)) {
+    return null;
+  }
+  return {
+    absPath: join(agentMemoryDirectory(rootDir, agentId), filename),
+    displayPath: `${prefix}${filename}`,
+  };
+}
+
 async function getAgentMemoryWindow(rootDir: string, agentMemory: AgentMemoryContext, path: string, startLine = 1, lineCount = 40) {
-  if (path !== agentMemoryDisplayPath(agentMemory.agentId) || !agentMemory.memory?.trim()) {
+  const resolved = resolveAgentMemoryPath(rootDir, agentMemory.agentId, path);
+  if (!resolved) {
     return null;
   }
   await syncAgentMemoryFile(rootDir, agentMemory);
-  const content = await readFile(agentMemoryFilePath(rootDir, agentMemory.agentId), "utf-8");
+  const content = await readFile(resolved.absPath, "utf-8");
   const lines = content.split("\n");
   const start = Math.max(1, Math.floor(startLine));
   const count = Math.max(1, Math.min(Math.floor(lineCount), 200));
   const startIndex = Math.min(start - 1, lines.length);
   const endIndex = Math.min(startIndex + count, lines.length);
   return {
-    path: agentMemoryDisplayPath(agentMemory.agentId),
+    path: resolved.displayPath,
     content: lines.slice(startIndex, endIndex).join("\n"),
     startLine: start,
     endLine: endIndex,
@@ -595,7 +669,7 @@ export function createMemoryGetTool(rootDir: string, settings?: MemoryToolSettin
   };
 }
 
-export function createMemoryAppendTool(rootDir: string, settings?: MemoryToolSettings): ToolDefinition {
+export function createMemoryAppendTool(rootDir: string, settings?: MemoryToolSettings, options?: MemoryToolOptions): ToolDefinition {
   return {
     name: "memory_append",
     label: "Append Memory",
@@ -604,20 +678,39 @@ export function createMemoryAppendTool(rootDir: string, settings?: MemoryToolSet
       "use daily for running observations and open loops. Skip this tool when there is no reusable memory.",
     parameters: memoryAppendParams,
     execute: async (_id: string, params: Static<typeof memoryAppendParams>) => {
-      await ensureOpenClawMemoryFiles(rootDir);
-      const targetPath = params.layer === "long-term" ? memoryLongTermPath(rootDir) : dailyMemoryPath(rootDir);
       const content = params.content.trim();
       if (!content) {
         return { content: [{ type: "text" as const, text: "ERROR: memory content cannot be empty" }], details: {} };
       }
+      const scope = params.scope ?? "project";
 
+      if (scope === "agent") {
+        if (!options?.agentMemory) {
+          return { content: [{ type: "text" as const, text: "ERROR: agent memory is not available in this session" }], details: {} };
+        }
+        await syncAgentMemoryFile(rootDir, options.agentMemory);
+        const targetPath = params.layer === "long-term"
+          ? agentMemoryFilePath(rootDir, options.agentMemory.agentId)
+          : agentDailyFilePath(rootDir, options.agentMemory.agentId);
+        await appendFile(targetPath, `\n${content}\n`, "utf-8");
+        if (resolveMemoryBackend(settings).type === "qmd") {
+          void refreshAgentMemoryQmdIndex(rootDir, options.agentMemory).catch(() => {});
+        }
+        return {
+          content: [{ type: "text" as const, text: `Appended to agent ${params.layer} memory.` }],
+          details: { scope, layer: params.layer },
+        };
+      }
+
+      await ensureOpenClawMemoryFiles(rootDir);
+      const targetPath = params.layer === "long-term" ? memoryLongTermPath(rootDir) : dailyMemoryPath(rootDir);
       await appendFile(targetPath, `\n${content}\n`, "utf-8");
       if (resolveMemoryBackend(settings).type === "qmd") {
         scheduleQmdProjectMemoryRefresh(rootDir);
       }
       return {
         content: [{ type: "text" as const, text: `Appended to ${params.layer} memory.` }],
-        details: { layer: params.layer },
+        details: { scope, layer: params.layer },
       };
     },
   };
@@ -632,7 +725,7 @@ export function createMemoryTools(rootDir: string, settings?: MemoryToolSettings
     createMemoryGetTool(rootDir, settings, options),
   ];
   if (getMemoryBackendCapabilities(settings).writable) {
-    tools.push(createMemoryAppendTool(rootDir, settings));
+    tools.push(createMemoryAppendTool(rootDir, settings, options));
   }
   return tools;
 }

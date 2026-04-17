@@ -484,15 +484,21 @@ export { MemoryBackendError } from "./memory-backend.js";
 export type { MemoryBackendCapabilities, MemoryFileInfo, MemoryGetOptions, MemoryGetResult, MemorySearchOptions, MemorySearchResult } from "./memory-backend.js";
 
 export {
+  agentDailyMemoryPath,
+  agentMemoryDreamsPath,
+  agentMemoryLongTermPath,
+  agentMemoryWorkspacePath,
   buildDreamProcessingPrompt,
   createMemoryDreamsAutomation,
   DEFAULT_MEMORY_DREAMS_SCHEDULE,
+  ensureAgentMemoryFiles,
   extractDreamProcessorResult,
   MEMORY_DREAMS_SCHEDULE_NAME,
+  processAgentMemoryDreams,
   processMemoryDreams,
   syncMemoryDreamsAutomation,
 } from "./memory-dreams.js";
-export type { DreamProcessorResult, DreamPromptExecutor } from "./memory-dreams.js";
+export type { AgentDreamProcessorResult, DreamProcessorResult, DreamPromptExecutor } from "./memory-dreams.js";
 
 // ── Project Insights ──────────────────────────────────────────────────────
 
