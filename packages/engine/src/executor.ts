@@ -13,7 +13,7 @@ import { Type, type Static } from "@mariozechner/pi-ai";
 import { createKbAgent, describeModel, promptWithFallback, compactSessionContext } from "./pi.js";
 import { buildSessionSkillContext } from "./session-skill-context.js";
 import { reviewStep, type ReviewVerdict } from "./reviewer.js";
-import { ModelRegistry, SessionManager, getAgentDir, type ToolDefinition, type AgentSession } from "@mariozechner/pi-coding-agent";
+import { ModelRegistry, SessionManager, type ToolDefinition, type AgentSession } from "@mariozechner/pi-coding-agent";
 import { PRIORITY_EXECUTE, type AgentSemaphore } from "./concurrency.js";
 import { isRegisteredGitWorktree, isUsableTaskWorktree, type WorktreePool } from "./worktree-pool.js";
 import { AgentLogger } from "./agent-logger.js";
@@ -42,7 +42,7 @@ import {
   createTaskLogTool as sharedCreateTaskLogTool,
 } from "./agent-tools.js";
 import { getTaskCompletionBlockerForStore } from "./task-completion.js";
-import { createFusionAuthStorage } from "./auth-storage.js";
+import { createFusionAuthStorage, getModelRegistryModelsPath } from "./auth-storage.js";
 
 // Re-export for backward compatibility (tests import from executor.ts)
 export { summarizeToolArgs } from "./agent-logger.js";
@@ -392,7 +392,7 @@ export class TaskExecutor {
   private get modelRegistry(): InstanceType<typeof ModelRegistry> {
     if (!this._modelRegistry) {
       const authStorage = createFusionAuthStorage();
-      this._modelRegistry = new ModelRegistry(authStorage, join(getAgentDir(), "models.json"));
+      this._modelRegistry = new ModelRegistry(authStorage, getModelRegistryModelsPath());
       this._modelRegistry.refresh();
     }
     return this._modelRegistry;

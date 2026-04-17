@@ -41,7 +41,11 @@ async function initEngine() {
   }
 }
 
-const engineReady = initEngine();
+let engineReady: Promise<void> | undefined;
+function ensureEngineReady() {
+  engineReady ??= initEngine();
+  return engineReady;
+}
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -392,6 +396,7 @@ function cleanupExpiredSessions(): void {
 }
 
 const cleanupInterval = setInterval(cleanupExpiredSessions, CLEANUP_INTERVAL_MS);
+cleanupInterval.unref?.();
 process.on("beforeExit", () => clearInterval(cleanupInterval));
 
 // ── Stream Manager ──────────────────────────────────────────────────────────
@@ -748,7 +753,7 @@ async function createMissionInterviewAgent(
   rootDir: string,
   promptOverrides?: PromptOverrideMap,
 ): Promise<AgentResult> {
-  await engineReady;
+  await ensureEngineReady();
 
   const effectivePrompt = resolvePrompt("mission-interview-system", promptOverrides);
 

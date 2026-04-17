@@ -20,7 +20,11 @@ async function initEngine() {
   }
 }
 
-const engineReady = initEngine();
+let engineReady: Promise<void> | undefined;
+function ensureEngineReady() {
+  engineReady ??= initEngine();
+  return engineReady;
+}
 
 export interface SubtaskItem {
   id: string;
@@ -263,6 +267,7 @@ function cleanupExpiredSessions(): void {
 }
 
 const cleanupInterval = setInterval(cleanupExpiredSessions, CLEANUP_INTERVAL_MS);
+cleanupInterval.unref?.();
 process.on("beforeExit", () => {
   clearInterval(cleanupInterval);
 });
@@ -396,7 +401,7 @@ async function generateSubtasks(
   const session = sessions.get(sessionId);
   if (!session) throw new SessionNotFoundError(`Subtask session ${sessionId} not found`);
 
-  await engineReady;
+  await ensureEngineReady();
 
   // Resolve the effective system prompt (override or default)
   const systemPrompt = resolvePrompt("subtask-breakdown-system", promptOverrides) || SUBTASK_BREAKDOWN_PROMPT;

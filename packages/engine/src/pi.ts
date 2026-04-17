@@ -20,20 +20,20 @@ import {
   DefaultResourceLoader,
   DefaultPackageManager,
   discoverAndLoadExtensions,
-  getAgentDir,
   ModelRegistry,
   SessionManager,
   SettingsManager,
   type AgentSession,
   type ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
+import { getEnabledPiExtensionPaths, getFusionAgentDir, getLegacyPiAgentDir, resolvePiExtensionProjectRoot } from "@fusion/core";
 import {
   resolveSessionSkills,
   createSkillsOverrideFromSelection,
   type SkillSelectionContext,
 } from "./skill-resolver.js";
 import { isContextLimitError } from "./context-limit-detector.js";
-import { createFusionAuthStorage } from "./auth-storage.js";
+import { createFusionAuthStorage, getModelRegistryModelsPath } from "./auth-storage.js";
 
 export interface AgentResult {
   session: AgentSession;
@@ -252,8 +252,9 @@ function readJsonObject(path: string): Record<string, any> {
 }
 
 function createReadOnlyPiSettingsView(cwd: string, agentDir: string): PackageManagerSettingsView {
+  const projectRoot = resolvePiExtensionProjectRoot(cwd);
   const globalSettings = readJsonObject(join(agentDir, "settings.json"));
-  const fusionProjectSettings = readJsonObject(join(cwd, ".fusion", "settings.json"));
+  const fusionProjectSettings = readJsonObject(join(projectRoot, ".fusion", "settings.json"));
   const mergedSettings = { ...globalSettings, ...fusionProjectSettings };
 
   return {
@@ -265,9 +266,22 @@ function createReadOnlyPiSettingsView(cwd: string, agentDir: string): PackageMan
   };
 }
 
+function getPackageManagerAgentDir(): string {
+  const fusionAgentDir = getFusionAgentDir();
+  if (
+    existsSync(join(fusionAgentDir, "settings.json")) ||
+    existsSync(join(fusionAgentDir, "extensions"))
+  ) {
+    return fusionAgentDir;
+  }
+
+  const legacyAgentDir = getLegacyPiAgentDir();
+  return existsSync(legacyAgentDir) ? legacyAgentDir : fusionAgentDir;
+}
+
 async function registerExtensionProviders(cwd: string, modelRegistry: ModelRegistry): Promise<void> {
   try {
-    const agentDir = getAgentDir();
+    const agentDir = getPackageManagerAgentDir();
     const packageManager = new DefaultPackageManager({
       cwd,
       agentDir,
@@ -278,7 +292,11 @@ async function registerExtensionProviders(cwd: string, modelRegistry: ModelRegis
       .filter((resource) => resource.enabled)
       .map((resource) => resource.path);
 
-    const extensionsResult = await discoverAndLoadExtensions(packageExtensionPaths, cwd, undefined);
+    const extensionsResult = await discoverAndLoadExtensions(
+      [...getEnabledPiExtensionPaths(cwd), ...packageExtensionPaths],
+      cwd,
+      join(resolvePiExtensionProjectRoot(cwd), ".fusion", "disabled-auto-extension-discovery"),
+    );
 
     for (const { path, error } of extensionsResult.errors) {
       console.error(`[extensions] Failed to load ${path}: ${error}`);
@@ -475,7 +493,7 @@ export function wrapToolsWithBoundary(
 export async function createKbAgent(options: AgentOptions): Promise<AgentResult> {
   console.error(`[pi] createKbAgent called (cwd=${options.cwd}, tools=${options.tools}, provider=${options.defaultProvider}, model=${options.defaultModelId})`);
   const authStorage = createFusionAuthStorage();
-  const modelRegistry = new ModelRegistry(authStorage, join(getAgentDir(), "models.json"));
+  const modelRegistry = new ModelRegistry(authStorage, getModelRegistryModelsPath());
   await registerExtensionProviders(options.cwd, modelRegistry);
 
   const tools =

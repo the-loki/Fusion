@@ -47,8 +47,11 @@ async function initEngine() {
   }
 }
 
-// Initialize on module load (will be awaited in actual usage)
-const engineReady = initEngine();
+let engineReady: Promise<void> | undefined;
+function ensureEngineReady() {
+  engineReady ??= initEngine();
+  return engineReady;
+}
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -348,7 +351,7 @@ export class ChatManager {
 
     try {
       // Ensure engine is loaded
-      await engineReady;
+      await ensureEngineReady();
 
       if (!createKbAgent) {
         throw new Error("AI agent not available");

@@ -10,6 +10,7 @@
  */
 
 import type { AddressInfo } from "node:net";
+import { join } from "node:path";
 import {
   CentralCore,
   PluginStore,
@@ -20,6 +21,7 @@ import {
   DaemonTokenManager,
   GlobalSettingsStore,
   resolveGlobalDir,
+  getEnabledPiExtensionPaths,
 } from "@fusion/core";
 import type { AutomationRunResult, ScheduledTask } from "@fusion/core";
 import { createServer, GitHubClient, createSkillsAdapter, getProjectSettingsPath } from "@fusion/dashboard";
@@ -29,7 +31,6 @@ import {
   DefaultPackageManager,
   ModelRegistry,
   discoverAndLoadExtensions,
-  getAgentDir,
   createExtensionRuntime,
 } from "@mariozechner/pi-coding-agent";
 import {
@@ -39,12 +40,21 @@ import {
 import { promptForPort } from "./port-prompt.js";
 import { createReadOnlyProviderSettingsView, createProjectSettingsPersistence } from "./provider-settings.js";
 import { createReadOnlyAuthFileStorage, mergeAuthStorageReads, wrapAuthStorageWithApiKeyProviders } from "./provider-auth.js";
-import { getFusionAuthPath, getLegacyAuthPaths } from "./auth-paths.js";
+import { getFusionAuthPath, getLegacyAuthPaths, getModelRegistryModelsPath, getPackageManagerAgentDir } from "./auth-paths.js";
+import { resolveProject } from "../project-context.js";
 
 const DIAGNOSTIC_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 let diagnosticIntervalHandle: ReturnType<typeof setInterval> | null = null;
 let serveStartTime = 0;
 let serveDbHealthCheck: (() => boolean) | null = null;
+
+async function resolveRuntimeProjectPath(): Promise<string> {
+  try {
+    return (await resolveProject(undefined)).projectPath;
+  } catch {
+    return process.cwd();
+  }
+}
 
 /**
  * Format bytes to human-readable string
@@ -209,7 +219,7 @@ export async function runServe(
   }
 
   const selectedHost = opts.host ?? "0.0.0.0";
-  const cwd = process.cwd();
+  const cwd = await resolveRuntimeProjectPath();
 
   // ── CentralCore: global coordination + ntfy project ID lookup ─────────
   //
@@ -387,13 +397,13 @@ export async function runServe(
   const authStorage = AuthStorage.create(getFusionAuthPath());
   const legacyAuthStorage = createReadOnlyAuthFileStorage(getLegacyAuthPaths());
   const mergedAuthStorage = mergeAuthStorageReads(authStorage, [legacyAuthStorage]);
-  const modelRegistry = new ModelRegistry(mergedAuthStorage);
+  const modelRegistry = new ModelRegistry(mergedAuthStorage, getModelRegistryModelsPath());
   const dashboardAuthStorage = wrapAuthStorageWithApiKeyProviders(mergedAuthStorage, modelRegistry);
 
   // PackageManager may be used for skills adapter even if extension loading fails
   let packageManager: DefaultPackageManager | undefined;
   try {
-    const agentDir = getAgentDir();
+    const agentDir = getPackageManagerAgentDir();
     packageManager = new DefaultPackageManager({
       cwd,
       agentDir,
@@ -405,9 +415,9 @@ export async function runServe(
       .map((r) => r.path);
 
     const extensionsResult = await discoverAndLoadExtensions(
-      packageExtensionPaths,
+      [...getEnabledPiExtensionPaths(cwd), ...packageExtensionPaths],
       cwd,
-      undefined,
+      join(cwd, ".fusion", "disabled-auto-extension-discovery"),
     );
 
     for (const { path, error } of extensionsResult.errors) {

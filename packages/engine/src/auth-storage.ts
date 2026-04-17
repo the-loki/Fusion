@@ -22,11 +22,31 @@ export function getFusionAuthPath(home = getHomeDir()): string {
   return join(home, ".fusion", "agent", "auth.json");
 }
 
+export function getFusionModelsPath(home = getHomeDir()): string {
+  return join(home, ".fusion", "agent", "models.json");
+}
+
 function getLegacyAuthPaths(home = getHomeDir()): string[] {
   return [
     join(home, ".pi", "agent", "auth.json"),
     join(home, ".pi", "auth.json"),
   ];
+}
+
+function getLegacyModelsPaths(home = getHomeDir()): string[] {
+  return [
+    join(home, ".pi", "agent", "models.json"),
+    join(home, ".pi", "models.json"),
+  ];
+}
+
+export function getModelRegistryModelsPath(home = getHomeDir()): string {
+  const fusionModelsPath = getFusionModelsPath(home);
+  if (existsSync(fusionModelsPath)) {
+    return fusionModelsPath;
+  }
+
+  return getLegacyModelsPaths(home).find((modelsPath) => existsSync(modelsPath)) ?? fusionModelsPath;
 }
 
 function readLegacyCredentials(authPaths = getLegacyAuthPaths()): Record<string, StoredCredential> {

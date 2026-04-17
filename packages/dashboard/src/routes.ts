@@ -18,7 +18,7 @@ import * as nodeFs from "node:fs";
 
 import { promisify } from "node:util";
 import type { TaskStore, Column, ScheduleType, ActivityEventType, ModelPreset, MessageType, ParticipantType, RoutineTriggerType, ProjectSettings } from "@fusion/core";
-import { COLUMNS, VALID_TRANSITIONS, GLOBAL_SETTINGS_KEYS, type BatchStatusEntry, type BatchStatusResponse, type BatchStatusResult, type IssueInfo, type PrInfo, type Task, getCurrentRepo, isGhAuthenticated, AutomationStore, validateBackupSchedule, validateBackupRetention, validateBackupDir, syncBackupAutomation, exportSettings, importSettings, validateImportData, MessageStore, RoutineStore, isWebhookTrigger, resolveMemoryBackend, getMemoryBackendCapabilities, listMemoryBackendTypes, readMemory, writeMemory, MemoryBackendError } from "@fusion/core";
+import { COLUMNS, VALID_TRANSITIONS, GLOBAL_SETTINGS_KEYS, type BatchStatusEntry, type BatchStatusResponse, type BatchStatusResult, type IssueInfo, type PrInfo, type Task, getCurrentRepo, isGhAuthenticated, AutomationStore, validateBackupSchedule, validateBackupRetention, validateBackupDir, syncBackupAutomation, exportSettings, importSettings, validateImportData, MessageStore, RoutineStore, isWebhookTrigger, resolveMemoryBackend, getMemoryBackendCapabilities, listMemoryBackendTypes, readMemory, writeMemory, MemoryBackendError, discoverPiExtensions, updatePiExtensionDisabledIds } from "@fusion/core";
 import type { ServerOptions } from "./server.js";
 import { GitHubClient, parseBadgeUrl } from "./github.js";
 import { githubRateLimiter } from "./github-poll.js";
@@ -2830,6 +2830,43 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       const { store: scopedStore } = await getProjectContext(req);
       const scopes = await scopedStore.getSettingsByScope();
       res.json(scopes);
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        throw err;
+      }
+      rethrowAsApiError(err);
+    }
+  });
+
+  /**
+   * GET /api/settings/pi-extensions
+   * List Pi/Fusion extension entry points and their Fusion-owned enabled state.
+   */
+  router.get("/settings/pi-extensions", async (req, res) => {
+    try {
+      const { store: scopedStore } = await getProjectContext(req);
+      res.json(discoverPiExtensions(scopedStore.getRootDir()));
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        throw err;
+      }
+      rethrowAsApiError(err);
+    }
+  });
+
+  /**
+   * PUT /api/settings/pi-extensions
+   * Persist Fusion-owned disabled extension ids in ~/.fusion/agent/settings.json.
+   */
+  router.put("/settings/pi-extensions", async (req, res) => {
+    try {
+      const disabledIds = (req.body as { disabledIds?: unknown }).disabledIds;
+      if (!Array.isArray(disabledIds) || disabledIds.some((entry) => typeof entry !== "string")) {
+        throw badRequest("disabledIds must be an array of extension ids");
+      }
+
+      const { store: scopedStore } = await getProjectContext(req);
+      res.json(updatePiExtensionDisabledIds(scopedStore.getRootDir(), disabledIds));
     } catch (err: unknown) {
       if (err instanceof ApiError) {
         throw err;
@@ -5655,6 +5692,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
           }
         }
       }, batchImportWindowMs);
+      batchImportCleanupInterval.unref?.();
     }
 
     return (req: Request, res: Response, next: NextFunction): void => {

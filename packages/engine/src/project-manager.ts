@@ -97,6 +97,7 @@ export class ProjectManager extends EventEmitter<ProjectManagerEvents> {
   private globalSemaphore: AgentSemaphore;
   /** Mutable limit read by the shared semaphore's getter function. */
   private currentGlobalLimit = 4;
+  private globalLimitRefreshInterval: ReturnType<typeof setInterval>;
 
   /**
    * @param centralCore - CentralCore reference for global coordination
@@ -112,7 +113,8 @@ export class ProjectManager extends EventEmitter<ProjectManagerEvents> {
 
     // Refresh the global limit periodically
     this.refreshGlobalLimit();
-    setInterval(() => this.refreshGlobalLimit(), 30000); // Refresh every 30s
+    this.globalLimitRefreshInterval = setInterval(() => this.refreshGlobalLimit(), 30000);
+    this.globalLimitRefreshInterval.unref?.();
 
     projectManagerLog.log("ProjectManager initialized");
   }
@@ -475,6 +477,7 @@ export class ProjectManager extends EventEmitter<ProjectManagerEvents> {
 
     await Promise.all(stopPromises);
 
+    clearInterval(this.globalLimitRefreshInterval);
     projectManagerLog.log("All project runtimes stopped");
     this.removeAllListeners();
   }

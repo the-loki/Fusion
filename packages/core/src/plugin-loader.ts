@@ -87,6 +87,10 @@ export class PluginLoader extends EventEmitter<{
     super();
   }
 
+  private getProjectRoot(): string {
+    return this.options.taskStore.getRootDir();
+  }
+
   // ── Context Creation ───────────────────────────────────────────────
 
   private async createContext(plugin: FusionPlugin): Promise<PluginContext> {
@@ -247,11 +251,11 @@ export class PluginLoader extends EventEmitter<{
     if (path.startsWith("@") || path.includes("/")) {
       // For npm packages, we'd use require.resolve in a real implementation
       // For now, assume it's a local path relative to project root
-      return resolve(process.cwd(), path);
+      return resolve(this.getProjectRoot(), path);
     }
 
     // Default: resolve relative to project root
-    return resolve(process.cwd(), path);
+    return resolve(this.getProjectRoot(), path);
   }
 
   private async importPluginModule(path: string, bypassCache = false): Promise<unknown> {

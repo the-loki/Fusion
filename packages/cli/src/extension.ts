@@ -14,8 +14,9 @@ import {
   isGhAvailable,
   runGhJsonAsync,
 } from "@fusion/core/gh-cli";
-import { resolve, basename, extname } from "node:path";
+import { resolve, basename, extname, join } from "node:path";
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -36,17 +37,37 @@ const MIME_TYPES: Record<string, string> = {
   ".xml": "application/xml",
 };
 
-/** Cache stores per cwd to avoid re-init on every tool call. */
+function resolveProjectRoot(cwd: string): string {
+  let current = resolve(cwd);
+  while (true) {
+    if (existsSync(join(current, ".fusion"))) {
+      return current;
+    }
+
+    const parent = resolve(current, "..");
+    if (parent === current) {
+      return resolve(cwd);
+    }
+    current = parent;
+  }
+}
+
+/** Cache stores per project root to avoid re-init on every tool call. */
 const storeCache = new Map<string, TaskStore>();
 
 async function getStore(cwd: string): Promise<TaskStore> {
-  const existing = storeCache.get(cwd);
+  const projectRoot = resolveProjectRoot(cwd);
+  const existing = storeCache.get(projectRoot);
   if (existing) return existing;
 
-  const store = new TaskStore(cwd);
+  const store = new TaskStore(projectRoot);
   await store.init();
-  storeCache.set(cwd, store);
+  storeCache.set(projectRoot, store);
   return store;
+}
+
+function getFusionDir(cwd: string): string {
+  return join(resolveProjectRoot(cwd), ".fusion");
 }
 
 function formatTaskLine(t: Task): string {
@@ -1534,7 +1555,7 @@ export default function kbExtension(pi: ExtensionAPI) {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const { AgentStore, AGENT_VALID_TRANSITIONS } = await import("@fusion/core");
 
-      const agentStore = new AgentStore({ rootDir: ctx.cwd + "/.fusion" });
+      const agentStore = new AgentStore({ rootDir: getFusionDir(ctx.cwd) });
       await agentStore.init();
 
       const agent = await agentStore.getAgent(params.id);
@@ -1597,7 +1618,7 @@ export default function kbExtension(pi: ExtensionAPI) {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const { AgentStore, AGENT_VALID_TRANSITIONS } = await import("@fusion/core");
 
-      const agentStore = new AgentStore({ rootDir: ctx.cwd + "/.fusion" });
+      const agentStore = new AgentStore({ rootDir: getFusionDir(ctx.cwd) });
       await agentStore.init();
 
       const agent = await agentStore.getAgent(params.id);
@@ -1759,7 +1780,7 @@ export default function kbExtension(pi: ExtensionAPI) {
 
       // Execute via spawn
       const child = spawn("npx", npxArgs, {
-        cwd: ctx.cwd,
+        cwd: resolveProjectRoot(ctx.cwd),
         stdio: "pipe",
       });
 
@@ -1864,7 +1885,7 @@ export default function kbExtension(pi: ExtensionAPI) {
 
       // Find the fn binary: prefer local node_modules, then global
       const child = spawn("fn", ["dashboard", "--port", String(port)], {
-        cwd: ctx.cwd,
+        cwd: resolveProjectRoot(ctx.cwd),
         stdio: ["ignore", "pipe", "pipe"],
         detached: false,
         env: { ...process.env },

@@ -33,8 +33,11 @@ async function initEngine() {
   }
 }
 
-// Initialize on module load (will be awaited in actual usage)
-const engineReady = initEngine();
+let engineReady: Promise<void> | undefined;
+function ensureEngineReady() {
+  engineReady ??= initEngine();
+  return engineReady;
+}
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -194,6 +197,7 @@ function cleanupExpiredRateLimits(): void {
 
 // Start cleanup interval
 const cleanupInterval = setInterval(cleanupExpiredRateLimits, CLEANUP_INTERVAL_MS);
+cleanupInterval.unref?.();
 
 // Handle graceful shutdown
 process.on("beforeExit", () => {
@@ -264,7 +268,7 @@ export async function refineText(
   promptOverrides?: PromptOverrideMap,
 ): Promise<string> {
   // Ensure engine is loaded before using createKbAgent
-  await engineReady;
+  await ensureEngineReady();
 
   if (!createKbAgent) {
     throw new AiServiceError("AI engine not available");

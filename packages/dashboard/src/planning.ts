@@ -50,8 +50,11 @@ async function initEngine() {
   }
 }
 
-// Initialize on module load (will be awaited in actual usage)
-const engineReady = initEngine();
+let engineReady: Promise<void> | undefined;
+function ensureEngineReady() {
+  engineReady ??= initEngine();
+  return engineReady;
+}
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -360,6 +363,7 @@ function cleanupExpiredSessions(): void {
 
 // Start cleanup interval
 const cleanupInterval = setInterval(cleanupExpiredSessions, CLEANUP_INTERVAL_MS);
+cleanupInterval.unref?.();
 
 // Handle graceful shutdown
 process.on("beforeExit", () => {
@@ -576,7 +580,7 @@ export async function createSession(
   // Create AI agent and get the first question
   // Only await engineReady if createKbAgent hasn't been set externally (e.g., via __setCreateKbAgent)
   if (!createKbAgent) {
-    await engineReady;
+    await ensureEngineReady();
   }
 
   const agentResult = await createKbAgent({
@@ -802,7 +806,7 @@ async function createPlanningAgent(
   promptOverrides?: PromptOverrideMap,
 ): Promise<AgentResult> {
   // Ensure engine is loaded before using createKbAgent
-  await engineReady;
+  await ensureEngineReady();
 
   // Resolve the effective system prompt (override or default)
   const systemPrompt = resolvePrompt("planning-system", promptOverrides) || PLANNING_SYSTEM_PROMPT;

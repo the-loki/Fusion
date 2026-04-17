@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Globe, Folder } from "lucide-react";
 import { THINKING_LEVELS, PROMPT_KEY_CATALOG, isGlobalSettingsKey, isProjectSettingsKey } from "@fusion/core";
 import type { Settings, GlobalSettings, ThemeMode, ColorTheme, ModelPreset, NtfyNotificationEvent, PromptKey, AgentPromptsConfig } from "@fusion/core";
-import { fetchSettings, fetchSettingsByScope, updateSettings, updateGlobalSettings, fetchAuthStatus, loginProvider, logoutProvider, saveApiKey, clearApiKey, fetchModels, testNtfyNotification, fetchBackups, createBackup, exportSettings, importSettings, fetchMemory, saveMemory, fetchGlobalConcurrency, updateGlobalConcurrency, compactMemory } from "../api";
-import type { AuthProvider, ModelInfo, BackupListResponse, SettingsExportData, MemoryBackendCapabilities } from "../api";
+import { fetchSettings, fetchSettingsByScope, updateSettings, updateGlobalSettings, fetchAuthStatus, loginProvider, logoutProvider, saveApiKey, clearApiKey, fetchModels, testNtfyNotification, fetchBackups, createBackup, exportSettings, importSettings, fetchMemory, saveMemory, fetchGlobalConcurrency, updateGlobalConcurrency, compactMemory, fetchPiExtensions, updatePiExtensions } from "../api";
+import type { AuthProvider, ModelInfo, BackupListResponse, SettingsExportData, MemoryBackendCapabilities, PiExtensionSettings } from "../api";
 import { useMemoryBackendStatus } from "../hooks/useMemoryBackendStatus";
 import type { ToastType } from "../hooks/useToast";
 import { ThemeSelector } from "./ThemeSelector";
@@ -59,6 +59,7 @@ type SettingsSection = {
 const SETTINGS_SECTIONS: SettingsSection[] = [
   // Global group
   { id: "authentication", label: "Authentication", scope: undefined, icon: Globe },
+  { id: "pi-extensions", label: "Pi Extensions", scope: undefined },
   { id: "appearance", label: "Appearance", scope: "global" },
   { id: "notifications", label: "Notifications", scope: "global" },
   { id: "node-sync", label: "Node Sync", scope: "global" },
@@ -151,6 +152,11 @@ export function SettingsModal({
   const [apiKeyInputs, setApiKeyInputs] = useState<Record<string, string>>({});
   const [apiKeyErrors, setApiKeyErrors] = useState<Record<string, string>>({});
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Pi extension state (independent of the settings save flow)
+  const [piExtensions, setPiExtensions] = useState<PiExtensionSettings | null>(null);
+  const [piExtensionsLoading, setPiExtensionsLoading] = useState(false);
+  const [piExtensionsSaving, setPiExtensionsSaving] = useState(false);
 
   // Model state
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
@@ -295,6 +301,38 @@ export function SettingsModal({
       }
     };
   }, [activeSection, loadAuthStatus]);
+
+  const loadPiExtensions = useCallback(() => {
+    setPiExtensionsLoading(true);
+    fetchPiExtensions(projectId)
+      .then(setPiExtensions)
+      .catch((err) => addToast(err.message, "error"))
+      .finally(() => setPiExtensionsLoading(false));
+  }, [addToast, projectId]);
+
+  useEffect(() => {
+    if (activeSection === "pi-extensions") {
+      loadPiExtensions();
+    }
+  }, [activeSection, loadPiExtensions]);
+
+  const togglePiExtension = async (extensionId: string, enabled: boolean) => {
+    if (!piExtensions) return;
+    const nextDisabledIds = enabled
+      ? piExtensions.disabledIds.filter((id) => id !== extensionId)
+      : Array.from(new Set([...piExtensions.disabledIds, extensionId]));
+
+    setPiExtensionsSaving(true);
+    try {
+      const nextSettings = await updatePiExtensions(nextDisabledIds, projectId);
+      setPiExtensions(nextSettings);
+      addToast("Pi extension settings saved");
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : "Failed to save Pi extension settings", "error");
+    } finally {
+      setPiExtensionsSaving(false);
+    }
+  };
 
   const handleLogin = useCallback(async (providerId: string) => {
     setAuthActionInProgress(providerId);
@@ -2639,6 +2677,52 @@ export function SettingsModal({
             <h4 className="settings-section-heading">Plugins</h4>
             <PluginManager addToast={addToast} projectId={projectId} />
             <PluginSlot slotId="settings-section" projectId={projectId} />
+          </>
+        );
+      case "pi-extensions":
+        return (
+          <>
+            <h4 className="settings-section-heading">Pi Extensions</h4>
+            <div className="form-group">
+              <small>Choose which project and global Pi extensions Fusion loads. Changes are saved to your Fusion agent settings and apply after restarting the dashboard or headless node.</small>
+            </div>
+            <div className="modal-actions modal-actions-left">
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={loadPiExtensions}
+                disabled={piExtensionsLoading || piExtensionsSaving}
+              >
+                Refresh
+              </button>
+            </div>
+            {piExtensionsLoading ? (
+              <div className="settings-empty-state">Loading Pi extensions…</div>
+            ) : !piExtensions || piExtensions.extensions.length === 0 ? (
+              <div className="settings-empty-state settings-muted">
+                No Pi extensions found in this project, ~/.fusion/agent, or ~/.pi/agent.
+              </div>
+            ) : (
+              <>
+                {piExtensions.extensions.map((extension) => (
+                  <div key={extension.id} className="form-group">
+                    <label htmlFor={`pi-extension-${extension.id}`} className="checkbox-label">
+                      <input
+                        id={`pi-extension-${extension.id}`}
+                        type="checkbox"
+                        checked={extension.enabled}
+                        disabled={piExtensionsSaving}
+                        onChange={(e) => togglePiExtension(extension.id, e.target.checked)}
+                      />
+                      {extension.name}
+                    </label>
+                    <small>
+                      {extension.source.replace("-", " ")} · {extension.path}
+                    </small>
+                  </div>
+                ))}
+              </>
+            )}
           </>
         );
       case "authentication":

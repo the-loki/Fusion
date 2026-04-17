@@ -335,6 +335,7 @@ export class WebSocketManager extends EventEmitter<WebSocketManagerEvents> {
         }
       }
     }, this.heartbeatIntervalMs);
+    this.heartbeatTimer.unref?.();
   }
 
   private clearHeartbeat(): void {

@@ -1,8 +1,9 @@
 import type { AddressInfo } from "node:net";
-import { TaskStore, AutomationStore, CentralCore, AgentStore, PluginStore, PluginLoader, getTaskMergeBlocker } from "@fusion/core";
+import { join } from "node:path";
+import { TaskStore, AutomationStore, CentralCore, AgentStore, PluginStore, PluginLoader, getTaskMergeBlocker, getEnabledPiExtensionPaths } from "@fusion/core";
 import { createServer, GitHubClient, createSkillsAdapter, getProjectSettingsPath } from "@fusion/dashboard";
 import { aiMergeTask, MissionAutopilot, MissionExecutionLoop, HeartbeatMonitor, HeartbeatTriggerScheduler, type WakeContext, ProjectEngineManager, PeerExchangeService } from "@fusion/engine";
-import { AuthStorage, DefaultPackageManager, ModelRegistry, discoverAndLoadExtensions, getAgentDir, createExtensionRuntime } from "@mariozechner/pi-coding-agent";
+import { AuthStorage, DefaultPackageManager, ModelRegistry, discoverAndLoadExtensions, createExtensionRuntime } from "@mariozechner/pi-coding-agent";
 import {
   getMergeStrategy,
   processPullRequestMergeTask,
@@ -10,7 +11,8 @@ import {
 import { promptForPort } from "./port-prompt.js";
 import { createReadOnlyProviderSettingsView, createProjectSettingsPersistence } from "./provider-settings.js";
 import { createReadOnlyAuthFileStorage, mergeAuthStorageReads, wrapAuthStorageWithApiKeyProviders } from "./provider-auth.js";
-import { getFusionAuthPath, getLegacyAuthPaths } from "./auth-paths.js";
+import { getFusionAuthPath, getLegacyAuthPaths, getModelRegistryModelsPath, getPackageManagerAgentDir } from "./auth-paths.js";
+import { resolveProject } from "../project-context.js";
 
 // Re-export for backward compatibility with tests
 export { promptForPort };
@@ -183,6 +185,14 @@ function setDiagnosticStoreListenerCheck(check: () => Record<string, number>): v
   diagnosticStoreListenerCheck = check;
 }
 
+async function resolveRuntimeProjectPath(): Promise<string> {
+  try {
+    return (await resolveProject(undefined)).projectPath;
+  } catch {
+    return process.cwd();
+  }
+}
+
 export async function runDashboard(port: number, opts: { paused?: boolean; dev?: boolean; interactive?: boolean; open?: boolean } = {}) {
   ensureProcessDiagnostics();
 
@@ -199,7 +209,7 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
       throw err;
     }
   }
-  const cwd = process.cwd();
+  const cwd = await resolveRuntimeProjectPath();
   const store = new TaskStore(cwd);
   await store.init();
   await store.watch();
@@ -365,7 +375,7 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
   const authStorage = AuthStorage.create(getFusionAuthPath());
   const legacyAuthStorage = createReadOnlyAuthFileStorage(getLegacyAuthPaths());
   const mergedAuthStorage = mergeAuthStorageReads(authStorage, [legacyAuthStorage]);
-  const modelRegistry = new ModelRegistry(mergedAuthStorage);
+  const modelRegistry = new ModelRegistry(mergedAuthStorage, getModelRegistryModelsPath());
   const dashboardAuthStorage = wrapAuthStorageWithApiKeyProviders(mergedAuthStorage, modelRegistry);
 
   // PackageManager may be used for skills adapter even if extension loading fails
@@ -374,7 +384,7 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
     // Resolve extension paths from pi settings packages (npm, git, local).
     // This picks up extensions like @howaboua/pi-glm-via-anthropic that
     // register custom providers (e.g. glm-5.1) via registerProvider().
-    const agentDir = getAgentDir();
+    const agentDir = getPackageManagerAgentDir();
     packageManager = new DefaultPackageManager({
       cwd,
       agentDir,
@@ -385,8 +395,12 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
       .filter((r) => r.enabled)
       .map((r) => r.path);
 
-    // Load all extensions: filesystem-discovered + package-resolved
-    const extensionsResult = await discoverAndLoadExtensions(packageExtensionPaths, cwd, undefined);
+    // Load all enabled extensions: Fusion/Pi filesystem-discovered + package-resolved.
+    const extensionsResult = await discoverAndLoadExtensions(
+      [...getEnabledPiExtensionPaths(cwd), ...packageExtensionPaths],
+      cwd,
+      join(cwd, ".fusion", "disabled-auto-extension-discovery"),
+    );
 
     for (const { path, error } of extensionsResult.errors) {
       console.log(`[extensions] Failed to load ${path}: ${error}`);

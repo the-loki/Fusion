@@ -156,6 +156,7 @@ vi.mock("@fusion/core", () => ({
       emit: emitter.emit.bind(emitter),
     };
   }),
+  getEnabledPiExtensionPaths: vi.fn(() => []),
   getTaskMergeBlocker: vi.fn((task: any) => {
     if (task.column !== "in-review") return `task is in '${task.column}', must be in 'in-review'`;
     if (task.paused) return "task is paused";

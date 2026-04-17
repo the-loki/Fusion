@@ -386,6 +386,31 @@ export function fetchSettingsByScope(projectId?: string): Promise<{ global: Glob
   return api<{ global: GlobalSettings; project: Partial<ProjectSettings> }>(withProjectId("/settings/scopes", projectId));
 }
 
+export interface PiExtensionEntry {
+  id: string;
+  name: string;
+  path: string;
+  source: "fusion-global" | "pi-global" | "fusion-project" | "pi-project";
+  enabled: boolean;
+}
+
+export interface PiExtensionSettings {
+  extensions: PiExtensionEntry[];
+  disabledIds: string[];
+  settingsPath: string;
+}
+
+export function fetchPiExtensions(projectId?: string): Promise<PiExtensionSettings> {
+  return api<PiExtensionSettings>(withProjectId("/settings/pi-extensions", projectId));
+}
+
+export function updatePiExtensions(disabledIds: string[], projectId?: string): Promise<PiExtensionSettings> {
+  return api<PiExtensionSettings>(withProjectId("/settings/pi-extensions", projectId), {
+    method: "PUT",
+    body: JSON.stringify({ disabledIds }),
+  });
+}
+
 export function testNtfyNotification(config?: { ntfyEnabled?: boolean; ntfyTopic?: string }, projectId?: string): Promise<{ success: boolean }> {
   return api<{ success: boolean }>(withProjectId("/settings/test-ntfy", projectId), {
     method: "POST",
@@ -5553,4 +5578,3 @@ export function getInsightCreateTaskData(
     method: "POST",
   });
 }
-

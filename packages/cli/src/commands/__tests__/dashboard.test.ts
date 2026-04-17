@@ -150,6 +150,7 @@ vi.mock("@fusion/core", () => ({
     getPlugin: vi.fn(),
     getLoadedPlugins: vi.fn().mockReturnValue([]),
   })),
+  getEnabledPiExtensionPaths: vi.fn(() => []),
   getTaskMergeBlocker: vi.fn().mockReturnValue(undefined),
   syncInsightExtractionAutomation: mockSyncInsightExtraction,
   INSIGHT_EXTRACTION_SCHEDULE_NAME: "Memory Insight Extraction",
@@ -479,7 +480,11 @@ describe("runDashboard — AuthStorage & ModelRegistry wiring", () => {
 
     await runDashboard(0, {});
 
-    expect(mockDiscoverAndLoadExtensions).toHaveBeenCalledWith([], expect.any(String), undefined);
+    expect(mockDiscoverAndLoadExtensions).toHaveBeenCalledWith(
+      [],
+      expect.any(String),
+      expect.stringContaining(".fusion/disabled-auto-extension-discovery"),
+    );
     expect(mockModelRegistry.registerProvider).toHaveBeenCalledWith(
       "custom-anthropic",
       expect.objectContaining({ models: [{ id: "claude-sonnet-4-5" }] }),
@@ -786,8 +791,7 @@ describe("runDashboard — multi-project cwd/default engine resolution", () => {
     expect(ProjectEngineManager).toHaveBeenCalledTimes(1);
 
     // Verify CentralCore.getProjectByPath was called with cwd
-    const centralCore = centralInstances[0];
-    expect(centralCore.getProjectByPath).toHaveBeenCalled();
+    expect(centralInstances.some((instance) => instance.getProjectByPath.mock.calls.length > 0)).toBe(true);
 
     // Verify createServer received an engine (the cwd/default engine)
     const serverOpts = (createServer as ReturnType<typeof vi.fn>).mock.calls[0][1];

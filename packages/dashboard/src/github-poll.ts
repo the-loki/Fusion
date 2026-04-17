@@ -118,6 +118,7 @@ export class GitHubPollingService extends EventEmitter<GitHubPollingServiceEvent
     this.timer = setInterval(() => {
       void this.pollOnce();
     }, this.pollingIntervalMs);
+    this.timer.unref?.();
 
     void this.pollOnce();
   }
@@ -409,4 +410,3 @@ function hasIssueBadgeChanged(current: IssueInfo | undefined, next: IssueInfo): 
     current.title !== next.title ||
     current.stateReason !== next.stateReason;
 }
-

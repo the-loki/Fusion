@@ -422,7 +422,11 @@ describe("createKbAgent", () => {
       defaultModelId: "glm-5.1",
     });
 
-    expect(discoverAndLoadExtensionsMock).toHaveBeenCalledWith(["/extensions/zai-provider"], "/tmp", undefined);
+    expect(discoverAndLoadExtensionsMock).toHaveBeenCalledWith(
+      ["/extensions/zai-provider"],
+      "/tmp",
+      "/tmp/.fusion/disabled-auto-extension-discovery",
+    );
     expect(registerProviderMock).toHaveBeenCalledWith("zai", expect.objectContaining({
       models: [{ id: "glm-5.1" }],
     }));

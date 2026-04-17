@@ -495,6 +495,7 @@ vi.mock("@fusion/core", () => ({
   CentralCore: mocks.centralCoreCtor,
   PluginStore: mocks.pluginStoreCtor,
   PluginLoader: mocks.pluginLoaderCtor,
+  getEnabledPiExtensionPaths: vi.fn(() => []),
   getTaskMergeBlocker: vi.fn().mockReturnValue(null),
   syncInsightExtractionAutomation: mocks.syncInsightExtractionAutomationMock,
   INSIGHT_EXTRACTION_SCHEDULE_NAME: "Memory Insight Extraction",
