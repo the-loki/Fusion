@@ -9,6 +9,7 @@ import {
 } from "../api";
 import { useAiSessionSync } from "./useAiSessionSync";
 import { getSessionTabId } from "../utils/getSessionTabId";
+import { subscribeSse } from "../sse-bus";
 
 interface UseBackgroundSessionsResult {
   sessions: AiSessionSummary[];
@@ -37,7 +38,6 @@ function shouldIncludeSession(session: AiSessionSummary): boolean {
 
 export function useBackgroundSessions(projectId?: string): UseBackgroundSessionsResult {
   const [sessions, setSessions] = useState<AiSessionSummary[]>([]);
-  const eventSourceRef = useRef<EventSource | null>(null);
   const sessionTimestampsRef = useRef<Map<string, number>>(new Map());
 
   const {
@@ -136,8 +136,6 @@ export function useBackgroundSessions(projectId?: string): UseBackgroundSessions
   // Listen for server-side SSE events (authoritative source of truth).
   useEffect(() => {
     const params = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
-    const es = new EventSource(`/api/events${params}`);
-    eventSourceRef.current = es;
 
     const handleUpdated = (e: MessageEvent) => {
       try {
@@ -200,14 +198,12 @@ export function useBackgroundSessions(projectId?: string): UseBackgroundSessions
       }
     };
 
-    es.addEventListener("ai_session:updated", handleUpdated);
-    es.addEventListener("ai_session:deleted", handleDeleted);
-
-    return () => {
-      es.removeEventListener("ai_session:updated", handleUpdated);
-      es.removeEventListener("ai_session:deleted", handleDeleted);
-      es.close();
-    };
+    return subscribeSse(`/api/events${params}`, {
+      events: {
+        "ai_session:updated": handleUpdated,
+        "ai_session:deleted": handleDeleted,
+      },
+    });
   }, [broadcastCompleted, broadcastUpdate, projectId]);
 
   const dismissSession = useCallback(async (id: string) => {

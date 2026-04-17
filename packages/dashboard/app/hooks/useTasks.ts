@@ -1,10 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Task, Column, TaskCreateInput, MergeResult } from "@fusion/core";
 import * as api from "../api";
-
-const RECONNECT_DELAY_MS = 3000;
-/** If no SSE message (including heartbeat events) arrives within this window, force reconnect. */
-const HEARTBEAT_TIMEOUT_MS = 45_000;
+import { subscribeSse } from "../sse-bus";
 
 function normalizeTask(task: Task): Task {
   return {
@@ -45,7 +42,6 @@ export function useTasks(options?: UseTasksOptions) {
   const projectId = options?.projectId;
   const searchQuery = options?.searchQuery;
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [connectionNonce, setConnectionNonce] = useState(0);
   // Once the user expands the archived column, we keep including archived tasks
   // in subsequent refreshes for the lifetime of this hook instance.
   const [includeArchived, setIncludeArchived] = useState(false);
@@ -152,61 +148,29 @@ export function useTasks(options?: UseTasksOptions) {
   // SSE live updates
   // Note: SSE events from stale project contexts are ignored via projectContextVersionRef.
   // This prevents tasks from the previous project from appearing during project switches.
+  // Connection lifecycle (reconnect + heartbeat) is owned by sse-bus so all
+  // /api/events consumers share one underlying EventSource.
   useEffect(() => {
-    let closedByCleanup = false;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
-    if (connectionNonce > 0) {
-      void refreshTasksRef.current();
-    }
-    // Capture the project context version at effect start.
-    // Any event from a stale SSE connection (created before a project switch)
-    // will have a different context version and will be ignored.
     const contextVersionAtStart = projectContextVersionRef.current;
     const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
-    const es = new EventSource(`/api/events${query}`);
 
-    /** Reset the heartbeat watchdog. Called on every incoming SSE message. */
-    const resetHeartbeat = () => {
-      if (heartbeatTimer) clearTimeout(heartbeatTimer);
-      heartbeatTimer = setTimeout(() => {
-        // No message received within the timeout — connection is likely dead.
-        if (!closedByCleanup) {
-          handleError();
-        }
-      }, HEARTBEAT_TIMEOUT_MS);
-    };
-
-    // Start the watchdog immediately — if the connection never opens we still want to time out.
-    resetHeartbeat();
+    const isStale = () => projectContextVersionRef.current !== contextVersionAtStart;
 
     const handleCreated = (e: MessageEvent) => {
-      // Guard: reject events from stale project contexts
-      if (projectContextVersionRef.current !== contextVersionAtStart) {
-        return;
-      }
-      resetHeartbeat();
+      if (isStale()) return;
       const task = normalizeTask(JSON.parse(e.data) as Task);
-      // When search is active, re-fetch to get server-filtered results
       if (searchQueryRef.current) {
         void refreshTasksRef.current({ searchQueryOverride: searchQueryRef.current });
         return;
       }
-      // Add the task if it doesn't already exist
       setTasks((prev) => {
-        // Avoid duplicates
         if (prev.some((t) => t.id === task.id)) return prev;
         return [...prev, task];
       });
     };
 
     const handleMoved = (e: MessageEvent) => {
-      // Guard: reject events from stale project contexts
-      if (projectContextVersionRef.current !== contextVersionAtStart) {
-        return;
-      }
-      resetHeartbeat();
-      // When search is active, re-fetch to get server-filtered results
+      if (isStale()) return;
       if (searchQueryRef.current) {
         void refreshTasksRef.current({ searchQueryOverride: searchQueryRef.current });
         return;
@@ -218,17 +182,11 @@ export function useTasks(options?: UseTasksOptions) {
           t.id === normalizedTask.id ? { ...normalizedTask, column: to } : t
         )
       );
-      // Record when we received fresh server data for stuck detection
       lastFetchTimeMs.current = Date.now();
     };
 
     const handleUpdated = (e: MessageEvent) => {
-      // Guard: reject events from stale project contexts
-      if (projectContextVersionRef.current !== contextVersionAtStart) {
-        return;
-      }
-      resetHeartbeat();
-      // When search is active, re-fetch to get server-filtered results
+      if (isStale()) return;
       if (searchQueryRef.current) {
         void refreshTasksRef.current({ searchQueryOverride: searchQueryRef.current });
         return;
@@ -259,17 +217,11 @@ export function useTasks(options?: UseTasksOptions) {
           return incoming;
         })
       );
-      // Record when we received fresh server data for stuck detection
       lastFetchTimeMs.current = Date.now();
     };
 
     const handleDeleted = (e: MessageEvent) => {
-      // Guard: reject events from stale project contexts
-      if (projectContextVersionRef.current !== contextVersionAtStart) {
-        return;
-      }
-      resetHeartbeat();
-      // When search is active, re-fetch to get server-filtered results
+      if (isStale()) return;
       if (searchQueryRef.current) {
         void refreshTasksRef.current({ searchQueryOverride: searchQueryRef.current });
         return;
@@ -279,12 +231,7 @@ export function useTasks(options?: UseTasksOptions) {
     };
 
     const handleMerged = (e: MessageEvent) => {
-      // Guard: reject events from stale project contexts
-      if (projectContextVersionRef.current !== contextVersionAtStart) {
-        return;
-      }
-      resetHeartbeat();
-      // When search is active, re-fetch to get server-filtered results
+      if (isStale()) return;
       if (searchQueryRef.current) {
         void refreshTasksRef.current({ searchQueryOverride: searchQueryRef.current });
         return;
@@ -298,55 +245,20 @@ export function useTasks(options?: UseTasksOptions) {
       );
     };
 
-    const cleanup = () => {
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
-      if (heartbeatTimer) {
-        clearTimeout(heartbeatTimer);
-        heartbeatTimer = null;
-      }
-
-      es.removeEventListener("heartbeat", handleHeartbeat);
-      es.removeEventListener("task:created", handleCreated);
-      es.removeEventListener("task:moved", handleMoved);
-      es.removeEventListener("task:updated", handleUpdated);
-      es.removeEventListener("task:deleted", handleDeleted);
-      es.removeEventListener("task:merged", handleMerged);
-      es.removeEventListener("error", handleError);
-      es.close();
-    };
-
-    const handleError = () => {
-      if (closedByCleanup) return;
-
-      cleanup();
-      reconnectTimer = setTimeout(() => {
-        setConnectionNonce((current) => current + 1);
-      }, RECONNECT_DELAY_MS);
-    };
-
-    /** Server heartbeat (named event, not comment) — just resets the watchdog. */
-    const handleHeartbeat = () => { resetHeartbeat(); };
-
-    es.addEventListener("open", () => resetHeartbeat());
-    es.addEventListener("heartbeat", handleHeartbeat);
-    es.addEventListener("task:created", handleCreated);
-    es.addEventListener("task:moved", handleMoved);
-    es.addEventListener("task:updated", handleUpdated);
-    es.addEventListener("task:deleted", handleDeleted);
-    es.addEventListener("task:merged", handleMerged);
-    es.addEventListener("error", handleError);
-
-    return () => {
-      closedByCleanup = true;
-      cleanup();
-    };
-  // Note: searchQuery and refreshTasks are accessed via refs inside handlers
-  // to avoid tearing down/rebuilding the EventSource on search changes.
-  // The EventSource URL only depends on projectId.
-  }, [connectionNonce, projectId]);
+    return subscribeSse(`/api/events${query}`, {
+      events: {
+        "task:created": handleCreated,
+        "task:moved": handleMoved,
+        "task:updated": handleUpdated,
+        "task:deleted": handleDeleted,
+        "task:merged": handleMerged,
+      },
+      onReconnect: () => {
+        if (isStale()) return;
+        void refreshTasksRef.current();
+      },
+    });
+  }, [projectId]);
 
   const createTask = useCallback(async (input: TaskCreateInput): Promise<Task> => {
     const task = normalizeTask(await api.createTask(input, projectId));

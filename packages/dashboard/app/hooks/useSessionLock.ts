@@ -6,6 +6,7 @@ import {
   type AiSessionSummary,
 } from "../api";
 import { getSessionTabId } from "../utils/getSessionTabId";
+import { subscribeSse } from "../sse-bus";
 
 interface SessionLockState {
   isLockedByOther: boolean;
@@ -94,9 +95,7 @@ export function useSessionLock(sessionId: string | null): SessionLockState {
       return;
     }
 
-    const eventSource = new EventSource("/api/events");
-
-    const handleUpdated = (event: MessageEvent<string>) => {
+    const handleUpdated = (event: MessageEvent) => {
       try {
         const payload = JSON.parse(event.data) as AiSessionSummary;
         if (payload.id !== sessionId) {
@@ -111,12 +110,9 @@ export function useSessionLock(sessionId: string | null): SessionLockState {
       }
     };
 
-    eventSource.addEventListener("ai_session:updated", handleUpdated as EventListener);
-
-    return () => {
-      eventSource.removeEventListener("ai_session:updated", handleUpdated as EventListener);
-      eventSource.close();
-    };
+    return subscribeSse("/api/events", {
+      events: { "ai_session:updated": handleUpdated },
+    });
   }, [sessionId, tabId]);
 
   const takeControl = useCallback(async () => {

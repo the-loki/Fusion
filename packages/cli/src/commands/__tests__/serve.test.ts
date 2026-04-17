@@ -514,6 +514,7 @@ vi.mock("@fusion/dashboard", () => ({
   GitHubClient: vi.fn().mockImplementation(() => ({})),
   createSkillsAdapter: vi.fn().mockReturnValue(undefined),
   getProjectSettingsPath: vi.fn().mockReturnValue("/tmp/project/.fusion/settings.json"),
+  loadTlsCredentialsFromEnv: vi.fn().mockReturnValue(undefined),
 }));
 
 vi.mock("@fusion/engine", () => ({

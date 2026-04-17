@@ -137,6 +137,7 @@ vi.mock("@fusion/core", () => ({
 
 vi.mock("@fusion/dashboard", () => ({
   createServer: mocks.createServer,
+  loadTlsCredentialsFromEnv: vi.fn().mockReturnValue(undefined),
 }));
 
 import { runDesktop } from "./desktop.js";

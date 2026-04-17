@@ -114,6 +114,7 @@ function createMockStore(overrides: Partial<TaskStore> = {}): TaskStore {
     updateSettings: vi.fn(),
     updateGlobalSettings: vi.fn(),
     getSettingsByScope: vi.fn().mockResolvedValue({ global: {}, project: {} }),
+    getSettingsByScopeFast: vi.fn().mockResolvedValue({ global: {}, project: {} }),
     getGlobalSettingsStore: vi.fn().mockReturnValue(createMockGlobalSettingsStore()),
     logEntry: vi.fn().mockResolvedValue(undefined),
     getAgentLogs: vi.fn().mockResolvedValue([]),

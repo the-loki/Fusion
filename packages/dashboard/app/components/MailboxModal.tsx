@@ -28,6 +28,7 @@ import {
 } from "../api";
 import { MessageComposer } from "./MessageComposer";
 import type { Agent } from "../api";
+import { subscribeSse } from "../sse-bus";
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -168,7 +169,6 @@ export function MailboxModal({
     }
 
     const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
-    const eventSource = new EventSource(`/api/events${query}`);
 
     const onMailboxUpdate = () => {
       void refreshUnreadCount();
@@ -183,18 +183,14 @@ export function MailboxModal({
       }
     };
 
-    eventSource.addEventListener("message:sent", onMailboxUpdate);
-    eventSource.addEventListener("message:received", onMailboxUpdate);
-    eventSource.addEventListener("message:read", onMailboxUpdate);
-    eventSource.addEventListener("message:deleted", onMailboxUpdate);
-
-    return () => {
-      eventSource.removeEventListener("message:sent", onMailboxUpdate);
-      eventSource.removeEventListener("message:received", onMailboxUpdate);
-      eventSource.removeEventListener("message:read", onMailboxUpdate);
-      eventSource.removeEventListener("message:deleted", onMailboxUpdate);
-      eventSource.close();
-    };
+    return subscribeSse(`/api/events${query}`, {
+      events: {
+        "message:sent": onMailboxUpdate,
+        "message:received": onMailboxUpdate,
+        "message:read": onMailboxUpdate,
+        "message:deleted": onMailboxUpdate,
+      },
+    });
   }, [isOpen, projectId, activeTab, selectedAgentId, refreshUnreadCount, loadInbox, loadOutbox, loadAgentMailbox]);
 
   // ── Actions ───────────────────────────────────────────────────────────

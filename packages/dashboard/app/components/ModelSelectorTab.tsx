@@ -237,17 +237,29 @@ export function ModelSelectorTab({ task, addToast, onTaskUpdated, settings }: Mo
       setSavingTarget(target);
 
       try {
-        const updates: Parameters<typeof updateTask>[1] = {};
-        if (target === "executor") {
-          updates.modelProvider = nextSelection.provider ?? null;
-          updates.modelId = nextSelection.modelId ?? null;
-        } else if (target === "validator") {
-          updates.validatorModelProvider = nextSelection.provider ?? null;
-          updates.validatorModelId = nextSelection.modelId ?? null;
-        } else {
-          updates.planningModelProvider = nextSelection.provider ?? null;
-          updates.planningModelId = nextSelection.modelId ?? null;
-        }
+        const updates: Parameters<typeof updateTask>[1] = onTaskUpdated
+          ? (target === "executor"
+            ? {
+                modelProvider: nextSelection.provider ?? null,
+                modelId: nextSelection.modelId ?? null,
+              }
+            : target === "validator"
+              ? {
+                  validatorModelProvider: nextSelection.provider ?? null,
+                  validatorModelId: nextSelection.modelId ?? null,
+                }
+              : {
+                  planningModelProvider: nextSelection.provider ?? null,
+                  planningModelId: nextSelection.modelId ?? null,
+                })
+          : {
+              modelProvider: (target === "executor" ? nextSelection : savedExecutor).provider ?? null,
+              modelId: (target === "executor" ? nextSelection : savedExecutor).modelId ?? null,
+              validatorModelProvider: (target === "validator" ? nextSelection : savedValidator).provider ?? null,
+              validatorModelId: (target === "validator" ? nextSelection : savedValidator).modelId ?? null,
+              planningModelProvider: (target === "planning" ? nextSelection : savedPlanning).provider ?? null,
+              planningModelId: (target === "planning" ? nextSelection : savedPlanning).modelId ?? null,
+            };
 
         const updatedTask = await updateTask(requestTaskId, updates);
 

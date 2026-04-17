@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import type { Agent, AgentState, AgentCapability, AgentStats } from "../api";
 import { fetchAgents, fetchAgentStats } from "../api";
 import { isEphemeralAgent } from "@fusion/core";
+import { subscribeSse } from "../sse-bus";
 
 export function useAgents(projectId?: string) {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -38,21 +39,19 @@ export function useAgents(projectId?: string) {
   // SSE subscription for agent events
   useEffect(() => {
     const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
-    const es = new EventSource(`/api/events${query}`);
-
     const refresh = () => {
       void loadAgents();
       void loadStats();
     };
 
-    es.addEventListener("agent:created", refresh);
-    es.addEventListener("agent:updated", refresh);
-    es.addEventListener("agent:deleted", refresh);
-    es.addEventListener("agent:stateChanged", refresh);
-
-    return () => {
-      es.close();
-    };
+    return subscribeSse(`/api/events${query}`, {
+      events: {
+        "agent:created": refresh,
+        "agent:updated": refresh,
+        "agent:deleted": refresh,
+        "agent:stateChanged": refresh,
+      },
+    });
   }, [projectId, loadAgents, loadStats]);
 
   const activeAgents = agents.filter(a =>

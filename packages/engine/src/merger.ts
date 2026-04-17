@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 const execAsync = promisify(exec);
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { getTaskMergeBlocker, runCommandAsync, type TaskStore, type MergeResult, type MergeDetails, type WorkflowStep, type WorkflowStepResult, type Settings, type AgentPromptsConfig } from "@fusion/core";
+import { getTaskMergeBlocker, type TaskStore, type MergeResult, type MergeDetails, type WorkflowStep, type WorkflowStepResult, type Settings, type AgentPromptsConfig } from "@fusion/core";
 import { resolveAgentPrompt } from "@fusion/core";
 import { createKbAgent, describeModel, promptWithFallback, compactSessionContext } from "./pi.js";
 import { buildSessionSkillContext } from "./session-skill-context.js";
@@ -570,43 +570,31 @@ async function runVerificationCommand(
   };
 
   try {
-    const commandResult = await runCommandAsync(command, {
+    const { stdout, stderr } = await execAsync(command, {
       cwd: rootDir,
-      timeoutMs: 300_000,
+      encoding: "utf-8",
+      timeout: 300_000,
       maxBuffer: VERIFICATION_COMMAND_MAX_BUFFER,
     });
-    result.stdout = commandResult.stdout;
-    result.stderr = commandResult.stderr;
-    result.exitCode = commandResult.exitCode;
-    result.success = !commandResult.spawnError
-      && !commandResult.timedOut
-      && commandResult.exitCode === 0;
 
-    if (result.success) {
-      const bufferNote = commandResult.bufferExceeded ? ", output exceeded buffer" : "";
-      mergerLog.log(`${taskId}: ${type} command succeeded`);
-      await store.logEntry(taskId, `[verification] ${type} command succeeded (exit 0${bufferNote})`);
-      return result;
-    }
+    result.stdout = stdout?.toString?.() || "";
+    result.stderr = stderr?.toString?.() || "";
+    result.exitCode = 0;
+    result.success = true;
 
-    const failureText = commandResult.spawnError?.message
-      || (commandResult.timedOut ? "Command timed out" : "")
-      || commandResult.stderr
-      || commandResult.stdout
-      || `Command exited with ${commandResult.exitCode ?? commandResult.signal ?? "unknown status"}`;
-    throw Object.assign(new Error(failureText), {
-      stdout: commandResult.stdout,
-      stderr: commandResult.stderr,
-      status: commandResult.exitCode,
-      code: commandResult.timedOut ? "ETIMEDOUT" : undefined,
-    });
+    mergerLog.log(`${taskId}: ${type} command succeeded`);
+    await store.logEntry(taskId, `[verification] ${type} command succeeded (exit 0)`);
+    return result;
   } catch (error: any) {
-    result.stdout = error.stdout?.toString() || "";
-    result.stderr = error.stderr?.toString() || "";
-    result.exitCode = error.status ?? null;
-    const maxBufferExceeded = error.code === "ENOBUFS"
-      || error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
-      || error.message?.includes("maxBuffer");
+    result.stdout = error?.stdout?.toString?.() || "";
+    result.stderr = error?.stderr?.toString?.() || "";
+    result.exitCode = typeof error?.status === "number"
+      ? error.status
+      : (typeof error?.code === "number" ? error.code : null);
+
+    const maxBufferExceeded = error?.code === "ENOBUFS"
+      || error?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
+      || String(error?.message ?? "").includes("maxBuffer");
     result.success = maxBufferExceeded && result.exitCode === 0;
 
     if (result.success) {
@@ -620,7 +608,7 @@ async function runVerificationCommand(
 
     // Keep command output out of process logs. The bounded excerpt is stored on
     // the task for diagnostics without dumping test output to the engine stdout.
-    const output = result.stderr || result.stdout || error.message || "Unknown error";
+    const output = result.stderr || result.stdout || error?.message || "Unknown error";
     const summary = summarizeVerificationOutput(output, type);
     mergerLog.error(`${taskId}: ${type} command failed (exit ${result.exitCode}); output captured in task log`);
     await store.logEntry(

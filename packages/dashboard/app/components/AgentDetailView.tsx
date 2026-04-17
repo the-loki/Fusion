@@ -13,6 +13,7 @@ import { AgentLogViewer } from "./AgentLogViewer";
 import { AgentReflectionsTab } from "./AgentReflectionsTab";
 import { getAgentHealthStatus } from "../utils/agentHealth";
 import { SkillMultiselect } from "./SkillMultiselect";
+import { subscribeSse } from "../sse-bus";
 import { CustomModelDropdown } from "./CustomModelDropdown";
 
 /**
@@ -202,49 +203,41 @@ export function AgentDetailView({ agentId, projectId, onClose, addToast, onChild
     const contextVersionAtStart = contextVersionRef.current;
     const currentTaskId = agent.taskId;
     const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
-    const es = new EventSource(`/api/tasks/${encodeURIComponent(currentTaskId)}/logs/stream${query}`);
 
-    const handleAgentLog = (e: MessageEvent) => {
-      // Reject events from stale contexts (agent/project switch)
-      if (contextVersionRef.current !== contextVersionAtStart) {
-        return;
-      }
+    const unsubscribe = subscribeSse(
+      `/api/tasks/${encodeURIComponent(currentTaskId)}/logs/stream${query}`,
+      {
+        events: {
+          "agent:log": (e) => {
+            if (contextVersionRef.current !== contextVersionAtStart) return;
+            try {
+              const entry: AgentLogEntry = JSON.parse(e.data);
+              setLogs(prev => [entry, ...prev]);
 
-      try {
-        const entry: AgentLogEntry = JSON.parse(e.data);
-        setLogs(prev => [entry, ...prev]);
-
-        // Auto-scroll to top for new entries
-        const container = logContainerRef.current;
-        if (container && container.scrollTop < 50) {
-          container.scrollTop = 0;
-        }
-      } catch {
-        // Ignore parse errors
-      }
-    };
-
-    es.addEventListener("agent:log", handleAgentLog as EventListener);
-
-    es.onerror = () => {
-      // Only update streaming state if not stale
-      if (contextVersionRef.current === contextVersionAtStart) {
-        setIsStreaming(false);
-      }
-    };
-
-    es.onopen = () => {
-      // Only update streaming state if not stale
-      if (contextVersionRef.current === contextVersionAtStart) {
-        setIsStreaming(true);
-      }
-    };
+              const container = logContainerRef.current;
+              if (container && container.scrollTop < 50) {
+                container.scrollTop = 0;
+              }
+            } catch {
+              // Ignore parse errors
+            }
+          },
+        },
+        onOpen: () => {
+          if (contextVersionRef.current === contextVersionAtStart) {
+            setIsStreaming(true);
+          }
+        },
+        onError: () => {
+          if (contextVersionRef.current === contextVersionAtStart) {
+            setIsStreaming(false);
+          }
+        },
+      },
+    );
 
     return () => {
-      es.removeEventListener("agent:log", handleAgentLog as EventListener);
-      es.close();
-
-      // Only reset streaming state if not stale
+      unsubscribe();
       if (contextVersionRef.current === contextVersionAtStart) {
         setIsStreaming(false);
       }
@@ -2380,6 +2373,15 @@ function ConfigTab({
   const [isSaving, setIsSaving] = useState(false);
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [justSaved, setJustSaved] = useState(false);
+  const justSavedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (justSavedTimeoutRef.current) {
+        clearTimeout(justSavedTimeoutRef.current);
+      }
+    };
+  }, []);
 
   /** Detect whether any local value differs from the persisted metadata */
   const hasChanges = (() => {
@@ -2656,7 +2658,10 @@ function ConfigTab({
       addToast("Settings saved", "success");
       setJustSaved(true);
       // Auto-hide the saved indicator after 3 seconds
-      setTimeout(() => setJustSaved(false), 3000);
+      if (justSavedTimeoutRef.current) {
+        clearTimeout(justSavedTimeoutRef.current);
+      }
+      justSavedTimeoutRef.current = setTimeout(() => setJustSaved(false), 3000);
       await onSaved();
     } catch (err: any) {
       addToast(`Failed to save settings: ${err.message}`, "error");

@@ -24,7 +24,7 @@ import {
   getEnabledPiExtensionPaths,
 } from "@fusion/core";
 import type { AutomationRunResult, ScheduledTask } from "@fusion/core";
-import { createServer, GitHubClient, createSkillsAdapter, getProjectSettingsPath } from "@fusion/dashboard";
+import { createServer, GitHubClient, createSkillsAdapter, getProjectSettingsPath, loadTlsCredentialsFromEnv } from "@fusion/dashboard";
 import { ProjectEngineManager, PeerExchangeService } from "@fusion/engine";
 import {
   AuthStorage,
@@ -592,6 +592,7 @@ export async function runServe(
     headless: true,
     skillsAdapter,
     daemon: daemonToken ? { token: daemonToken } : undefined,
+    https: loadTlsCredentialsFromEnv(),
   });
 
   const server = app.listen(selectedPort, selectedHost);

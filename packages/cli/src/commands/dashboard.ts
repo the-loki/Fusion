@@ -1,7 +1,7 @@
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { TaskStore, AutomationStore, CentralCore, AgentStore, PluginStore, PluginLoader, getTaskMergeBlocker, getEnabledPiExtensionPaths } from "@fusion/core";
-import { createServer, GitHubClient, createSkillsAdapter, getProjectSettingsPath } from "@fusion/dashboard";
+import { createServer, GitHubClient, createSkillsAdapter, getProjectSettingsPath, loadTlsCredentialsFromEnv } from "@fusion/dashboard";
 import { aiMergeTask, MissionAutopilot, MissionExecutionLoop, HeartbeatMonitor, HeartbeatTriggerScheduler, type WakeContext, ProjectEngineManager, PeerExchangeService } from "@fusion/engine";
 import { AuthStorage, DefaultPackageManager, ModelRegistry, discoverAndLoadExtensions, createExtensionRuntime } from "@mariozechner/pi-coding-agent";
 import {
@@ -602,6 +602,7 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
       pluginRunner: pluginLoader,
       onProjectFirstAccessed: (projectId: string) => engineManager.onProjectAccessed(projectId),
       skillsAdapter,
+      https: loadTlsCredentialsFromEnv(),
     });
 
     const shutdown = async (signal: NodeJS.Signals) => {
@@ -782,6 +783,7 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
       pluginLoader,
       pluginRunner: pluginLoader,
       skillsAdapter,
+      https: loadTlsCredentialsFromEnv(),
     });
   }
 

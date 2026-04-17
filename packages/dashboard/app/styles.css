@@ -1688,6 +1688,22 @@ body {
   border: 1px solid var(--card-agent-badge-border, rgba(139, 148, 158, 0.28));
   padding: 2px 6px;
   border-radius: 9999px;
+  flex-shrink: 0;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-agent-badge-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-agent-badge--loading {
+  animation: pulse 1.5s ease-in-out infinite;
 }
 
 .card-progress {

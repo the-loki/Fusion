@@ -318,6 +318,8 @@ function TaskCardComponent({
       return;
     }
 
+    setAgentName(null);
+
     let cancelled = false;
     void getAgentName(task.assignedAgentId, projectId).then((name) => {
       if (!cancelled) setAgentName(name);
@@ -483,6 +485,7 @@ function TaskCardComponent({
   // Check if this card can be edited inline
   const canEdit = EDITABLE_COLUMNS.has(task.column) && !isAgentActive && !isPaused && !queued && onUpdateTask;
   const hasGitHubBadge = Boolean(task.prInfo || task.issueInfo);
+  const isAgentNameLoading = Boolean(task.assignedAgentId && agentName === null);
 
   useEffect(() => {
     if (!hasGitHubBadge || !isInViewport) {
@@ -811,9 +814,14 @@ function TaskCardComponent({
           </span>
         )}
         {task.assignedAgentId && (
-          <span className="card-agent-badge" title={`Assigned to ${agentName ?? task.assignedAgentId}`}>
+          <span
+            className={`card-agent-badge${isAgentNameLoading ? " card-agent-badge--loading" : ""}`}
+            title={`Assigned to ${agentName ?? task.assignedAgentId}`}
+          >
             <Bot size={11} />
-            {abbreviateBadge(agentName ?? task.assignedAgentId, 15)}
+            <span className="card-agent-badge-text">
+              {abbreviateBadge(agentName ?? task.assignedAgentId, 15)}
+            </span>
           </span>
         )}
         <div className="card-header-actions">

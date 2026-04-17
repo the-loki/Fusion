@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import type { Column, Task, TaskDetail } from "@fusion/core";
 import { TaskCard } from "../TaskCard";
 import React, { useState } from "react";
+import { readFileSync } from "node:fs";
 
 vi.mock("../../api", () => ({
   fetchTaskDetail: vi.fn(),
@@ -3594,6 +3595,67 @@ describe("TaskCard agent badge", () => {
       expect(badge).toBeInTheDocument();
       expect(badge).toHaveClass("card-agent-badge");
       expect(screen.getByTestId("bot-icon")).toBeInTheDocument();
+      const text = badge.querySelector(".card-agent-badge-text");
+      expect(text).toBeInTheDocument();
+    });
+
+    const styles = readFileSync("app/styles.css", "utf-8");
+    expect(styles).toMatch(/\.card-agent-badge\s*\{[^}]*flex-shrink:\s*0;/);
+    expect(styles).toMatch(/\.card-agent-badge\s*\{[^}]*max-width:\s*120px;/);
+    expect(styles).toMatch(/\.card-agent-badge-text\s*\{[^}]*text-overflow:\s*ellipsis;/);
+    expect(styles).toMatch(/\.card-agent-badge-text\s*\{[^}]*white-space:\s*nowrap;/);
+    expect(styles).toMatch(/\.card-agent-badge-text\s*\{[^}]*overflow:\s*hidden;/);
+  });
+
+  it("shows loading state while agent name is being fetched", async () => {
+    const { fetchAgent } = await import("../../api");
+    vi.mocked(fetchAgent).mockReturnValue(new Promise(() => undefined) as any);
+
+    const task = createTask({ assignedAgentId: "agent-001" });
+    render(<TaskCard task={task} onOpenDetail={vi.fn()} addToast={vi.fn()} />);
+
+    const badge = await screen.findByTitle("Assigned to agent-001");
+    expect(badge).toHaveClass("card-agent-badge", "card-agent-badge--loading");
+    expect(badge).toHaveTextContent("agent-001");
+  });
+
+  it("truncates long fetched agent names", async () => {
+    const { fetchAgent } = await import("../../api");
+    vi.mocked(fetchAgent).mockResolvedValue({
+      id: "agent-001",
+      name: "AutopilotSuperLongAgentName",
+      role: "executor",
+      state: "active",
+      metadata: {},
+      heartbeatHistory: [],
+      completedRuns: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    } as any);
+
+    const task = createTask({ assignedAgentId: "agent-001" });
+    render(<TaskCard task={task} onOpenDetail={vi.fn()} addToast={vi.fn()} />);
+
+    await waitFor(() => {
+      const badge = screen.getByTitle("Assigned to AutopilotSuperLongAgentName");
+      const text = badge.querySelector(".card-agent-badge-text");
+      expect(text).toHaveTextContent("AutopilotSup...");
+      expect(badge).not.toHaveClass("card-agent-badge--loading");
+    });
+  });
+
+  it("falls back to assignedAgentId when fetchAgent fails", async () => {
+    const { fetchAgent } = await import("../../api");
+    vi.mocked(fetchAgent).mockRejectedValue(new Error("network error"));
+
+    const task = createTask({ assignedAgentId: "agent-404" });
+    render(<TaskCard task={task} onOpenDetail={vi.fn()} addToast={vi.fn()} />);
+
+    const badge = await screen.findByTitle("Assigned to agent-404");
+
+    await waitFor(() => {
+      expect(badge).not.toHaveClass("card-agent-badge--loading");
+      expect(badge).toHaveTextContent("agent-404");
     });
   });
 

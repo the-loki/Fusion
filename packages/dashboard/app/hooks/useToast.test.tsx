@@ -7,8 +7,6 @@ import type { ReactNode } from "react";
  * Toast hook tests
  *
  * Tests for the Toast context provider and useToast hook.
- * Note: The current implementation does not clean up setTimeout timers
- * when the provider unmounts, which could lead to memory leaks.
  */
 
 function createWrapper() {
@@ -305,20 +303,8 @@ describe("multiple toasts", () => {
     });
   });
 
-describe("timer cleanup on unmount (future improvement)", () => {
-    // Note: The current implementation does not clean up setTimeout timers
-    // when the provider unmounts. This is a known limitation that could lead
-    // to memory leaks and React warnings about state updates on unmounted
-    // components. The following test documents the expected behavior if this
-    // is ever fixed in the future.
-
-    it.skip("should clear pending timers when provider unmounts (not currently implemented)", () => {
-      // This test is skipped because the current implementation does not
-      // store timer references for cleanup. To implement this properly,
-      // the addToast function would need to:
-      // 1. Store setTimeout handle in a ref
-      // 2. Return cleanup function or use useEffect cleanup
-
+describe("timer cleanup on unmount", () => {
+    it("clears pending timers when provider unmounts", () => {
       const clearTimeoutSpy = vi.spyOn(global, "clearTimeout");
 
       const { result, unmount } = renderHook(() => useToast(), {
@@ -331,8 +317,64 @@ describe("timer cleanup on unmount (future improvement)", () => {
 
       unmount();
 
-      // This expectation would fail with current implementation
       expect(clearTimeoutSpy).toHaveBeenCalled();
+
+      clearTimeoutSpy.mockRestore();
+    });
+
+    it("does not trigger state update after unmount", () => {
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const { result, unmount } = renderHook(() => useToast(), {
+        wrapper: createWrapper(),
+      });
+
+      act(() => {
+        result.current.addToast("Test");
+      });
+
+      unmount();
+
+      // Advance timers past the auto-dismiss duration
+      act(() => {
+        vi.advanceTimersByTime(5000);
+      });
+
+      // No console.error should have been called (which would indicate a state update on unmounted component)
+      expect(consoleSpy).not.toHaveBeenCalled();
+
+      consoleSpy.mockRestore();
+    });
+
+    it("clears timers for manually removed toasts", () => {
+      const clearTimeoutSpy = vi.spyOn(global, "clearTimeout");
+
+      const { result } = renderHook(() => useToast(), {
+        wrapper: createWrapper(),
+      });
+
+      act(() => {
+        result.current.addToast("First", "info");
+        result.current.addToast("Second", "info");
+      });
+
+      expect(result.current.toasts).toHaveLength(2);
+
+      // Manually remove the first toast
+      act(() => {
+        result.current.removeToast(0);
+      });
+
+      expect(result.current.toasts).toHaveLength(1);
+      expect(clearTimeoutSpy).toHaveBeenCalled();
+
+      // Advance timers past 4000ms
+      act(() => {
+        vi.advanceTimersByTime(5000);
+      });
+
+      // The second toast should be auto-removed without issues
+      expect(result.current.toasts).toHaveLength(0);
 
       clearTimeoutSpy.mockRestore();
     });

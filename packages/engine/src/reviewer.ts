@@ -332,9 +332,15 @@ export async function reviewStep(
   }
 
   // Spawn a reviewer agent with read-only tools
-  const memoryAgent = options.rootDir && options.agentStore && options.task?.assignedAgentId
-    ? await options.agentStore.getAgent(options.task.assignedAgentId).catch(() => null)
-    : null;
+  const assignedAgentId = options.task?.assignedAgentId ?? null;
+  const agentStore = options.agentStore;
+  const memoryAgent =
+    options.rootDir
+    && agentStore
+    && assignedAgentId
+    && typeof (agentStore as { getAgent?: unknown }).getAgent === "function"
+      ? await agentStore.getAgent(assignedAgentId).catch(() => null)
+      : null;
   const memoryTools = options.rootDir && options.settings?.memoryEnabled !== false
     ? [
         createMemorySearchTool(options.rootDir, options.settings, memoryAgent ? {

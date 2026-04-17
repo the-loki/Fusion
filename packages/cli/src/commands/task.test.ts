@@ -50,6 +50,7 @@ vi.mock("@fusion/dashboard", () => ({
   GitHubClient: vi.fn().mockImplementation(() => ({
     createPr: vi.fn(),
   })),
+  loadTlsCredentialsFromEnv: vi.fn().mockReturnValue(undefined),
 }));
 
 vi.mock("@fusion/dashboard/planning", () => ({

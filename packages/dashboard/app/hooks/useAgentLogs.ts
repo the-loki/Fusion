@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { AgentLogEntry } from "@fusion/core";
 import { fetchAgentLogsWithMeta } from "../api";
+import { subscribeSse } from "../sse-bus";
 
 export const MAX_LOG_ENTRIES = 500;
 const INITIAL_LOAD_LIMIT = 100;
@@ -51,7 +52,7 @@ export function useAgentLogs(taskId: string | null, enabled: boolean, projectId?
   const [loadingMore, setLoadingMore] = useState(false);
 
   // Refs for state that needs to survive re-renders
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
   const cancelledRef = useRef(false);
 
   // Track the project context version to detect stale SSE events after project switches.
@@ -86,19 +87,19 @@ export function useAgentLogs(taskId: string | null, enabled: boolean, projectId?
     setTotal(null);
     setLoadingMore(false);
 
-    // Close existing EventSource
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
+    // Drop existing SSE subscription
+    if (unsubscribeRef.current) {
+      unsubscribeRef.current();
+      unsubscribeRef.current = null;
     }
   }
 
   useEffect(() => {
     if (!taskId || !enabled) {
-      // Close any existing connection when disabled
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
+      // Drop any existing subscription when disabled
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+        unsubscribeRef.current = null;
       }
       return;
     }
@@ -148,35 +149,37 @@ export function useAgentLogs(taskId: string | null, enabled: boolean, projectId?
         }
       }
 
-      // Open SSE connection for live updates
+      // Subscribe to the shared per-task log stream
       const query = currentProjectId ? `?projectId=${encodeURIComponent(currentProjectId)}` : "";
-      const es = new EventSource(`/api/tasks/${currentTaskId}/logs/stream${query}`);
-      eventSourceRef.current = es;
-
-      es.addEventListener("agent:log", (e) => {
-        // Reject events from stale contexts (project/task switch)
-        if (cancelledRef.current ||
-            projectContextVersionRef.current !== contextVersionAtStart) {
-          return;
-        }
-        try {
-          const entry: AgentLogEntry = JSON.parse(e.data);
-          setEntries((prev) => capLogEntries([...prev, entry]));
-          // Update total if we know it (increment since new entry added)
-          setTotal((prev) => (prev !== null ? prev + 1 : null));
-        } catch {
-          // skip malformed events
-        }
-      });
+      unsubscribeRef.current = subscribeSse(
+        `/api/tasks/${currentTaskId}/logs/stream${query}`,
+        {
+          events: {
+            "agent:log": (e) => {
+              if (cancelledRef.current ||
+                  projectContextVersionRef.current !== contextVersionAtStart) {
+                return;
+              }
+              try {
+                const entry: AgentLogEntry = JSON.parse(e.data);
+                setEntries((prev) => capLogEntries([...prev, entry]));
+                setTotal((prev) => (prev !== null ? prev + 1 : null));
+              } catch {
+                // skip malformed events
+              }
+            },
+          },
+        },
+      );
     }
 
     void init();
 
     return () => {
       cancelledRef.current = true;
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+        unsubscribeRef.current = null;
       }
     };
   }, [taskId, enabled, projectId]);

@@ -18,6 +18,7 @@ import { TaskForm, type PendingImage } from "./TaskForm";
 import { WorkflowResultsTab } from "./WorkflowResultsTab";
 import { TaskDocumentsTab } from "./TaskDocumentsTab";
 import { PluginSlot } from "./PluginSlot";
+import { subscribeSse } from "../sse-bus";
 import { usePluginUiSlots } from "../hooks/usePluginUiSlots";
 
 interface ModelSelection {
@@ -400,7 +401,6 @@ export function TaskDetailModal({
     if (activeTab !== "workflow") return;
 
     const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
-    const es = new EventSource(`/api/events${query}`);
 
     const handleTaskUpdated = (e: MessageEvent) => {
       try {
@@ -414,12 +414,9 @@ export function TaskDetailModal({
       }
     };
 
-    es.addEventListener("task:updated", handleTaskUpdated);
-
-    return () => {
-      es.removeEventListener("task:updated", handleTaskUpdated);
-      es.close();
-    };
+    return subscribeSse(`/api/events${query}`, {
+      events: { "task:updated": handleTaskUpdated },
+    });
   }, [activeTab, task.id, projectId]);
 
   // Reset dependency search when dropdown closes

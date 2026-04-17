@@ -6,7 +6,7 @@ import { isAbsolute, join } from "node:path";
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import type { TaskStore, Task, TaskDetail, StepStatus, Settings, WorkflowStep, MissionStore, Slice, AgentState, AgentCapability, RunMutationContext } from "@fusion/core";
-import { buildExecutionMemoryInstructions, getTaskMergeBlocker, resolveAgentPrompt, runCommandAsync, type RunCommandResult } from "@fusion/core";
+import { buildExecutionMemoryInstructions, getTaskMergeBlocker, resolveAgentPrompt, type RunCommandResult } from "@fusion/core";
 import { findWorktreeUser } from "./merger.js";
 import { generateWorktreeName, slugify } from "./worktree-names.js";
 import { Type, type Static } from "@mariozechner/pi-ai";
@@ -96,11 +96,43 @@ async function runConfiguredCommand(
   cwd: string,
   timeoutMs: number,
 ): Promise<RunCommandResult> {
-  return runCommandAsync(command, {
-    cwd,
-    timeoutMs,
-    maxBuffer: 10 * 1024 * 1024,
-  });
+  try {
+    const { stdout, stderr } = await execAsync(command, {
+      cwd,
+      timeout: timeoutMs,
+      maxBuffer: 10 * 1024 * 1024,
+      encoding: "utf-8",
+    });
+
+    return {
+      stdout: stdout?.toString?.() ?? "",
+      stderr: stderr?.toString?.() ?? "",
+      exitCode: 0,
+      signal: null,
+      bufferExceeded: false,
+      timedOut: false,
+    };
+  } catch (error: any) {
+    const code = error?.code;
+    const status = typeof error?.status === "number" ? error.status : null;
+    const exitCode = typeof code === "number" ? code : status;
+    const message = String(error?.message ?? "");
+
+    return {
+      stdout: error?.stdout?.toString?.() ?? "",
+      stderr: error?.stderr?.toString?.() ?? "",
+      exitCode,
+      signal: (error?.signal as NodeJS.Signals | null | undefined) ?? null,
+      bufferExceeded:
+        code === "ENOBUFS"
+        || code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
+        || message.includes("maxBuffer"),
+      timedOut:
+        code === "ETIMEDOUT"
+        || (error?.killed === true && (error?.signal === "SIGTERM" || message.includes("timed out"))),
+      spawnError: code === "ENOENT" || code === "EACCES" ? error : undefined,
+    };
+  }
 }
 
 // ── Tool parameter schemas (module-level for reuse in ToolDefinition generics) ──

@@ -25,6 +25,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import type { ToastType } from "../hooks/useToast";
+import { subscribeSse } from "../sse-bus";
 import { MissionInterviewModal } from "./MissionInterviewModal";
 import { MilestoneSliceInterviewModal } from "./MilestoneSliceInterviewModal";
 import type {
@@ -889,7 +890,6 @@ export function MissionManager({ isOpen, isInline = false, onClose, addToast, pr
       search.set("projectId", projectId);
     }
     const eventUrl = `/api/events${search.size > 0 ? `?${search.toString()}` : ""}`;
-    const eventSource = new EventSource(eventUrl);
 
     const refreshHealth = () => {
       void loadMissionHealth(missionsRef.current);
@@ -1096,39 +1096,24 @@ export function MissionManager({ isOpen, isInline = false, onClose, addToast, pr
       }
     };
 
-    eventSource.addEventListener("mission:updated", handleMissionUpdated);
-    eventSource.addEventListener("slice:updated", handleSliceUpdated);
-    eventSource.addEventListener("feature:updated", handleFeatureUpdated);
-    eventSource.addEventListener("milestone:updated", handleMilestoneUpdated);
-    eventSource.addEventListener("mission:event", handleMissionEvent);
-    // Validation events
-    eventSource.addEventListener("validator-run:started", handleValidatorRunStarted);
-    eventSource.addEventListener("validator-run:completed", handleValidatorRunCompleted);
-    eventSource.addEventListener("milestone:validation:updated", handleMilestoneValidationUpdated);
-    eventSource.addEventListener("assertion:created", handleAssertionMutation);
-    eventSource.addEventListener("assertion:updated", handleAssertionMutation);
-    eventSource.addEventListener("assertion:deleted", handleAssertionMutation);
-    eventSource.addEventListener("assertion:linked", handleAssertionMutation);
-    eventSource.addEventListener("assertion:unlinked", handleAssertionMutation);
-    eventSource.addEventListener("fix-feature:created", handleFixFeatureCreated);
-
-    return () => {
-      eventSource.removeEventListener("mission:updated", handleMissionUpdated);
-      eventSource.removeEventListener("slice:updated", handleSliceUpdated);
-      eventSource.removeEventListener("feature:updated", handleFeatureUpdated);
-      eventSource.removeEventListener("milestone:updated", handleMilestoneUpdated);
-      eventSource.removeEventListener("mission:event", handleMissionEvent);
-      eventSource.removeEventListener("validator-run:started", handleValidatorRunStarted);
-      eventSource.removeEventListener("validator-run:completed", handleValidatorRunCompleted);
-      eventSource.removeEventListener("milestone:validation:updated", handleMilestoneValidationUpdated);
-      eventSource.removeEventListener("assertion:created", handleAssertionMutation);
-      eventSource.removeEventListener("assertion:updated", handleAssertionMutation);
-      eventSource.removeEventListener("assertion:deleted", handleAssertionMutation);
-      eventSource.removeEventListener("assertion:linked", handleAssertionMutation);
-      eventSource.removeEventListener("assertion:unlinked", handleAssertionMutation);
-      eventSource.removeEventListener("fix-feature:created", handleFixFeatureCreated);
-      eventSource.close();
-    };
+    return subscribeSse(eventUrl, {
+      events: {
+        "mission:updated": handleMissionUpdated,
+        "slice:updated": handleSliceUpdated,
+        "feature:updated": handleFeatureUpdated,
+        "milestone:updated": handleMilestoneUpdated,
+        "mission:event": handleMissionEvent,
+        "validator-run:started": handleValidatorRunStarted,
+        "validator-run:completed": handleValidatorRunCompleted,
+        "milestone:validation:updated": handleMilestoneValidationUpdated,
+        "assertion:created": handleAssertionMutation,
+        "assertion:updated": handleAssertionMutation,
+        "assertion:deleted": handleAssertionMutation,
+        "assertion:linked": handleAssertionMutation,
+        "assertion:unlinked": handleAssertionMutation,
+        "fix-feature:created": handleFixFeatureCreated,
+      },
+    });
   }, [
     isActive,
     isActivityScrolledNearBottom,

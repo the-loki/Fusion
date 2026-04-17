@@ -7,6 +7,7 @@ import { AgentDetailView } from "./AgentDetailView";
 import { ActiveAgentsPanel } from "./ActiveAgentsPanel";
 import { AgentMetricsBar } from "./AgentMetricsBar";
 import { useAgents } from "../hooks/useAgents";
+import { subscribeSse } from "../sse-bus";
 import { useAgentHierarchy } from "../hooks/useAgentHierarchy";
 import type { AgentNode } from "../hooks/useAgentHierarchy";
 import { NewAgentDialog } from "./NewAgentDialog";
@@ -333,20 +334,18 @@ export function AgentsView({ addToast, projectId }: AgentsViewProps) {
   // Refresh agent list on SSE events (independent from useAgents hook state)
   useEffect(() => {
     const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
-    const es = new EventSource(`/api/events${query}`);
-
     const refresh = () => {
       void loadAgents();
     };
 
-    es.addEventListener("agent:created", refresh);
-    es.addEventListener("agent:updated", refresh);
-    es.addEventListener("agent:deleted", refresh);
-    es.addEventListener("agent:stateChanged", refresh);
-
-    return () => {
-      es.close();
-    };
+    return subscribeSse(`/api/events${query}`, {
+      events: {
+        "agent:created": refresh,
+        "agent:updated": refresh,
+        "agent:deleted": refresh,
+        "agent:stateChanged": refresh,
+      },
+    });
   }, [projectId, loadAgents]);
 
   // Poll for agent updates to keep health statuses fresh (every 30 seconds)

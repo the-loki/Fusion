@@ -252,6 +252,7 @@ vi.mock("@fusion/dashboard", () => ({
   })),
   createSkillsAdapter: vi.fn().mockReturnValue(undefined),
   getProjectSettingsPath: vi.fn().mockReturnValue("/tmp/project/.fusion/settings.json"),
+  loadTlsCredentialsFromEnv: vi.fn().mockReturnValue(undefined),
 }));
 
 // ── Mock node:readline ──────────────────────────────────────────────

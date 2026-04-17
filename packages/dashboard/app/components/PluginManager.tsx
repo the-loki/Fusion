@@ -16,9 +16,7 @@ import { fetchPlugins, installPlugin, enablePlugin, disablePlugin, uninstallPlug
 import { DirectoryPicker } from "./DirectoryPicker";
 import type { PluginInstallation, PluginState } from "@fusion/core";
 import type { ToastType } from "../hooks/useToast";
-
-/** SSE heartbeat watchdog timeout (matches useTasks hook) */
-const SSE_HEARTBEAT_TIMEOUT_MS = 45_000;
+import { subscribeSse } from "../sse-bus";
 
 /** Normalized plugin lifecycle payload from SSE plugin:lifecycle events */
 interface PluginLifecyclePayload {
@@ -79,36 +77,9 @@ export function PluginManager({ addToast, projectId }: PluginManagerProps) {
   pluginsRef.current = plugins;
 
   useEffect(() => {
-    let closedByCleanup = false;
-    let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-
     const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
-    const es = new EventSource(`/api/events${query}`);
-
-    /** Reset the SSE heartbeat watchdog */
-    const resetHeartbeat = () => {
-      if (heartbeatTimer) clearTimeout(heartbeatTimer);
-      heartbeatTimer = setTimeout(() => {
-        if (!closedByCleanup) {
-          // Connection appears dead — force reconnect
-          es.close();
-          if (!closedByCleanup) {
-            reconnectTimer = setTimeout(() => {
-              if (!closedByCleanup) {
-                void loadPlugins(); // Fallback: refetch all plugins
-              }
-            }, 3000);
-          }
-        }
-      }, SSE_HEARTBEAT_TIMEOUT_MS);
-    };
-
-    // Start the heartbeat watchdog immediately
-    resetHeartbeat();
 
     const handlePluginLifecycle = (e: MessageEvent) => {
-      resetHeartbeat();
       try {
         const payload: PluginLifecyclePayload = JSON.parse(e.data);
         
@@ -173,27 +144,14 @@ export function PluginManager({ addToast, projectId }: PluginManagerProps) {
       }
     };
 
-    es.addEventListener("plugin:lifecycle", handlePluginLifecycle);
-
-    // Also listen for the heartbeat to keep the connection alive
-    es.addEventListener("heartbeat", () => {
-      resetHeartbeat();
+    return subscribeSse(`/api/events${query}`, {
+      events: { "plugin:lifecycle": handlePluginLifecycle },
+      onReconnect: () => {
+        // Re-sync plugin list after a forced reconnect — any events that
+        // occurred while disconnected would otherwise be missed.
+        void loadPlugins();
+      },
     });
-
-    es.onerror = () => {
-      if (closedByCleanup) return;
-      // EventSource will automatically attempt reconnection
-      // We just need to clear our heartbeat watchdog
-      if (heartbeatTimer) clearTimeout(heartbeatTimer);
-    };
-
-    return () => {
-      closedByCleanup = true;
-      if (heartbeatTimer) clearTimeout(heartbeatTimer);
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      es.removeEventListener("plugin:lifecycle", handlePluginLifecycle);
-      es.close();
-    };
   }, [projectId, loadPlugins]);
 
   const handleInstall = async () => {

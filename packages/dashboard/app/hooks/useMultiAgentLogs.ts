@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { AgentLogEntry } from "@fusion/core";
 import { fetchAgentLogsWithMeta } from "../api";
+import { subscribeSse } from "../sse-bus";
 
 export const MAX_LOG_ENTRIES = 500;
 const INITIAL_LOAD_LIMIT = 100;
@@ -60,7 +61,7 @@ export function useMultiAgentLogs(taskIds: string[], projectId?: string): LogSta
   const [stateMap, setStateMap] = useState<Record<string, InitState>>({});
 
   // Refs for state that needs to survive re-renders
-  const sourcesRef = useRef<Record<string, EventSource>>({});
+  const unsubscribesRef = useRef<Record<string, () => void>>({});
   const initializingRef = useRef<Set<string>>(new Set());
   const cancelledRef = useRef<Record<string, boolean>>({});
   const pendingLiveEntriesRef = useRef<Record<string, AgentLogEntry[]>>({});
@@ -79,12 +80,12 @@ export function useMultiAgentLogs(taskIds: string[], projectId?: string): LogSta
     previousProjectIdRef.current = projectId;
     projectContextVersionRef.current++;
 
-    // Close all existing EventSources and reset state
-    for (const [taskId, es] of Object.entries(sourcesRef.current)) {
+    // Drop all existing SSE subscriptions and reset state
+    for (const [taskId, unsub] of Object.entries(unsubscribesRef.current)) {
       cancelledRef.current[taskId] = true;
-      es.close();
+      unsub();
     }
-    sourcesRef.current = {};
+    unsubscribesRef.current = {};
     initializingRef.current.clear();
     cancelledRef.current = {};
     pendingLiveEntriesRef.current = {};
@@ -173,7 +174,7 @@ export function useMultiAgentLogs(taskIds: string[], projectId?: string): LogSta
   // Main effect to manage connections
   useEffect(() => {
     const currentIds = new Set(taskIds);
-    const sources = sourcesRef.current;
+    const subs = unsubscribesRef.current;
     const initializing = initializingRef.current;
     const cancelled = cancelledRef.current;
 
@@ -202,13 +203,13 @@ export function useMultiAgentLogs(taskIds: string[], projectId?: string): LogSta
       });
     }
 
-    // Close connections for tasks no longer in the list
+    // Drop subscriptions for tasks no longer in the list
     const removedTaskIds: string[] = [];
-    for (const [taskId, es] of Object.entries(sources)) {
+    for (const [taskId, unsub] of Object.entries(subs)) {
       if (!currentIds.has(taskId)) {
         cancelled[taskId] = true;
-        es.close();
-        delete sources[taskId];
+        unsub();
+        delete subs[taskId];
         initializing.delete(taskId);
         delete cancelled[taskId];
         delete pendingLiveEntriesRef.current[taskId];
@@ -251,7 +252,7 @@ export function useMultiAgentLogs(taskIds: string[], projectId?: string): LogSta
     // Initialize connections for current tasks
     for (const taskId of taskIds) {
       // Skip if already connected or currently initializing
-      if (sources[taskId] || initializing.has(taskId)) continue;
+      if (subs[taskId] || initializing.has(taskId)) continue;
 
       initializing.add(taskId);
       cancelled[taskId] = false;
@@ -259,54 +260,41 @@ export function useMultiAgentLogs(taskIds: string[], projectId?: string): LogSta
 
       // Build SSE URL with optional projectId for multi-project support
       const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
-      const es = new EventSource(`/api/tasks/${taskId}/logs/stream${query}`);
-      sources[taskId] = es;
+      subs[taskId] = subscribeSse(
+        `/api/tasks/${taskId}/logs/stream${query}`,
+        {
+          events: {
+            "agent:log": (e) => {
+              if (cancelled[taskId] ||
+                  projectContextVersionRef.current !== contextVersionAtStart) {
+                return;
+              }
+              try {
+                const entry: AgentLogEntry = JSON.parse(e.data);
+                pendingLiveEntriesRef.current[taskId] = capLogEntries([
+                  ...(pendingLiveEntriesRef.current[taskId] ?? []),
+                  entry,
+                ]);
 
-      const handleAgentLog = (e: MessageEvent) => {
-        // Reject events from stale contexts (project/task switch)
-        if (cancelled[taskId] ||
-            projectContextVersionRef.current !== contextVersionAtStart) {
-          return;
-        }
-
-        try {
-          const entry: AgentLogEntry = JSON.parse(e.data);
-          pendingLiveEntriesRef.current[taskId] = capLogEntries([
-            ...(pendingLiveEntriesRef.current[taskId] ?? []),
-            entry,
-          ]);
-
-          setStateMap((prev) => {
-            const current = prev[taskId];
-            if (!current) return prev;
-            return {
-              ...prev,
-              [taskId]: {
-                ...current,
-                entries: capLogEntries([...current.entries, entry]),
-                total: current.total !== null ? current.total + 1 : null,
-              },
-            };
-          });
-        } catch {
-          // skip malformed events
-        }
-      };
-
-      const handleError = () => {
-        es.removeEventListener("agent:log", handleAgentLog);
-        es.removeEventListener("error", handleError);
-
-        if (sourcesRef.current[taskId] === es) {
-          es.close();
-          delete sourcesRef.current[taskId];
-        }
-
-        initializingRef.current.delete(taskId);
-      };
-
-      es.addEventListener("agent:log", handleAgentLog);
-      es.addEventListener("error", handleError);
+                setStateMap((prev) => {
+                  const current = prev[taskId];
+                  if (!current) return prev;
+                  return {
+                    ...prev,
+                    [taskId]: {
+                      ...current,
+                      entries: capLogEntries([...current.entries, entry]),
+                      total: current.total !== null ? current.total + 1 : null,
+                    },
+                  };
+                });
+              } catch {
+                // skip malformed events
+              }
+            },
+          },
+        },
+      );
 
       // Fetch historical logs with projectId using pagination
       void fetchAgentLogsWithMeta(taskId, projectId, { limit: INITIAL_LOAD_LIMIT })
@@ -359,15 +347,15 @@ export function useMultiAgentLogs(taskIds: string[], projectId?: string): LogSta
 
     // Cleanup on effect re-run or unmount
     return () => {
-      // Only close connections for tasks that were removed (not-in current taskIds)
+      // Only drop subscriptions for tasks that were removed (not-in current taskIds)
       for (const taskId of initialTaskIds) {
         if (!currentIds.has(taskId)) {
           cancelledRef.current[taskId] = true;
 
-          const es = sourcesRef.current[taskId];
-          if (es) {
-            es.close();
-            delete sourcesRef.current[taskId];
+          const unsub = unsubscribesRef.current[taskId];
+          if (unsub) {
+            unsub();
+            delete unsubscribesRef.current[taskId];
           }
 
           initializingRef.current.delete(taskId);
@@ -376,18 +364,18 @@ export function useMultiAgentLogs(taskIds: string[], projectId?: string): LogSta
     };
   }, [stableKey]); // Use stable key including projectId
 
-  // Close all connections on unmount
+  // Drop all subscriptions on unmount
   useEffect(() => {
     return () => {
       for (const taskId of Object.keys(cancelledRef.current)) {
         cancelledRef.current[taskId] = true;
       }
 
-      for (const es of Object.values(sourcesRef.current)) {
-        es.close();
+      for (const unsub of Object.values(unsubscribesRef.current)) {
+        unsub();
       }
 
-      sourcesRef.current = {};
+      unsubscribesRef.current = {};
       initializingRef.current.clear();
       cancelledRef.current = {};
       pendingLiveEntriesRef.current = {};

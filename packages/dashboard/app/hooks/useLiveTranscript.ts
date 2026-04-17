@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { subscribeSse } from "../sse-bus";
 
 /**
  * Log entry from an agent's execution stream.
@@ -33,7 +34,7 @@ export function useLiveTranscript(taskId: string | undefined, projectId?: string
   const [isConnected, setIsConnected] = useState(false);
 
   // Refs for state that needs to survive re-renders
-  const esRef = useRef<EventSource | null>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
 
   // Track the project context version to detect stale events after project switches.
   // Incremented whenever projectId changes, invalidating any in-flight SSE handlers.
@@ -53,10 +54,10 @@ export function useLiveTranscript(taskId: string | undefined, projectId?: string
     previousProjectIdRef.current = projectId;
     projectContextVersionRef.current++;
 
-    // Close existing EventSource
-    if (esRef.current) {
-      esRef.current.close();
-      esRef.current = null;
+    // Drop existing subscription
+    if (unsubscribeRef.current) {
+      unsubscribeRef.current();
+      unsubscribeRef.current = null;
     }
 
     // Reset state immediately to prevent stale data visibility
@@ -80,48 +81,39 @@ export function useLiveTranscript(taskId: string | undefined, projectId?: string
       url += `?projectId=${encodeURIComponent(projectId)}`;
     }
 
-    const es = new EventSource(url);
-    esRef.current = es;
-
-    es.addEventListener("agent:log", (event) => {
-      // Reject events from stale contexts (project/task switch)
-      if (projectContextVersionRef.current !== contextVersionAtStart) {
-        return;
-      }
-
-      try {
-        const raw = JSON.parse(event.data) as Partial<TranscriptEntry>;
-        // Normalize: canonical `text` field, with legacy `content` fallback
-        // This ensures both current SSE payloads and any legacy payloads render correctly
-        const entry: TranscriptEntry = {
-          type: raw.type ?? "text",
-          text: raw.text ?? raw.content ?? "",
-          timestamp: raw.timestamp,
-          content: raw.content,
-        };
-        setEntries(prev => [entry, ...prev]);
-      } catch { /* skip malformed events */ }
+    const unsubscribe = subscribeSse(url, {
+      events: {
+        "agent:log": (event) => {
+          if (projectContextVersionRef.current !== contextVersionAtStart) return;
+          try {
+            const raw = JSON.parse(event.data) as Partial<TranscriptEntry>;
+            // Normalize: canonical `text` field, with legacy `content` fallback
+            const entry: TranscriptEntry = {
+              type: raw.type ?? "text",
+              text: raw.text ?? raw.content ?? "",
+              timestamp: raw.timestamp,
+              content: raw.content,
+            };
+            setEntries(prev => [entry, ...prev]);
+          } catch { /* skip malformed events */ }
+        },
+      },
+      onOpen: () => {
+        if (projectContextVersionRef.current === contextVersionAtStart) {
+          setIsConnected(true);
+        }
+      },
+      onError: () => {
+        if (projectContextVersionRef.current === contextVersionAtStart) {
+          setIsConnected(false);
+        }
+      },
     });
-
-    es.addEventListener("open", () => {
-      // Only update connected state if not stale
-      if (projectContextVersionRef.current === contextVersionAtStart) {
-        setIsConnected(true);
-      }
-    });
-
-    es.addEventListener("error", () => {
-      // Only update connected state if not stale
-      if (projectContextVersionRef.current === contextVersionAtStart) {
-        setIsConnected(false);
-      }
-    });
+    unsubscribeRef.current = unsubscribe;
 
     return () => {
-      es.close();
-      esRef.current = null;
-
-      // Only reset state if not stale
+      unsubscribe();
+      unsubscribeRef.current = null;
       if (projectContextVersionRef.current === contextVersionAtStart) {
         setIsConnected(false);
       }

@@ -1,8 +1,10 @@
 import express from "express";
 import { randomUUID } from "node:crypto";
 import { join, dirname } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createSecureServer as createHttp2SecureServer, type Http2SecureServer } from "node:http2";
+import type { Server as HttpServer } from "node:http";
 import type { Task, TaskStore, MergeResult, AutomationStore, RoutineStore, CentralCore, MessageStore } from "@fusion/core";
 import { AgentStore, ChatStore } from "@fusion/core";
 import type { AuthStorageLike, ModelRegistryLike } from "./routes.js";
@@ -201,6 +203,16 @@ export interface ServerOptions {
   /** Daemon mode configuration with bearer token authentication.
    *  When provided, all API requests (except /api/health) require valid bearer token. */
   daemon?: { token: string };
+  /** Optional TLS credentials. When provided, the server is served over HTTP/2
+   *  with HTTP/1.1 fallback (allowHTTP1:true) — this lifts the browser's
+   *  per-origin connection cap so long-lived SSE streams no longer starve
+   *  regular API fetches. WebSocket upgrades continue to work because HTTP/1.1
+   *  clients are still accepted. */
+  https?: {
+    cert: string | Buffer;
+    key: string | Buffer;
+    ca?: string | Buffer | Array<string | Buffer>;
+  };
 }
 
 type DashboardExpressApp = ReturnType<typeof express> & {
@@ -257,6 +269,49 @@ function resolveBoundedMs(
 
 function shouldScheduleAiSessionCleanup(): boolean {
   return process.env.NODE_ENV !== "test";
+}
+
+/**
+ * Resolve TLS credentials from environment variables, if configured.
+ *
+ * Reads either inline PEM material (`FUSION_TLS_CERT` / `FUSION_TLS_KEY`) or
+ * file paths (`FUSION_TLS_CERT_FILE` / `FUSION_TLS_KEY_FILE`). `FUSION_TLS_CA`
+ * / `FUSION_TLS_CA_FILE` are optional and set the CA bundle.
+ *
+ * Returns `undefined` when neither pair is set, which callers should treat as
+ * "serve plain HTTP/1.1". When a cert is set without a key (or vice versa)
+ * this throws — that's a config error worth surfacing.
+ */
+export function loadTlsCredentialsFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): { cert: Buffer; key: Buffer; ca?: Buffer } | undefined {
+  const certInline = env.FUSION_TLS_CERT;
+  const keyInline = env.FUSION_TLS_KEY;
+  const certFile = env.FUSION_TLS_CERT_FILE;
+  const keyFile = env.FUSION_TLS_KEY_FILE;
+
+  const hasCert = Boolean(certInline || certFile);
+  const hasKey = Boolean(keyInline || keyFile);
+  if (!hasCert && !hasKey) return undefined;
+  if (hasCert !== hasKey) {
+    throw new Error(
+      "FUSION_TLS_* environment is incomplete: set both a cert and a key " +
+        "(inline via FUSION_TLS_CERT/FUSION_TLS_KEY or paths via *_FILE).",
+    );
+  }
+
+  const cert = certInline ? Buffer.from(certInline) : readFileSync(certFile!);
+  const key = keyInline ? Buffer.from(keyInline) : readFileSync(keyFile!);
+
+  const caInline = env.FUSION_TLS_CA;
+  const caFile = env.FUSION_TLS_CA_FILE;
+  const ca = caInline
+    ? Buffer.from(caInline)
+    : caFile
+      ? readFileSync(caFile)
+      : undefined;
+
+  return { cert, key, ca };
 }
 
 export function createServer(store: TaskStore, options?: ServerOptions): ReturnType<typeof express> {
@@ -738,9 +793,30 @@ export function createServer(store: TaskStore, options?: ServerOptions): ReturnT
   dashboardApp.__fnWebSocketsAttached = false;
 
   const originalListen = dashboardApp.listen.bind(dashboardApp);
+  const httpsCreds = options?.https;
   dashboardApp.listen = ((...args: Parameters<typeof dashboardApp.listen>) => {
     const normalizedArgs = normalizeListenArgsForTests(args) as Parameters<typeof originalListen>;
-    const server = originalListen(...normalizedArgs);
+
+    let server: HttpServer | Http2SecureServer;
+    if (httpsCreds) {
+      // HTTP/2 with HTTP/1.1 fallback. allowHTTP1 is required so that:
+      //   1. WebSocket upgrades (HTTP/1.1-only) keep working.
+      //   2. Older clients and curl continue to connect.
+      // Express 5's request pipeline is compatible with both h1 and h2 req/res.
+      const h2 = createHttp2SecureServer(
+        {
+          cert: httpsCreds.cert,
+          key: httpsCreds.key,
+          ca: httpsCreds.ca,
+          allowHTTP1: true,
+        },
+        dashboardApp as unknown as Parameters<typeof createHttp2SecureServer>[1],
+      );
+      server = h2;
+      h2.listen(...(normalizedArgs as Parameters<Http2SecureServer["listen"]>));
+    } else {
+      server = originalListen(...normalizedArgs);
+    }
 
     server.once("close", () => {
       clearAiSessionCleanupInterval();
@@ -749,11 +825,11 @@ export function createServer(store: TaskStore, options?: ServerOptions): ReturnT
 
     if (!dashboardApp.__fnWebSocketsAttached) {
       dashboardApp.__fnWebSocketsAttached = true;
-      setupTerminalWebSocket(dashboardApp, server, store, options);
-      setupBadgeWebSocket(dashboardApp, server, store, options);
+      setupTerminalWebSocket(dashboardApp, server as HttpServer, store, options);
+      setupBadgeWebSocket(dashboardApp, server as HttpServer, store, options);
     }
 
-    return server;
+    return server as HttpServer;
   }) as typeof dashboardApp.listen;
 
   return dashboardApp;
