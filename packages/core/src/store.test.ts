@@ -3634,6 +3634,26 @@ Task with acceptance criteria
       expect(logs.map((entry) => entry.text)).toEqual(["chunk 3", "chunk 4"]);
     });
 
+    it("returns older agent log pages when offset skips recent entries", async () => {
+      const task = await createTestTask();
+
+      for (let i = 0; i < 5; i++) {
+        await store.appendAgentLog(task.id, `chunk ${i}`, "text");
+      }
+
+      await expect(store.getAgentLogs(task.id, { limit: 2 })).resolves.toMatchObject([
+        { text: "chunk 3" },
+        { text: "chunk 4" },
+      ]);
+      await expect(store.getAgentLogs(task.id, { limit: 2, offset: 2 })).resolves.toMatchObject([
+        { text: "chunk 1" },
+        { text: "chunk 2" },
+      ]);
+      await expect(store.getAgentLogs(task.id, { limit: 2, offset: 4 })).resolves.toMatchObject([
+        { text: "chunk 0" },
+      ]);
+    });
+
     it("preserves long entry fields when returning a bounded tail", async () => {
       const task = await createTestTask();
       const longText = [

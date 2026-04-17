@@ -566,6 +566,36 @@ describe("SettingsModal", () => {
       expect(addToast).toHaveBeenCalledWith("Memory saved", "success");
     });
 
+    it("compacts memory and updates the long-term memory editor", async () => {
+      const addToast = vi.fn();
+      mockFetchMemoryFile.mockImplementation((path: string) =>
+        Promise.resolve({
+          path,
+          content: path.endsWith("MEMORY.md")
+            ? "# Compacted Memory\n\nImportant content."
+            : "## Existing dreams\n- Running pattern",
+        }),
+      );
+      renderModal({ addToast });
+
+      await waitFor(() => {
+        expect(mockFetchSettings).toHaveBeenCalled();
+      });
+
+      await userEvent.click(screen.getByText("Memory"));
+
+      const compactButton = await screen.findByRole("button", { name: "Compact Memory" });
+      await userEvent.click(compactButton);
+
+      await waitFor(() => {
+        expect(mockCompactMemory).toHaveBeenCalledWith(undefined);
+      });
+
+      const editor = await screen.findByLabelText("Editor for .fusion/memory/MEMORY.md") as HTMLTextAreaElement;
+      expect(editor.value).toContain("Compacted Memory");
+      expect(addToast).toHaveBeenCalledWith("Memory compacted", "success");
+    });
+
     it("handles empty memory content from API", async () => {
       mockFetchMemoryFile.mockResolvedValueOnce({ path: ".fusion/memory/DREAMS.md", content: "" });
       renderModal();

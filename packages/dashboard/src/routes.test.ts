@@ -117,6 +117,7 @@ function createMockStore(overrides: Partial<TaskStore> = {}): TaskStore {
     getGlobalSettingsStore: vi.fn().mockReturnValue(createMockGlobalSettingsStore()),
     logEntry: vi.fn().mockResolvedValue(undefined),
     getAgentLogs: vi.fn().mockResolvedValue([]),
+    getAgentLogCount: vi.fn().mockResolvedValue(0),
     getAgentLogsByTimeRange: vi.fn().mockResolvedValue([]),
     addSteeringComment: vi.fn(),
     addTaskComment: vi.fn(),
@@ -3226,6 +3227,23 @@ describe("Attachment routes", () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual(fakeLogs);
     expect(store.getAgentLogs).toHaveBeenCalledWith("KB-001", undefined);
+  });
+
+  it("GET /tasks/:id/logs — includes pagination headers on bounded initial load", async () => {
+    const fakeLogs = [
+      { timestamp: "2026-01-01T00:00:00Z", taskId: "FN-001", text: "Hello", type: "text" },
+      { timestamp: "2026-01-01T00:00:01Z", taskId: "FN-001", text: "Read", type: "tool" },
+    ];
+    (store.getAgentLogs as ReturnType<typeof vi.fn>).mockResolvedValue(fakeLogs);
+    (store.getAgentLogCount as ReturnType<typeof vi.fn>).mockResolvedValue(5);
+
+    const res = await performGet(buildApp(), "/api/tasks/KB-001/logs?limit=2");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(fakeLogs);
+    expect(store.getAgentLogs).toHaveBeenCalledWith("KB-001", { limit: 2 });
+    expect(res.headers["x-total-count"]).toBe("5");
+    expect(res.headers["x-has-more"]).toBe("true");
   });
 
   it("GET /tasks/:id/logs — returns empty array when no logs", async () => {

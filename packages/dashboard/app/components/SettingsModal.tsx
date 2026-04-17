@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Globe, Folder } from "lucide-react";
 import { THINKING_LEVELS, PROMPT_KEY_CATALOG, isGlobalSettingsKey, isProjectSettingsKey } from "@fusion/core";
 import type { Settings, GlobalSettings, ThemeMode, ColorTheme, ModelPreset, NtfyNotificationEvent, PromptKey, AgentPromptsConfig } from "@fusion/core";
-import { fetchSettings, fetchSettingsByScope, updateSettings, updateGlobalSettings, fetchAuthStatus, loginProvider, logoutProvider, saveApiKey, clearApiKey, fetchModels, testNtfyNotification, fetchBackups, createBackup, exportSettings, importSettings, fetchMemoryFile, fetchMemoryFiles, saveMemoryFile, fetchGlobalConcurrency, updateGlobalConcurrency, fetchPiExtensions, updatePiExtensions, installQmd, testMemoryRetrieval } from "../api";
+import { fetchSettings, fetchSettingsByScope, updateSettings, updateGlobalSettings, fetchAuthStatus, loginProvider, logoutProvider, saveApiKey, clearApiKey, fetchModels, testNtfyNotification, fetchBackups, createBackup, exportSettings, importSettings, fetchMemoryFile, fetchMemoryFiles, saveMemoryFile, compactMemory, fetchGlobalConcurrency, updateGlobalConcurrency, fetchPiExtensions, updatePiExtensions, installQmd, testMemoryRetrieval } from "../api";
 import type { AuthProvider, ModelInfo, BackupListResponse, SettingsExportData, MemoryBackendCapabilities, MemoryFileInfo, MemoryRetrievalTestResult, PiExtensionSettings } from "../api";
 import { useMemoryBackendStatus } from "../hooks/useMemoryBackendStatus";
 import type { ToastType } from "../hooks/useToast";
@@ -58,6 +58,7 @@ type SettingsSection = {
 
 const MOBILE_SETTINGS_MEDIA_QUERY = "(max-width: 768px)";
 const DEFAULT_MEMORY_EDITOR_PATH = ".fusion/memory/DREAMS.md";
+const LONG_TERM_MEMORY_EDITOR_PATH = ".fusion/memory/MEMORY.md";
 
 const SETTINGS_SECTIONS: SettingsSection[] = [
   // Global group
@@ -190,6 +191,7 @@ export function SettingsModal({
   const [memoryTestQuery, setMemoryTestQuery] = useState("");
   const [memoryTestLoading, setMemoryTestLoading] = useState(false);
   const [memoryTestResult, setMemoryTestResult] = useState<MemoryRetrievalTestResult | null>(null);
+  const [memoryCompactLoading, setMemoryCompactLoading] = useState(false);
   const [qmdInstallLoading, setQmdInstallLoading] = useState(false);
 
   // Global concurrency state
@@ -880,6 +882,25 @@ export function SettingsModal({
       addToast(err?.message || "Failed to save memory", "error");
     }
   }, [selectedMemoryPath, memoryContent, projectId, addToast]);
+
+  const handleCompactMemory = useCallback(async () => {
+    setMemoryCompactLoading(true);
+    try {
+      const { content } = await compactMemory(projectId);
+      setSelectedMemoryPath(LONG_TERM_MEMORY_EDITOR_PATH);
+      setMemoryContent(content);
+      setMemoryDirty(false);
+
+      const { files } = await fetchMemoryFiles(projectId);
+      setMemoryFiles(files);
+
+      addToast("Memory compacted", "success");
+    } catch (err: any) {
+      addToast(err?.message || "Failed to compact memory", "error");
+    } finally {
+      setMemoryCompactLoading(false);
+    }
+  }, [projectId, addToast]);
 
   const handleTestMemoryRetrieval = useCallback(async () => {
     setMemoryTestLoading(true);
@@ -2285,6 +2306,18 @@ export function SettingsModal({
                 <small>Cron expression for dream processing.</small>
               </div>
             )}
+
+            <div className="form-group">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={handleCompactMemory}
+                disabled={!isEditingAllowed || memoryCompactLoading}
+              >
+                {memoryCompactLoading ? "Compacting…" : "Compact Memory"}
+              </button>
+              <small>Compacts the long-term project memory file and updates MEMORY.md.</small>
+            </div>
 
             <div className="memory-retrieval-test">
               <div className="form-group">

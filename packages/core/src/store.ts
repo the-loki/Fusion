@@ -4054,16 +4054,15 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       ? (Number.isFinite(options.offset) ? Math.max(0, Math.floor(options.offset)) : 0)
       : 0;
 
-    // If limit is specified, use readAgentLogTail for efficiency
+    // If limit is specified, use readAgentLogTail for efficiency.
     if (limit !== undefined) {
       if (limit === 0) return [];
-      // When offset is provided, read limit + offset entries and slice off the first offset
+      // Offset means "skip this many most-recent entries", so read enough
+      // tail entries to include the requested older page.
       const readCount = offset > 0 ? limit + offset : limit;
       const entries = await this.readAgentLogTail(logPath, readCount);
       if (offset > 0) {
-        // Slice off the first 'offset' entries (oldest in the returned batch)
-        // This skips the most recent entries to get older entries
-        return entries.slice(offset);
+        return entries.slice(0, Math.max(0, entries.length - offset));
       }
       return entries;
     }

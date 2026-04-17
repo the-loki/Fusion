@@ -4081,7 +4081,7 @@ describe("Prompts section", () => {
       const selector = await screen.findByLabelText("Memory File") as HTMLSelectElement;
       expect(selector.value).toBe(".fusion/memory/DREAMS.md");
       expect(screen.getByText(/Choose any project memory file to view or edit/i)).toBeInTheDocument();
-      expect(screen.queryByText("Compact Memory")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Compact Memory" })).toBeInTheDocument();
     });
   });
 });

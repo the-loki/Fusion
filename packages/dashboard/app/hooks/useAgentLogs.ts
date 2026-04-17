@@ -207,7 +207,7 @@ export function useAgentLogs(taskId: string | null, enabled: boolean, projectId?
 
       // Prepend older entries to the existing list
       setEntries((prev) => {
-        const combined = [...prev, ...result.entries];
+        const combined = [...result.entries, ...prev];
         return capLogEntries(combined);
       });
       setHasMore(result.hasMore);

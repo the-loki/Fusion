@@ -302,10 +302,10 @@ describe("useAgentLogs", () => {
         await result.current.loadMore();
       });
 
-      // Should now have 2 entries: initial + older
+      // Should now have 2 entries in chronological order: older + initial
       expect(result.current.entries).toHaveLength(2);
-      expect(result.current.entries[0].text).toBe("newer");
-      expect(result.current.entries[1].text).toBe("older");
+      expect(result.current.entries[0].text).toBe("older");
+      expect(result.current.entries[1].text).toBe("newer");
       expect(result.current.hasMore).toBe(false);
     });
 
