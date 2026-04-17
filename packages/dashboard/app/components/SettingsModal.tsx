@@ -972,6 +972,9 @@ export function SettingsModal({
         const selectedValue = form.defaultProvider && form.defaultModelId
           ? `${form.defaultProvider}/${form.defaultModelId}`
           : "";
+        const globalModelLanes = MODEL_LANES.filter(
+          (lane) => lane.laneId !== "default",
+        );
 
         return (
           <>
@@ -1071,6 +1074,55 @@ export function SettingsModal({
                 </div>
               );
             })()}
+
+            {availableModels.length > 0 && (
+              <>
+                <h4 className="settings-section-heading" style={{ marginTop: "1.5rem" }}>Model Lanes</h4>
+                <p className="settings-description">
+                  Global baseline models for each AI role. Project settings can override these per-project.
+                </p>
+                {globalModelLanes.map((lane) => {
+                  const provider = form[lane.globalProviderKey as keyof Settings] as string | undefined;
+                  const model = form[lane.globalModelKey as keyof Settings] as string | undefined;
+                  const value = provider && model ? `${provider}/${model}` : "";
+
+                  return (
+                    <div className="form-group" key={`global-${lane.laneId}`}>
+                      <label htmlFor={`global-${lane.laneId}-model`}>{lane.label}</label>
+                      <CustomModelDropdown
+                        id={`global-${lane.laneId}-model`}
+                        label={lane.label}
+                        models={availableModels}
+                        value={value}
+                        onChange={(selected) => {
+                          if (!selected) {
+                            setForm((f) => ({
+                              ...f,
+                              [lane.globalProviderKey]: undefined,
+                              [lane.globalModelKey]: undefined,
+                            }));
+                            return;
+                          }
+
+                          const slashIdx = selected.indexOf("/");
+                          setForm((f) => ({
+                            ...f,
+                            [lane.globalProviderKey]: selected.slice(0, slashIdx),
+                            [lane.globalModelKey]: selected.slice(slashIdx + 1),
+                          }));
+                        }}
+                        placeholder="Use default"
+                        favoriteProviders={favoriteProviders}
+                        onToggleFavorite={handleToggleFavorite}
+                        favoriteModels={favoriteModels}
+                        onToggleModelFavorite={handleToggleModelFavorite}
+                      />
+                      <small>{lane.helperText}</small>
+                    </div>
+                  );
+                })}
+              </>
+            )}
 
             {/* --- OpenRouter Model Sync --- */}
             <h4 className="settings-section-heading" style={{ marginTop: "1.5rem" }}>OpenRouter Models</h4>

@@ -3650,6 +3650,79 @@ describe("Prompts section", () => {
       expect(screen.getByLabelText("Fallback Model")).toBeTruthy();
     });
 
+    it("renders global baseline lane dropdowns in Models section", async () => {
+      render(<SettingsModal onClose={onClose} addToast={addToast} />);
+      await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
+
+      fireEvent.click(screen.getAllByText("Models")[0]);
+      await waitFor(() => expect(fetchModels).toHaveBeenCalled());
+
+      expect(screen.getByLabelText("Execution Model")).toBeTruthy();
+      expect(screen.getByLabelText("Planning Model")).toBeTruthy();
+      expect(screen.getByLabelText("Validator Model")).toBeTruthy();
+      expect(screen.getByLabelText("Title Summarization Model")).toBeTruthy();
+    });
+
+    it("saving a global lane selection persists execution global lane keys", async () => {
+      const user = userEvent.setup();
+      render(<SettingsModal onClose={onClose} addToast={addToast} />);
+      await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
+
+      fireEvent.click(screen.getAllByText("Models")[0]);
+      await waitFor(() => expect(fetchModels).toHaveBeenCalled());
+
+      const executionTrigger = screen.getByLabelText("Execution Model");
+      await user.click(executionTrigger);
+      await user.click(screen.getByText("GPT-4o"));
+
+      fireEvent.click(screen.getByText("Save"));
+
+      await waitFor(() => expect(updateGlobalSettings).toHaveBeenCalledTimes(1));
+      const globalPayload = (updateGlobalSettings as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(globalPayload.executionGlobalProvider).toBe("openai");
+      expect(globalPayload.executionGlobalModelId).toBe("gpt-4o");
+    });
+
+    it("clearing a global lane selection sends null for execution global lane keys", async () => {
+      const user = userEvent.setup();
+      (fetchSettings as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ...defaultSettings,
+        executionGlobalProvider: "anthropic",
+        executionGlobalModelId: "claude-sonnet-4-5",
+      });
+
+      render(<SettingsModal onClose={onClose} addToast={addToast} />);
+      await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
+
+      fireEvent.click(screen.getAllByText("Models")[0]);
+      await waitFor(() => expect(fetchModels).toHaveBeenCalled());
+
+      const executionTrigger = screen.getByLabelText("Execution Model");
+      await user.click(executionTrigger);
+      const useDefaultOption = await screen.findByRole("option", { name: /use default/i });
+      await user.click(useDefaultOption);
+
+      fireEvent.click(screen.getByText("Save"));
+
+      await waitFor(() => expect(updateGlobalSettings).toHaveBeenCalledTimes(1));
+      const globalPayload = (updateGlobalSettings as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(globalPayload.executionGlobalProvider).toBeNull();
+      expect(globalPayload.executionGlobalModelId).toBeNull();
+    });
+
+    it("shows Use default placeholder text for each global model lane when unset", async () => {
+      render(<SettingsModal onClose={onClose} addToast={addToast} />);
+      await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
+
+      fireEvent.click(screen.getAllByText("Models")[0]);
+      await waitFor(() => expect(fetchModels).toHaveBeenCalled());
+
+      expect(screen.getByLabelText("Execution Model").textContent).toContain("Use default");
+      expect(screen.getByLabelText("Planning Model").textContent).toContain("Use default");
+      expect(screen.getByLabelText("Validator Model").textContent).toContain("Use default");
+      expect(screen.getByLabelText("Title Summarization Model").textContent).toContain("Use default");
+    });
+
     it("renders Thinking Effort select in global Models section", async () => {
       render(<SettingsModal onClose={onClose} addToast={addToast} />);
       await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
