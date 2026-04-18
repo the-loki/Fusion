@@ -15,13 +15,13 @@ export interface NewAgentDialogProps {
 }
 
 const AGENT_ROLES: { value: AgentCapability; label: string; icon: string }[] = [
-  { value: "triage", label: "Triage", icon: "🔍" },
-  { value: "executor", label: "Executor", icon: "⚡" },
-  { value: "reviewer", label: "Reviewer", icon: "👁" },
-  { value: "merger", label: "Merger", icon: "🔀" },
-  { value: "scheduler", label: "Scheduler", icon: "⏰" },
-  { value: "engineer", label: "Engineer", icon: "🛠" },
-  { value: "custom", label: "Custom", icon: "🔧" },
+  { value: "triage", label: "Triage", icon: "⊕" },
+  { value: "executor", label: "Executor", icon: "▶" },
+  { value: "reviewer", label: "Reviewer", icon: "⊙" },
+  { value: "merger", label: "Merger", icon: "⊞" },
+  { value: "scheduler", label: "Scheduler", icon: "◷" },
+  { value: "engineer", label: "Engineer", icon: "⎔" },
+  { value: "custom", label: "Custom", icon: "✦" },
 ];
 
 type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high";

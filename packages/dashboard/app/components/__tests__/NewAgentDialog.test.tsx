@@ -780,7 +780,7 @@ describe("NewAgentDialog", () => {
       // Verify name
       expect(screen.getByText("Reviewer")).toBeTruthy();
       // Verify icon
-      expect(screen.getByText("👁️")).toBeTruthy();
+      expect(screen.getByText("⊙")).toBeTruthy();
 
       // Create
       await user.click(screen.getByText("Create"));
@@ -791,7 +791,7 @@ describe("NewAgentDialog", () => {
 
       const createCall = mockCreateAgent.mock.calls[0][0];
       expect(createCall.name).toBe("Reviewer");
-      expect(createCall.icon).toBe("👁️");
+      expect(createCall.icon).toBe("⊙");
       // Title should be the preset's description
       expect(createCall.title).toBe("Reviews code changes for correctness, security, performance, and adherence to project coding standards.");
       expect(createCall.role).toBe("reviewer");

@@ -14,13 +14,13 @@ interface AgentListModalProps {
 }
 
 const AGENT_ROLES: { value: AgentCapability; label: string; icon: string }[] = [
-  { value: "triage", label: "Triage", icon: "🔍" },
-  { value: "executor", label: "Executor", icon: "⚡" },
-  { value: "reviewer", label: "Reviewer", icon: "👁" },
-  { value: "merger", label: "Merger", icon: "🔀" },
-  { value: "scheduler", label: "Scheduler", icon: "⏰" },
-  { value: "engineer", label: "Engineer", icon: "🛠" },
-  { value: "custom", label: "Custom", icon: "🔧" },
+  { value: "triage", label: "Triage", icon: "⊕" },
+  { value: "executor", label: "Executor", icon: "▶" },
+  { value: "reviewer", label: "Reviewer", icon: "⊙" },
+  { value: "merger", label: "Merger", icon: "⊞" },
+  { value: "scheduler", label: "Scheduler", icon: "◷" },
+  { value: "engineer", label: "Engineer", icon: "⎔" },
+  { value: "custom", label: "Custom", icon: "✦" },
 ];
 
 const STATE_COLORS: Record<AgentState, { bg: string; text: string; border: string }> = {
@@ -165,7 +165,7 @@ export function AgentListModal({ isOpen, onClose, addToast, projectId }: AgentLi
   };
 
   const getRoleLabel = (role: AgentCapability) => AGENT_ROLES.find(r => r.value === role)?.label ?? role;
-  const getRoleIcon = (role: AgentCapability) => AGENT_ROLES.find(r => r.value === role)?.icon ?? "🤖";
+  const getRoleIcon = (role: AgentCapability) => AGENT_ROLES.find(r => r.value === role)?.icon ?? "◆";
 
   // Use centralized health status utility for consistent labels across all views
   // This fixes the previous hardcoded 60s timeout that was inconsistent with other views
