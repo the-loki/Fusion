@@ -388,6 +388,45 @@ describe("QuickChatFAB", () => {
     });
   });
 
+  it("selecting a model from dropdown does not dismiss the chat panel", async () => {
+    render(<QuickChatFAB addToast={addToast} projectId="proj-123" />);
+
+    fireEvent.click(screen.getByTestId("quick-chat-fab"));
+    await waitFor(() => {
+      expect(screen.getByTestId("quick-chat-panel")).toBeDefined();
+    });
+
+    // Switch to model mode by clicking the "Model" toggle button
+    const modelModeBtn = await screen.findByTestId("quick-chat-mode-model");
+    fireEvent.click(modelModeBtn);
+
+    // Click the model dropdown trigger to open the dropdown
+    const trigger = screen.getByRole("button", { name: "Select model override" });
+    fireEvent.click(trigger);
+
+    // Find a model option and click it
+    const optionLabel = await screen.findByText("Claude Sonnet 4.5");
+    const option = optionLabel.closest('[role="option"]') ?? optionLabel;
+    fireEvent.click(option);
+
+    // Panel should still be visible after selecting the model
+    await waitFor(() => {
+      expect(screen.getByTestId("quick-chat-panel")).toBeDefined();
+    });
+
+    // Assert mockCreateChatSession was called with the correct model parameters
+    await waitFor(() => {
+      expect(mockCreateChatSession).toHaveBeenCalledWith(
+        {
+          agentId: "__kb_agent__",
+          modelProvider: "anthropic",
+          modelId: "claude-sonnet-4-5",
+        },
+        "proj-123",
+      );
+    });
+  });
+
   it("sending a message calls streamChatResponse API with expected params", async () => {
     render(<QuickChatFAB addToast={addToast} projectId="proj-123" />);
 
