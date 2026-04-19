@@ -14,53 +14,61 @@
  * Run with: pnpm --filter @fusion/engine exec vitest run src/run-audit.integration.test.ts
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { rm } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import type { TaskStore } from "@fusion/core";
-import { Database } from "@fusion/core";
-import { TaskStore as CoreTaskStore } from "@fusion/core";
-import { createRunAuditor, generateSyntheticRunId, type EngineRunContext, type RunAuditor } from "./run-audit.js";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import type { TaskStore, RunAuditEvent, RunAuditEventFilter, RunAuditEventInput } from "@fusion/core";
+import { createRunAuditor, generateSyntheticRunId, type EngineRunContext } from "./run-audit.js";
 
-function makeTmpDir(): string {
-  return mkdtempSync(join(tmpdir(), "fn-engine-audit-integration-test-"));
-}
-
+// NOTE: This file uses mock stores/fakes instead of real SQLite databases.
+// See FN-2142 for the rationale.
 describe("Run Audit Engine Integration", () => {
-  let rootDir: string;
-  let kbDir: string;
-  let db: Database;
   let store: TaskStore;
+  let recordedEvents: RunAuditEvent[] = [];
+  let eventCounter = 0;
+  let baseTimestamp = 0;
 
-  beforeEach(async () => {
-    rootDir = makeTmpDir();
-    kbDir = join(rootDir, ".fusion");
-    db = new Database(kbDir);
-    db.init();
-    store = new CoreTaskStore(rootDir);
-    await store.init();
+  beforeEach(() => {
+    recordedEvents = [];
+    eventCounter = 0;
+    baseTimestamp = Date.now();
 
-    // Initialize git repo for engine tests that need it
-    const gitDir = join(rootDir, ".git");
-    if (!existsSync(gitDir)) {
-      mkdirSync(gitDir, { recursive: true });
-    }
-  });
+    store = {
+      recordRunAuditEvent: vi.fn(async (input: RunAuditEventInput) => {
+        const timestamp = input.timestamp ?? new Date(baseTimestamp + eventCounter).toISOString();
+        const metadata = input.metadata
+          ? Object.fromEntries(Object.entries(input.metadata).filter(([, value]) => value !== undefined))
+          : undefined;
 
-  afterEach(async () => {
-    try {
-      store.close();
-    } catch {
-      // ignore
-    }
-    try {
-      db.close();
-    } catch {
-      // ignore
-    }
-    await rm(rootDir, { recursive: true, force: true });
+        recordedEvents.push({
+          ...input,
+          id: `audit-${++eventCounter}`,
+          timestamp,
+          ...(metadata !== undefined ? { metadata } : {}),
+        });
+      }),
+      getRunAuditEvents: vi.fn((filter?: RunAuditEventFilter) => {
+        const sorted = [...recordedEvents].sort((a, b) => {
+          const timestampCompare = b.timestamp.localeCompare(a.timestamp);
+          if (timestampCompare !== 0) return timestampCompare;
+          const aId = Number.parseInt(a.id.replace("audit-", ""), 10);
+          const bId = Number.parseInt(b.id.replace("audit-", ""), 10);
+          return bId - aId;
+        });
+
+        const filtered = sorted.filter((event) => {
+          if (!filter) return true;
+          if (filter.runId && event.runId !== filter.runId) return false;
+          if (filter.taskId && event.taskId !== filter.taskId) return false;
+          if (filter.agentId && event.agentId !== filter.agentId) return false;
+          if (filter.domain && event.domain !== filter.domain) return false;
+          if (filter.mutationType && event.mutationType !== filter.mutationType) return false;
+          if (filter.startTime && event.timestamp < filter.startTime) return false;
+          if (filter.endTime && event.timestamp > filter.endTime) return false;
+          return true;
+        });
+
+        return filter?.limit ? filtered.slice(0, filter.limit) : filtered;
+      }),
+    } as unknown as TaskStore;
   });
 
   describe("createRunAuditor with EngineRunContext", () => {

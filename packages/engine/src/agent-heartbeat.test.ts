@@ -1,4 +1,7 @@
+// NOTE: This file uses mock stores/fakes instead of real SQLite databases.
+// See FN-2142 for the rationale.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { EventEmitter } from "node:events";
 import {
   HeartbeatMonitor,
   HeartbeatTriggerScheduler,
@@ -2115,93 +2118,107 @@ describe("HeartbeatMonitor", () => {
 
       describe("end-to-end agent-to-agent message flow", () => {
         it("proves full message flow from send to wake to processing to reply", async () => {
-          // Import real MessageStore for this test
-          const core = await import("@fusion/core");
-          const Database = core.Database;
-          const RealMessageStore = core.MessageStore;
+          const messages: Map<string, Message[]> = new Map();
+          let messageCounter = 0;
 
-          // Setup: create real temp database and MessageStore
-          const tmpDir = await import("node:fs/promises").then((fs) =>
-            fs.mkdtemp(require("node:path").join(require("node:os").tmpdir(), "fn-e2e-message-"))
-          );
-          const kbDir = require("node:path").join(tmpDir, ".fusion");
-          await require("node:fs").promises.mkdir(kbDir, { recursive: true });
+          const fakeMessageStore = {
+            setMessageToAgentHook: vi.fn(),
+            sendMessage: vi.fn((input: Omit<Message, "id" | "read" | "createdAt" | "updatedAt">) => {
+              const id = `msg-${++messageCounter}`;
+              const createdAt = new Date().toISOString();
+              const msg: Message = {
+                id,
+                ...input,
+                read: false,
+                createdAt,
+                updatedAt: createdAt,
+              };
 
-          let messageStore: InstanceType<typeof RealMessageStore>;
-          let db: InstanceType<typeof Database> | undefined;
-          try {
-            db = new Database(kbDir);
-            db.init();
-            messageStore = new RealMessageStore(db);
+              const key = `${input.toId}:${input.toType}`;
+              const inbox = messages.get(key) || [];
+              inbox.push(msg);
+              messages.set(key, inbox);
+              return msg;
+            }),
+            getInbox: vi.fn((participantId: string, participantType: string, opts?: { read?: boolean }) => {
+              const key = `${participantId}:${participantType}`;
+              const inbox = messages.get(key) || [];
+              if (opts?.read === false) return inbox.filter((message) => !message.read);
+              return inbox;
+            }),
+            getMailbox: vi.fn((participantId: string, participantType: string) => {
+              const key = `${participantId}:${participantType}`;
+              const inbox = messages.get(key) || [];
+              return { unreadCount: inbox.filter((message) => !message.read).length, messages: inbox };
+            }),
+            markAllAsRead: vi.fn((participantId: string, participantType: string) => {
+              const key = `${participantId}:${participantType}`;
+              const inbox = messages.get(key) || [];
+              inbox.forEach((message) => {
+                message.read = true;
+              });
+              messages.set(key, inbox);
+            }),
+          } as unknown as MessageStore;
 
-            // Agent A sends a message to Agent B
-            const sentMessage = messageStore.sendMessage({
-              fromId: "agent-alpha",
-              fromType: "agent",
-              toId: "agent-beta",
-              toType: "agent",
-              content: "Hello Agent Beta, please process task FN-001.",
-              type: "agent-to-agent",
-              metadata: { taskId: "FN-001" },
-            });
+          // Agent A sends a message to Agent B
+          const sentMessage = fakeMessageStore.sendMessage({
+            fromId: "agent-alpha",
+            fromType: "agent",
+            toId: "agent-beta",
+            toType: "agent",
+            content: "Hello Agent Beta, please process task FN-001.",
+            type: "agent-to-agent",
+            metadata: { taskId: "FN-001" },
+          });
 
-            expect(sentMessage.id).toBeDefined();
-            expect(sentMessage.content).toContain("Hello Agent Beta");
+          expect(sentMessage.id).toBeDefined();
+          expect(sentMessage.content).toContain("Hello Agent Beta");
 
-            // Verify message is stored in Agent B's inbox
-            const inbox = messageStore.getInbox("agent-beta", "agent", { read: false });
-            expect(inbox).toHaveLength(1);
-            expect(inbox[0].id).toBe(sentMessage.id);
-            expect(inbox[0].content).toBe(sentMessage.content);
+          // Verify message is stored in Agent B's inbox
+          const inbox = fakeMessageStore.getInbox("agent-beta", "agent", { read: false });
+          expect(inbox).toHaveLength(1);
+          expect(inbox[0].id).toBe(sentMessage.id);
+          expect(inbox[0].content).toBe(sentMessage.content);
 
-            // Create a monitor for Agent B with real MessageStore
-            const store = createStoreWithAgentForExec({
-              id: "agent-beta",
-              name: "Agent Beta",
-              state: "active",
-              taskId: "FN-001",
-            });
-            const mockSession = createMockAgentSession();
-            mockedCreateKbAgent.mockResolvedValue({ session: mockSession as any });
+          // Create a monitor for Agent B with fake MessageStore
+          const store = createStoreWithAgentForExec({
+            id: "agent-beta",
+            name: "Agent Beta",
+            state: "active",
+            taskId: "FN-001",
+          });
+          const mockSession = createMockAgentSession();
+          mockedCreateKbAgent.mockResolvedValue({ session: mockSession as any });
 
-            const monitor = new HeartbeatMonitor({
-              store,
-              messageStore,
-              taskStore: mockTaskStore,
-              rootDir: "/tmp",
-            });
+          const monitor = new HeartbeatMonitor({
+            store,
+            messageStore: fakeMessageStore,
+            taskStore: mockTaskStore,
+            rootDir: "/tmp",
+          });
 
-            // Execute heartbeat to process the message (simulating wake-on-message trigger)
-            const result = await monitor.executeHeartbeat({
-              agentId: "agent-beta",
-              source: "on_demand",
-              triggerDetail: "wake-on-message",
-            });
+          // Execute heartbeat to process the message (simulating wake-on-message trigger)
+          const result = await monitor.executeHeartbeat({
+            agentId: "agent-beta",
+            source: "on_demand",
+            triggerDetail: "wake-on-message",
+          });
 
-            // Verify heartbeat completed
-            expect(result.status).toBe("completed");
+          // Verify heartbeat completed
+          expect(result.status).toBe("completed");
 
-            // Verify the execution prompt included the message
-            const promptCalls = mockSession.prompt.mock.calls;
-            expect(promptCalls.length).toBeGreaterThan(0);
-            const executionPrompt = promptCalls[promptCalls.length - 1][0];
-            expect(executionPrompt).toContain("Hello Agent Beta");
-            expect(executionPrompt).toContain("Pending Messages:");
+          // Verify the execution prompt included the message
+          const promptCalls = mockSession.prompt.mock.calls;
+          expect(promptCalls.length).toBeGreaterThan(0);
+          const executionPrompt = promptCalls[promptCalls.length - 1][0];
+          expect(executionPrompt).toContain("Hello Agent Beta");
+          expect(executionPrompt).toContain("Pending Messages:");
 
-            // Verify messages were marked as read after successful processing
-            expect(messageStore.getMailbox("agent-beta", "agent").unreadCount).toBe(0);
+          // Verify messages were marked as read after successful processing
+          expect(fakeMessageStore.getMailbox("agent-beta", "agent").unreadCount).toBe(0);
 
-            // Cleanup
-            await monitor.stop();
-          } finally {
-            // Cleanup temp directory
-            try {
-              db?.close();
-              await require("node:fs/promises").rm(tmpDir, { recursive: true, force: true });
-            } catch {
-              // ignore cleanup errors
-            }
-          }
+          await monitor.stop();
         });
       });
     });
@@ -4223,25 +4240,27 @@ describe("HeartbeatTriggerScheduler", () => {
   });
 
   describe("assignment watching", () => {
-    let eventStore: AgentStore;
+    let eventStore: EventEmitter & {
+      getActiveHeartbeatRun: ReturnType<typeof vi.fn>;
+      getBudgetStatus: ReturnType<typeof vi.fn>;
+      getRecentRuns: ReturnType<typeof vi.fn>;
+    };
 
-    beforeEach(async () => {
+    beforeEach(() => {
       vi.useRealTimers(); // Ensure real timers for these tests
 
-      // Create a real AgentStore (which extends EventEmitter) so we can emit events
-      const { AgentStore: AgentStoreClass } = await import("@fusion/core");
-      eventStore = new AgentStoreClass({ rootDir: `.fusion-test-assign-${Date.now()}` }) as AgentStore;
-      // Override getActiveHeartbeatRun to return null (no active run)
-      (eventStore as any).getActiveHeartbeatRun = vi.fn().mockResolvedValue(null);
+      eventStore = Object.assign(new EventEmitter(), {
+        getActiveHeartbeatRun: vi.fn().mockResolvedValue(null),
+        getBudgetStatus: vi.fn().mockRejectedValue(new Error("budget status unavailable")),
+        getRecentRuns: vi.fn().mockResolvedValue([]),
+      });
 
-      scheduler = new HeartbeatTriggerScheduler(eventStore, callback);
+      scheduler = new HeartbeatTriggerScheduler(eventStore as unknown as AgentStore, callback);
       scheduler.start();
     }, 30000);
 
-    afterEach(async () => {
+    afterEach(() => {
       scheduler?.stop();
-      const { rm } = await import("node:fs/promises");
-      await rm((eventStore as any).rootDir, { recursive: true, force: true }).catch(() => {});
     });
 
     it("triggers callback on agent:assigned event", async () => {
@@ -4392,7 +4411,7 @@ describe("HeartbeatTriggerScheduler", () => {
         }),
       } as unknown as TaskStore;
 
-      scheduler = new HeartbeatTriggerScheduler(eventStore, callback, assignmentTaskStore);
+      scheduler = new HeartbeatTriggerScheduler(eventStore as unknown as AgentStore, callback, assignmentTaskStore);
       scheduler.start();
 
       const agent = { id: "agent-test", name: "Test" } as import("@fusion/core").Agent;
