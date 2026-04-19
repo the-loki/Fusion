@@ -1132,7 +1132,7 @@ describe("HeartbeatMonitor", () => {
 
         const config = monitor.getAgentHeartbeatConfig("agent-001");
         expect(config.heartbeatTimeoutMs).toBe(5000);
-        expect(config.pollIntervalMs).toBe(30000); // default
+        expect(config.pollIntervalMs).toBe(3_600_000); // default
         expect(config.maxConcurrentRuns).toBe(1); // default
       });
 
@@ -3834,45 +3834,45 @@ describe("HeartbeatTriggerScheduler", () => {
       expect(scheduler.getRegisteredAgents()).not.toContain("agent-001");
     });
 
-    it("applies default 30-second interval when intervalMs is undefined", async () => {
+    it("applies default 3600-second interval when intervalMs is undefined", async () => {
       vi.useFakeTimers();
       scheduler.registerAgent("agent-001", {});
       expect(scheduler.getRegisteredAgents()).toContain("agent-001");
 
-      // Verify the default 30-second interval fires
+      // Verify the default 3600-second interval fires
       expect(callback).not.toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.advanceTimersByTimeAsync(3_600_000);
       expect(callback).toHaveBeenCalledOnce();
       vi.useRealTimers();
     });
 
-    it("applies default 30-second interval when intervalMs is 0", async () => {
+    it("applies default 3600-second interval when intervalMs is 0", async () => {
       vi.useFakeTimers();
       scheduler.registerAgent("agent-001", { heartbeatIntervalMs: 0 });
       expect(scheduler.getRegisteredAgents()).toContain("agent-001");
 
-      // Verify the default 30-second interval fires
+      // Verify the default 3600-second interval fires
       expect(callback).not.toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.advanceTimersByTimeAsync(3_600_000);
       expect(callback).toHaveBeenCalledOnce();
       vi.useRealTimers();
     });
 
-    it("applies default 30-second interval when heartbeatIntervalMs is not set", async () => {
+    it("applies default 3600-second interval when heartbeatIntervalMs is not set", async () => {
       vi.useFakeTimers();
       scheduler.registerAgent("agent-001", { enabled: true });
       expect(scheduler.getRegisteredAgents()).toContain("agent-001");
 
-      // Should fire at exactly 30 seconds (default interval)
-      await vi.advanceTimersByTimeAsync(29_999);
+      // Should fire at exactly 3600 seconds (default interval)
+      await vi.advanceTimersByTimeAsync(3_599_999);
       expect(callback).not.toHaveBeenCalled();
 
-      await vi.advanceTimersByTimeAsync(1); // Now at exactly 30 seconds
+      await vi.advanceTimersByTimeAsync(1); // Now at exactly 3600 seconds
       expect(callback).toHaveBeenCalledOnce();
       expect(callback).toHaveBeenCalledWith("agent-001", "timer", {
         wakeReason: "timer",
         triggerDetail: "scheduled",
-        intervalMs: 30_000,
+        intervalMs: 3_600_000,
       });
       vi.useRealTimers();
     });
@@ -3882,7 +3882,7 @@ describe("HeartbeatTriggerScheduler", () => {
       scheduler.registerAgent("agent-001", { heartbeatIntervalMs: 15_000, enabled: true });
       expect(scheduler.getRegisteredAgents()).toContain("agent-001");
 
-      // Should fire at 15 seconds (explicit), not 30
+      // Should fire at 15 seconds (explicit), not 3600
       await vi.advanceTimersByTimeAsync(14_999);
       expect(callback).not.toHaveBeenCalled();
 

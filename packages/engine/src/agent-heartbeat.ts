@@ -46,7 +46,7 @@ export interface HeartbeatMonitorOptions {
   agentStore?: AgentStore;
   /** Optional MessageStore for wake-on-message behavior */
   messageStore?: MessageStore;
-  /** Polling interval in milliseconds (default: 30000) */
+  /** Polling interval in milliseconds (default: 3600000) */
   pollIntervalMs?: number;
   /** Heartbeat timeout in milliseconds (default: 60000) */
   heartbeatTimeoutMs?: number;
@@ -247,7 +247,7 @@ export class HeartbeatMonitor {
   constructor(options: HeartbeatMonitorOptions) {
     this.store = options.store;
     this.configStore = options.agentStore ?? options.store;
-    this.pollIntervalMs = options.pollIntervalMs ?? 30000;
+    this.pollIntervalMs = options.pollIntervalMs ?? 3_600_000;
     this.heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? 60000;
     this.maxConcurrentRuns = options.maxConcurrentRuns ?? 1;
     this.onMissed = options.onMissed;
@@ -1641,7 +1641,7 @@ interface AgentTimer {
  * const scheduler = new HeartbeatTriggerScheduler(agentStore, async (agentId, source, ctx) => {
  *   await heartbeatMonitor.startRun(agentId, { source, triggerDetail: ctx.triggerDetail, contextSnapshot: { ...ctx } });
  * });
- * scheduler.registerAgent("agent-123", { heartbeatIntervalMs: 30000, enabled: true });
+ * scheduler.registerAgent("agent-123", { heartbeatIntervalMs: 3600000, enabled: true });
  * scheduler.start();
  * ```
  */
@@ -1701,8 +1701,8 @@ export class HeartbeatTriggerScheduler {
     return this.running;
   }
 
-  /** Default heartbeat interval when not explicitly configured (30 seconds) */
-  private static readonly DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
+  /** Default heartbeat interval when not explicitly configured (3600 seconds / 1 hour) */
+  private static readonly DEFAULT_HEARTBEAT_INTERVAL_MS = 3_600_000;
 
   /**
    * Register an agent for timer-based heartbeat triggers.

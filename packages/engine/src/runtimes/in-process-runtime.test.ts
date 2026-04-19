@@ -789,14 +789,14 @@ describe("InProcessRuntime", () => {
       expect(scheduler!.getRegisteredAgents()).toContain(agent.id);
     });
 
-    it("registers agent without explicit heartbeatIntervalMs using default 30s interval", async () => {
+    it("registers agent without explicit heartbeatIntervalMs using default 3600s interval", async () => {
       // Create a new agent with only enabled: true (no heartbeatIntervalMs)
-      // This tests that the default 30-second interval is applied
+      // This tests that the default 3600-second interval (1 hour) is applied
       const store = getAgentStore(runtime);
       const agent = await store.createAgent({
         name: "test-agent-default-interval",
         role: "executor",
-        runtimeConfig: { enabled: true }, // No heartbeatIntervalMs - should use default 30s
+        runtimeConfig: { enabled: true }, // No heartbeatIntervalMs - should use default 3600s (1 hour)
       });
 
       // Verify the agent was registered with the trigger scheduler

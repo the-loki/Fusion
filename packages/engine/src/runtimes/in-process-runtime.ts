@@ -497,7 +497,7 @@ export class InProcessRuntime
         this.agentStore.on("agent:updated", this.agentUpdatedListener);
 
         // Register existing agents with heartbeat monitoring not explicitly disabled
-        // Agents without explicit heartbeat config will use the default 30-second interval
+        // Agents without explicit heartbeat config will use the default 3600-second interval (1 hour)
         try {
           const agents = await this.agentStore.listAgents();
           let registeredCount = 0;
