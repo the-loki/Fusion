@@ -16,7 +16,30 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { isMainThread } from "node:worker_threads";
 
-const realProjectRootRaw = process.cwd();
+const originalCwd = process.cwd.bind(process);
+
+function ensureValidCwd(): string {
+  try {
+    return originalCwd();
+  } catch {
+    const fallback = tmpdir();
+    try {
+      process.chdir(fallback);
+    } catch {
+      // Ignore — if this fails too, callers will still get fallback.
+    }
+    return fallback;
+  }
+}
+
+// Guard against uv_cwd crashes if a prior test removed the current directory.
+process.cwd = (() => {
+  return function guardedCwd() {
+    return ensureValidCwd();
+  };
+})() as typeof process.cwd;
+
+const realProjectRootRaw = ensureValidCwd();
 const realProjectRoot = (() => {
   try {
     return realpathSync(realProjectRootRaw);

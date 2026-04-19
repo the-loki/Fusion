@@ -1337,7 +1337,12 @@ export class HeartbeatMonitor {
           try { this.untrackAgent(agentId); } catch (untrackErr) {
             heartbeatLog.warn(`untrackAgent failed for ${agentId}: ${untrackErr instanceof Error ? untrackErr.message : String(untrackErr)}`);
           }
-          try { session.dispose(); } catch { /* ignore */ }
+          try {
+            session.dispose();
+          } catch (disposeErr: unknown) {
+            const errorMessage = disposeErr instanceof Error ? disposeErr.message : String(disposeErr);
+            heartbeatLog.warn(`session.dispose() failed for ${agentId}: ${errorMessage}`);
+          }
         }
 
         return (await this.store.getRunDetail(agentId, run.id))!;

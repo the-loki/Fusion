@@ -295,7 +295,9 @@ export class Scheduler {
       if (!content || content.trim().length === 0) {
         return { valid: false, reason: "missing or empty PROMPT.md" };
       }
-    } catch {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      schedulerLog.warn(`PROMPT.md read failed for task dispatch validation (${id}): ${errorMessage}`);
       return { valid: false, reason: "missing or empty PROMPT.md" };
     }
     
@@ -545,7 +547,11 @@ export class Scheduler {
                   }
                 }
               }
-            } catch {
+            } catch (err: unknown) {
+              const errorMessage = err instanceof Error ? err.message : String(err);
+              schedulerLog.warn(
+                `Mission/slice lookup failed during scheduling (task ${t.id}): ${errorMessage} — proceeding without blocked-slice check`,
+              );
               // If lookup fails, don't block the task
             }
           }

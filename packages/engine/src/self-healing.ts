@@ -177,8 +177,10 @@ export class SelfHealingManager {
     if (this.settingsListener) {
       try {
         this.store.removeListener("settings:updated", this.settingsListener);
-      } catch {
-        // Store may not support removeListener (e.g., test mocks)
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        // Store may not support removeListener (e.g., test mocks) — non-fatal.
+        log.warn(`Failed to remove settings:updated listener during stop(): ${errorMessage}`);
       }
       this.settingsListener = null;
     }
@@ -372,8 +374,11 @@ export class SelfHealingManager {
           `Reset ${completedSteps.length} step(s) to pending — branch had no commits (uncommitted work lost with worktree)`,
         );
       }
-    } catch {
-      // Branch may not exist or git commands may fail — non-fatal
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log.warn(
+        `Failed to reset steps for ${task.id} after branch/worktree loss (${branchName}): ${errorMessage} — non-fatal`,
+      );
     }
   }
 
@@ -421,7 +426,11 @@ export class SelfHealingManager {
     try {
       const result = await readLog(task.baseCommitSha ? `${task.baseCommitSha}..HEAD` : "HEAD");
       stdout = result.stdout;
-    } catch {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log.warn(
+        `Failed to read git log for landed commit lookup (${task.id}): ${errorMessage} — retrying with HEAD range`,
+      );
       if (!task.baseCommitSha) return null;
       const result = await readLog("HEAD");
       stdout = result.stdout;
@@ -440,7 +449,11 @@ export class SelfHealingManager {
         maxBuffer: 1024 * 1024,
       });
       Object.assign(commit, parseShortstat(stats.stdout));
-    } catch {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log.warn(
+        `Failed to read shortstat for landed commit ${sha} (${task.id}): ${errorMessage} — continuing without stats`,
+      );
       // Stats are useful for the task detail view but not required for recovery.
     }
 
@@ -454,8 +467,11 @@ export class SelfHealingManager {
           cwd: this.options.rootDir,
           timeout: 120_000,
         });
-      } catch {
-        // Non-fatal; existing orphan/worktree cleanup can retry later.
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        log.warn(
+          `Failed to remove interrupted-merge worktree ${task.worktree} for ${task.id}: ${errorMessage} — non-fatal, cleanup can retry later`,
+        );
       }
     }
 
@@ -465,7 +481,11 @@ export class SelfHealingManager {
         cwd: this.options.rootDir,
         timeout: 120_000,
       });
-    } catch {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log.warn(
+        `Failed to delete interrupted-merge branch ${branch} for ${task.id}: ${errorMessage} — non-fatal`,
+      );
       // Non-fatal; branch may be gone or still checked out.
     }
   }
@@ -1181,7 +1201,11 @@ export class SelfHealingManager {
           timeout: 30_000,
         });
         if (status.trim().length > 0) return true;
-      } catch {
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        log.warn(
+          `Failed to inspect worktree status for ${task.id} at ${task.worktree}: ${errorMessage} — preserving worktree`,
+        );
         // If we cannot inspect an existing worktree, preserve it.
         return true;
       }
@@ -1194,6 +1218,7 @@ export class SelfHealingManager {
         timeout: 30_000,
       });
     } catch {
+      // Intentional negative test: rev-parse exits non-zero when branch does not exist.
       return false;
     }
 
@@ -1203,7 +1228,11 @@ export class SelfHealingManager {
         { cwd: this.options.rootDir, timeout: 30_000 },
       );
       return Number.parseInt(uniqueCommits.trim(), 10) > 0;
-    } catch {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log.warn(
+        `Failed to compare branch ${branchName} against HEAD for ${task.id}: ${errorMessage} — preserving branch`,
+      );
       // If the branch exists but cannot be compared, preserve it.
       return true;
     }
@@ -1354,7 +1383,9 @@ export class SelfHealingManager {
             timeout: 30_000,
           });
           cleaned++;
-        } catch {
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          log.warn(`Failed to remove orphaned worktree ${worktreePath}: ${errorMessage} — non-fatal`);
           // Individual failure is non-fatal
         }
       }
@@ -1397,7 +1428,11 @@ export class SelfHealingManager {
           });
           log.log(`Deleted branch: ${branch}`);
           cleaned++;
-        } catch {
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          log.warn(
+            `Safe delete failed for orphaned branch ${branch}: ${errorMessage} — attempting force delete`,
+          );
           // Safe delete failed (not merged) — force delete
           try {
             await execAsync(`git branch -D "${branch}"`, {
@@ -1406,7 +1441,9 @@ export class SelfHealingManager {
             });
             log.log(`Force-deleted branch: ${branch}`);
             cleaned++;
-          } catch {
+          } catch (forceErr: unknown) {
+            const forceErrorMessage = forceErr instanceof Error ? forceErr.message : String(forceErr);
+            log.warn(`Failed to force-delete orphaned branch ${branch}: ${forceErrorMessage} — non-fatal`);
             // Individual failure is non-fatal
           }
         }
@@ -1457,7 +1494,9 @@ export class SelfHealingManager {
       const withMtime = idle.map((p) => {
         try {
           return { path: p, mtime: statSync(p).mtimeMs };
-        } catch {
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          log.warn(`Failed to read mtime for worktree ${p}: ${errorMessage} — defaulting mtime to 0`);
           return { path: p, mtime: 0 };
         }
       });
@@ -1474,7 +1513,9 @@ export class SelfHealingManager {
             timeout: 30_000,
           });
           removed++;
-        } catch {
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          log.warn(`Failed to remove idle worktree ${worktreePath} during cap enforcement: ${errorMessage} — non-fatal`);
           // Individual failure is non-fatal
         }
       }

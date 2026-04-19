@@ -56,16 +56,40 @@ vi.mock("./worktree-pool.js", () => ({
   scanOrphanedBranches: vi.fn().mockResolvedValue([]),
 }));
 
+vi.mock("./logger.js", () => ({
+  createLogger: vi.fn((_name: string) => ({
+    log: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  })),
+}));
+
 import { SelfHealingManager } from "./self-healing.js";
 import type { TaskStore, Settings, Task } from "@fusion/core";
 import { EventEmitter } from "node:events";
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { scanOrphanedBranches } from "./worktree-pool.js";
+import { createLogger } from "./logger.js";
 
 const mockedExecSync = vi.mocked(execSync);
 const mockedExistsSync = vi.mocked(existsSync);
 const mockedScanOrphanedBranches = vi.mocked(scanOrphanedBranches);
+const mockedCreateLogger = vi.mocked(createLogger);
+
+type MockLogger = {
+  log: ReturnType<typeof vi.fn>;
+  warn: ReturnType<typeof vi.fn>;
+  error: ReturnType<typeof vi.fn>;
+};
+
+function getSelfHealingLogger(): MockLogger {
+  const idx = mockedCreateLogger.mock.calls.findIndex(([name]) => name === "self-healing");
+  if (idx === -1) {
+    throw new Error("self-healing logger was not created");
+  }
+  return mockedCreateLogger.mock.results[idx]?.value as MockLogger;
+}
 
 // ── Mock helpers ────────────────────────────────────────────────────
 
@@ -482,6 +506,64 @@ describe("SelfHealingManager", () => {
 
       expect(await (manager as any).hasRecoverableGitWork(task)).toBe(true);
       mockedExecSync.mockClear();
+    });
+  });
+
+  describe("silent catch logging", () => {
+    it("logs warn when interrupted-merge worktree removal fails", async () => {
+      const warn = getSelfHealingLogger().warn;
+      warn.mockClear();
+
+      const task = {
+        id: "FN-123",
+        worktree: "/tmp/test-project/.worktrees/fn-123",
+        branch: "fusion/fn-123",
+      } as Task;
+
+      mockedExistsSync.mockReset();
+      mockedExistsSync.mockReturnValueOnce(true);
+      mockedExecSync.mockReset();
+      mockedExecSync.mockImplementationOnce(() => {
+        throw new Error("cannot remove worktree");
+      });
+
+      await (manager as any).cleanupInterruptedMergeArtifacts(task);
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `Failed to remove interrupted-merge worktree ${task.worktree} for ${task.id}: cannot remove worktree`,
+        ),
+      );
+
+      mockedExecSync.mockClear();
+      mockedExistsSync.mockReset();
+    });
+
+    it("logs warn when interrupted-merge branch deletion fails", async () => {
+      const warn = getSelfHealingLogger().warn;
+      warn.mockClear();
+
+      const task = {
+        id: "FN-124",
+        branch: "fusion/fn-124",
+      } as Task;
+
+      mockedExistsSync.mockReset();
+      mockedExecSync.mockReset();
+      mockedExecSync.mockImplementationOnce(() => {
+        throw new Error("cannot delete branch");
+      });
+
+      await (manager as any).cleanupInterruptedMergeArtifacts(task);
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `Failed to delete interrupted-merge branch fusion/fn-124 for FN-124: cannot delete branch`,
+        ),
+      );
+
+      mockedExecSync.mockClear();
+      mockedExistsSync.mockReset();
     });
   });
 

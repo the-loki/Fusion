@@ -36,6 +36,14 @@ vi.mock("./pi.js", () => {
   return { createKbAgent, promptWithFallback };
 });
 
+vi.mock("./logger.js", () => ({
+  createLogger: vi.fn((_name: string) => ({
+    log: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  })),
+}));
+
 // Helper to reset mock session state
 function resetMockSession() {
   mockSessionHolder.session.state.messages = [];
@@ -43,7 +51,7 @@ function resetMockSession() {
 }
 
 // Import AFTER vi.mock so the mock is applied
-import { MissionExecutionLoop } from "./mission-execution-loop.js";
+import { MissionExecutionLoop, loopLog } from "./mission-execution-loop.js";
 
 // ── Mock Factories ──────────────────────────────────────────────────────────
 
@@ -592,6 +600,31 @@ describe("MissionExecutionLoop", () => {
       loop.start();
 
       await expect(loop.recoverActiveMissions()).resolves.not.toThrow();
+    });
+
+    it("logs warn when mission hierarchy lookup throws during recovery", async () => {
+      const mission = createMockMission({ id: "M-LOOKUP", status: "active" });
+      missionStore._setMission(mission);
+      missionStore.getMissionWithHierarchy = vi.fn().mockImplementation(() => {
+        throw new Error("Database error");
+      });
+
+      vi.mocked(loopLog.warn).mockClear();
+
+      loop = new MissionExecutionLoop({
+        taskStore: taskStore as any,
+        missionStore: missionStore as any,
+        rootDir: "/tmp",
+      });
+      loop.start();
+
+      await loop.recoverActiveMissions();
+
+      expect(loopLog.warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "getMissionWithHierarchy failed for mission M-LOOKUP: Database error",
+        ),
+      );
     });
 
     it("should handle empty hierarchy gracefully", async () => {

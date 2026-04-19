@@ -1,10 +1,8 @@
 /**
- * Vitest globalSetup hook.
- *
- * We only publish the shared worker-root env var here. Teardown is intentionally
- * a no-op because deleting shared temp roots during teardown can race with
- * still-running suites in some Vitest pool modes and trigger uv_cwd failures.
- * Worker dirs are cleaned by vitest-setup.ts on process exit.
+ * Vitest globalSetup hook. The returned function runs once after the entire
+ * test run completes, regardless of whether individual workers exited cleanly.
+ * Wipes the shared FUSION_TEST_WORKER_ROOT directory that holds per-worker
+ * temp dirs created by vitest-setup.ts.
  */
 
 import { tmpdir } from "node:os";

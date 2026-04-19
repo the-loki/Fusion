@@ -139,7 +139,9 @@ export class MissionExecutionLoop extends EventEmitter {
         let hierarchy;
         try {
           hierarchy = this.missionStore.getMissionWithHierarchy(mission.id);
-        } catch {
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          loopLog.warn(`getMissionWithHierarchy failed for mission ${mission.id}: ${errorMessage} — skipping`);
           // Database error, skip this mission
           continue;
         }
@@ -424,7 +426,7 @@ export class MissionExecutionLoop extends EventEmitter {
       try {
         parsed = JSON.parse(jsonCandidate);
       } catch {
-        // Try to repair common JSON issues
+        // Intentional fallback: initial parse can fail on malformed JSON; try repairJson() next.
         const repaired = this.repairJson(jsonCandidate);
         try {
           parsed = JSON.parse(repaired);
@@ -493,7 +495,9 @@ export class MissionExecutionLoop extends EventEmitter {
       }
 
       return undefined;
-    } catch {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      loopLog.warn(`AI response JSON extraction failed: ${errorMessage}`);
       return undefined;
     }
   }

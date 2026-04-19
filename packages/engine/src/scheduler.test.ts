@@ -5,6 +5,7 @@ import { AgentSemaphore } from "./concurrency.js";
 import type { TaskStore, Task, TaskDetail } from "@fusion/core";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { schedulerLog } from "./logger.js";
 
 // Mock fs modules
 vi.mock("node:fs", async (importOriginal) => {
@@ -22,6 +23,14 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     readFile: vi.fn(),
   };
 });
+
+vi.mock("./logger.js", () => ({
+  schedulerLog: {
+    log: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}));
 
 // Helper to create mock tasks
 function createMockTask(overrides: Partial<Task> = {}): Task {
@@ -831,6 +840,26 @@ describe("Scheduler", () => {
         "FN-003",
         "Task moved to triage — filesystem validation failed",
         "missing or empty PROMPT.md"
+      );
+    });
+
+    it("logs warn when PROMPT.md read throws during validation", async () => {
+      const store = createMockStore({
+        getTasksDir: vi.fn().mockReturnValue("/test/project/.fusion/tasks"),
+      });
+      const scheduler = new Scheduler(store);
+
+      vi.mocked(schedulerLog.warn).mockClear();
+      vi.mocked(existsSync).mockReturnValue(true);
+      vi.mocked(readFile).mockRejectedValue(new Error("EACCES"));
+
+      const validation = await (scheduler as any).validateTaskFilesystem("FN-READ");
+
+      expect(validation).toEqual({ valid: false, reason: "missing or empty PROMPT.md" });
+      expect(schedulerLog.warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "PROMPT.md read failed for task dispatch validation (FN-READ): EACCES",
+        ),
       );
     });
 
