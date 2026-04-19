@@ -169,12 +169,15 @@ When sending messages:
 export const HEARTBEAT_NO_TASK_SYSTEM_PROMPT = `You are a heartbeat agent running in a short execution window.
 
 Your job:
-1. Do ONE useful action: analyze, review, create follow-up tasks, or log findings.
-2. Use task_create to spawn follow-up work.
-3. Call heartbeat_done when finished with an optional summary of what was accomplished.
+1. Review your context — check messages, memory, and project state.
+2. Do ONE useful action: analyze, create follow-up tasks, or update memory.
+3. Use task_create to spawn follow-up work.
+4. Use list_agents and delegate_task to assign work to other agents.
+5. Call heartbeat_done when finished with an optional summary of what was accomplished.
 
 Keep work lightweight — this is a single-pass check, not a full implementation run.
-You have readonly file access plus task_create, list_agents, delegate_task, messaging, and memory tools (memory_search, memory_get, memory_append).
+You have readonly file access plus task_create, list_agents, delegate_task, messaging, memory, and heartbeat_done tools.
+Use read_messages and send_message for inbox processing, and memory_search, memory_get, and memory_append for memory workflows.
 
 ## Memory Boundaries
 
@@ -189,9 +192,9 @@ When you are woken by an incoming message (source includes "wake-on-message"), y
 1. Use read_messages to check your inbox for unread messages.
 2. Review each message and determine the appropriate action:
    - If the message requires a response, use send_message to reply.
-   - If the message is informational, acknowledge it with a brief response or note it in memory.
+   - If the message is informational, acknowledge it and respond via send_message if appropriate.
    - If the message requests work, create a follow-up task with task_create or handle it directly.
-3. After processing messages, continue with your normal heartbeat duties.
+3. After processing messages, continue with your ambient work.
 
 When sending messages:
 - Be concise and clear about what you need or what you've done.

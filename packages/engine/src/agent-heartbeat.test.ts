@@ -1361,6 +1361,33 @@ describe("HeartbeatMonitor", () => {
         expect(toolNames).not.toContain("task_document_read");
       });
 
+      it("no-task run system prompt uses HEARTBEAT_NO_TASK_SYSTEM_PROMPT and does not reference task-scoped tools", async () => {
+        const store = createStoreWithAgentForExec({ taskId: undefined, soul: "I am a coordinator" });
+        const mockSession = createMockAgentSession();
+        mockedCreateKbAgent.mockResolvedValue({ session: mockSession as any });
+
+        const monitor = new HeartbeatMonitor({ store, taskStore: mockTaskStore, rootDir: "/tmp" });
+
+        await monitor.executeHeartbeat({ agentId: "agent-001", source: "timer" });
+
+        expect(mockedCreateKbAgent).toHaveBeenCalledOnce();
+        const callArgs = mockedCreateKbAgent.mock.calls[0]![0]!;
+        const systemPrompt = callArgs.systemPrompt;
+
+        expect(systemPrompt).toContain(HEARTBEAT_NO_TASK_SYSTEM_PROMPT);
+        expect(systemPrompt).not.toContain("task_log");
+        expect(systemPrompt).not.toContain("task_document_write");
+        expect(systemPrompt).not.toContain("task_document_read");
+        expect(systemPrompt).toContain("task_create");
+        expect(systemPrompt).toContain("list_agents");
+        expect(systemPrompt).toContain("delegate_task");
+        expect(systemPrompt).toContain("read_messages");
+        expect(systemPrompt).toContain("send_message");
+        expect(systemPrompt).toContain("memory_search");
+        expect(systemPrompt).toContain("memory_append");
+        expect(systemPrompt).toContain("heartbeat_done");
+      });
+
       it("identity agent without task receives no-task execution prompt mentioning 'no assigned task'", async () => {
         const store = createStoreWithAgentForExec({ taskId: undefined, soul: "I am a coordinator" });
         const mockSession = createMockAgentSession();
@@ -1373,6 +1400,7 @@ describe("HeartbeatMonitor", () => {
         expect(mockedCreateKbAgent).toHaveBeenCalledOnce();
         const callArgs = mockedCreateKbAgent.mock.calls[0]![0]!;
         const systemPrompt = callArgs.systemPrompt;
+        expect(systemPrompt).toContain(HEARTBEAT_NO_TASK_SYSTEM_PROMPT);
         expect(systemPrompt).not.toContain("task_log");
         expect(systemPrompt).not.toContain("task_document_write");
         expect(systemPrompt).not.toContain("task_document_read");
@@ -1398,7 +1426,7 @@ describe("HeartbeatMonitor", () => {
         expect(executionPrompt).not.toContain("Task description:");
       });
 
-      it("task-scoped heartbeat run receives full system prompt with task_log and task Documents", async () => {
+      it("task-scoped run system prompt uses original HEARTBEAT_SYSTEM_PROMPT", async () => {
         const store = createStoreWithAgentForExec({ taskId: "FN-001" });
         const mockSession = createMockAgentSession();
         mockedCreateKbAgent.mockResolvedValue({ session: mockSession as any });
@@ -1411,6 +1439,7 @@ describe("HeartbeatMonitor", () => {
         const callArgs = mockedCreateKbAgent.mock.calls[0]![0]!;
         const systemPrompt = callArgs.systemPrompt;
 
+        expect(systemPrompt).toContain(HEARTBEAT_SYSTEM_PROMPT);
         expect(systemPrompt).toContain("task_log");
         expect(systemPrompt).toContain("task_document_write");
         expect(systemPrompt).toContain("Task Documents:");
@@ -2220,11 +2249,19 @@ describe("HeartbeatMonitor", () => {
     });
 
     describe("execution", () => {
-      it("no-task heartbeat system prompt does not reference task-scoped tools", () => {
+      it("HEARTBEAT_NO_TASK_SYSTEM_PROMPT does not mention task_log or task_document tools", () => {
         expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).not.toContain("task_log");
         expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).not.toContain("task_document_write");
         expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).not.toContain("task_document_read");
         expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).not.toContain("task_document");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).toContain("task_create");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).toContain("list_agents");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).toContain("delegate_task");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).toContain("read_messages");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).toContain("send_message");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).toContain("memory_search");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).toContain("memory_append");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).toContain("heartbeat_done");
       });
 
       it("creates session with enriched system prompt and expected tools", async () => {

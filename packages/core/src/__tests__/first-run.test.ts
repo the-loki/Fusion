@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tempWorkspace } from "@fusion/test-utils";
 import { FirstRunExperience, createFirstRunExperience } from "../first-run.js";
 import { CentralCore } from "../central-core.js";
@@ -10,6 +11,17 @@ import { CentralCore } from "../central-core.js";
 function createFakeKbProject(dir: string): void {
   mkdirSync(join(dir, ".fusion"), { recursive: true });
   writeFileSync(join(dir, ".fusion", "fusion.db"), "");
+}
+
+const TEST_FILE_DIR = dirname(fileURLToPath(import.meta.url));
+
+function getSafeCwd(): string {
+  try {
+    return process.cwd();
+  } catch {
+    process.chdir(TEST_FILE_DIR);
+    return process.cwd();
+  }
 }
 
 describe("FirstRunExperience", () => {
@@ -27,7 +39,7 @@ describe("FirstRunExperience", () => {
     const globalSettingsStore = new GlobalSettingsStore(tempDir);
     await globalSettingsStore.init();
     firstRun = new FirstRunExperience(centralCore, globalSettingsStore);
-    originalCwd = process.cwd();
+    originalCwd = getSafeCwd();
   });
 
   afterEach(() => {

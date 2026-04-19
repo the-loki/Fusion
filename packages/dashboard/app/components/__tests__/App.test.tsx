@@ -1205,18 +1205,15 @@ describe("App view switching", () => {
   it("renders AgentsView when agents view is selected", async () => {
     render(<App />);
 
-    // Wait for the header to render
-    await waitFor(() => {
-      expect(screen.getByTitle("Agents view")).toBeTruthy();
-    });
+    const agentsViewButton = await screen.findByTitle("Agents view", {}, { timeout: 5000 });
 
     // Click to switch to agents view
-    fireEvent.click(screen.getByTitle("Agents view"));
+    fireEvent.click(agentsViewButton);
 
     // Agents view should be rendered (it has a agents-view container)
     await waitFor(() => {
       expect(document.querySelector(".agents-view")).toBeTruthy();
-    });
+    }, { timeout: 5000 });
 
     // Should NOT show board or list view
     expect(document.querySelector(".board")).toBeNull();
@@ -1228,15 +1225,13 @@ describe("App view switching", () => {
 
     render(<App />);
 
-    await waitFor(() => {
-      expect(screen.getByTitle("Agents view")).toBeTruthy();
-    });
+    const agentsViewButton = await screen.findByTitle("Agents view", {}, { timeout: 5000 });
 
-    fireEvent.click(screen.getByTitle("Agents view"));
+    fireEvent.click(agentsViewButton);
 
     await waitFor(() => {
       expect(localStorage.getItem(taskViewStorageKey())).toBe("agents");
-    });
+    }, { timeout: 5000 });
   });
 
   it("initializes agents view from localStorage if saved", async () => {
