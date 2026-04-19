@@ -6,7 +6,7 @@ import {
   type AgentSession,
   type HeartbeatExecutionOptions,
   HEARTBEAT_SYSTEM_PROMPT,
-  HEARTBEAT_SYSTEM_PROMPT_NO_TASK,
+  HEARTBEAT_NO_TASK_SYSTEM_PROMPT,
 } from "./agent-heartbeat.js";
 import { AgentLogger } from "./agent-logger.js";
 import * as agentTools from "./agent-tools.js";
@@ -1466,7 +1466,7 @@ describe("HeartbeatMonitor", () => {
         expect(toolNames).not.toContain("task_document_read");
       });
 
-      it("no-task run receives HEARTBEAT_SYSTEM_PROMPT_NO_TASK as system prompt", async () => {
+      it("no-task run receives HEARTBEAT_NO_TASK_SYSTEM_PROMPT as system prompt", async () => {
         const store = createStoreWithAgentForExec({ taskId: undefined, soul: "I am a coordinator" });
         const mockSession = createMockAgentSession();
         mockedCreateKbAgent.mockResolvedValue({ session: mockSession as any });
@@ -1479,7 +1479,7 @@ describe("HeartbeatMonitor", () => {
         const callArgs = mockedCreateKbAgent.mock.calls[0]![0]!;
         const systemPrompt = callArgs.systemPrompt;
 
-        expect(systemPrompt).toContain(HEARTBEAT_SYSTEM_PROMPT_NO_TASK);
+        expect(systemPrompt).toContain(HEARTBEAT_NO_TASK_SYSTEM_PROMPT);
         expect(systemPrompt).not.toContain("task_log");
         expect(systemPrompt).not.toContain("task_document_write");
         expect(systemPrompt).not.toContain("task_document_read");
@@ -1505,7 +1505,7 @@ describe("HeartbeatMonitor", () => {
         expect(mockedCreateKbAgent).toHaveBeenCalledOnce();
         const callArgs = mockedCreateKbAgent.mock.calls[0]![0]!;
         const systemPrompt = callArgs.systemPrompt;
-        expect(systemPrompt).toContain(HEARTBEAT_SYSTEM_PROMPT_NO_TASK);
+        expect(systemPrompt).toContain(HEARTBEAT_NO_TASK_SYSTEM_PROMPT);
         expect(systemPrompt).not.toContain("task_log");
         expect(systemPrompt).not.toContain("task_document_write");
         expect(systemPrompt).not.toContain("task_document_read");
@@ -2354,19 +2354,19 @@ describe("HeartbeatMonitor", () => {
     });
 
     describe("execution", () => {
-      it("HEARTBEAT_SYSTEM_PROMPT_NO_TASK does not mention task-scoped tools", () => {
-        expect(HEARTBEAT_SYSTEM_PROMPT_NO_TASK).not.toContain("task_log");
-        expect(HEARTBEAT_SYSTEM_PROMPT_NO_TASK).not.toContain("task_document_write");
-        expect(HEARTBEAT_SYSTEM_PROMPT_NO_TASK).not.toContain("task_document_read");
-        expect(HEARTBEAT_SYSTEM_PROMPT_NO_TASK).not.toContain("task_document");
-        expect(HEARTBEAT_SYSTEM_PROMPT_NO_TASK).toContain("task_create");
-        expect(HEARTBEAT_SYSTEM_PROMPT_NO_TASK).toContain("list_agents");
-        expect(HEARTBEAT_SYSTEM_PROMPT_NO_TASK).toContain("delegate_task");
-        expect(HEARTBEAT_SYSTEM_PROMPT_NO_TASK).toContain("read_messages");
-        expect(HEARTBEAT_SYSTEM_PROMPT_NO_TASK).toContain("send_message");
-        expect(HEARTBEAT_SYSTEM_PROMPT_NO_TASK).toContain("memory_search");
-        expect(HEARTBEAT_SYSTEM_PROMPT_NO_TASK).toContain("memory_append");
-        expect(HEARTBEAT_SYSTEM_PROMPT_NO_TASK).toContain("heartbeat_done");
+      it("HEARTBEAT_NO_TASK_SYSTEM_PROMPT does not mention task-scoped tools", () => {
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).not.toContain("task_log");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).not.toContain("task_document_write");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).not.toContain("task_document_read");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).not.toContain("task_document");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).toContain("task_create");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).toContain("list_agents");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).toContain("delegate_task");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).toContain("read_messages");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).toContain("send_message");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).toContain("memory_search");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).toContain("memory_append");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).toContain("heartbeat_done");
       });
 
       it("HEARTBEAT_SYSTEM_PROMPT mentions task_log and task_document_write", () => {

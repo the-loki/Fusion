@@ -166,18 +166,17 @@ When sending messages:
  * System prompt for no-task heartbeat agent sessions.
  * Instructs the agent to perform ambient work only with tools that do not require task context.
  */
-export const HEARTBEAT_SYSTEM_PROMPT_NO_TASK = `You are a heartbeat agent running in a short execution window.
+export const HEARTBEAT_NO_TASK_SYSTEM_PROMPT = `You are a heartbeat agent running in a short execution window.
 
 Your job:
 1. Review your context — check messages, memory, and project state.
-2. Do ONE useful action: analyze, create follow-up tasks, or update memory.
+2. Do ONE useful action: analyze, create follow-up tasks, delegate work, or update memory.
 3. Use task_create to spawn follow-up work.
-4. Use list_agents and delegate_task to assign work to other agents.
+4. Use list_agents and delegate_task to coordinate with other agents.
 5. Call heartbeat_done when finished with an optional summary of what was accomplished.
 
-Keep work lightweight — this is a single-pass check, not a full implementation run.
-You have readonly file access plus task_create, list_agents, delegate_task, messaging, memory, and heartbeat_done tools.
-Use read_messages and send_message for inbox processing, and memory_search, memory_get, and memory_append for memory workflows.
+Keep work lightweight — this is a single-pass ambient check, not a full implementation run.
+You have readonly file access plus task_create, list_agents, delegate_task, send_message, read_messages, memory_search, memory_append, and heartbeat_done.
 
 ## Memory Boundaries
 
@@ -201,8 +200,8 @@ When sending messages:
 - Include relevant context (task IDs, file paths) in metadata when applicable.
 - Use agent-to-agent for inter-agent communication.`;
 
-// Backward-compatible alias; prefer HEARTBEAT_SYSTEM_PROMPT_NO_TASK.
-export const HEARTBEAT_NO_TASK_SYSTEM_PROMPT = HEARTBEAT_SYSTEM_PROMPT_NO_TASK;
+// Backward-compatible alias; prefer HEARTBEAT_NO_TASK_SYSTEM_PROMPT.
+export const HEARTBEAT_SYSTEM_PROMPT_NO_TASK = HEARTBEAT_NO_TASK_SYSTEM_PROMPT;
 
 /** Parameter schema for the heartbeat_done tool */
 const heartbeatDoneParams = Type.Object({
@@ -1111,10 +1110,10 @@ export class HeartbeatMonitor {
         // Build skill selection context for heartbeat session (uses waking agent's skills, no role fallback)
         const skillContext = buildSessionSkillContextSync(agent, "heartbeat", rootDir);
 
-        const baseHeartbeatSystemPrompt = isNoTaskRun
-          ? HEARTBEAT_SYSTEM_PROMPT_NO_TASK
+        let systemPrompt = isNoTaskRun
+          ? HEARTBEAT_NO_TASK_SYSTEM_PROMPT
           : HEARTBEAT_SYSTEM_PROMPT;
-        let systemPrompt = baseHeartbeatSystemPrompt;
+        const baseHeartbeatSystemPrompt = systemPrompt;
         try {
           const agentInstructions = await resolveAgentInstructionsWithRatings(agent, rootDir, this.store);
           const memoryInstructions = memorySettings?.memoryEnabled === false
