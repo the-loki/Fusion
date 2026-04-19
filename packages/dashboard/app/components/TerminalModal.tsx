@@ -696,6 +696,14 @@ export function TerminalModal({ isOpen, onClose, initialCommand, projectId }: Te
 
     if (!helperTextarea) return;
 
+    // Mobile Safari/Chrome soft keyboard heuristics are stricter than desktop:
+    // keep attributes explicit and focus from a direct user gesture.
+    helperTextarea.autocapitalize = "off";
+    helperTextarea.autocomplete = "off";
+    (helperTextarea as unknown as { autocorrect: string }).autocorrect = "off";
+    helperTextarea.spellcheck = false;
+    helperTextarea.setAttribute("inputmode", "text");
+
     try {
       helperTextarea.focus({ preventScroll: true });
     } catch {
@@ -981,8 +989,9 @@ export function TerminalModal({ isOpen, onClose, initialCommand, projectId }: Te
             ref={terminalRef}
             className="terminal-xterm"
             data-testid="terminal-xterm"
-            onPointerDown={handleTerminalGestureFocus}
-            onTouchStart={handleTerminalGestureFocus}
+            onPointerDownCapture={handleTerminalGestureFocus}
+            onTouchStartCapture={handleTerminalGestureFocus}
+            onClickCapture={handleTerminalGestureFocus}
           />
         </div>
 

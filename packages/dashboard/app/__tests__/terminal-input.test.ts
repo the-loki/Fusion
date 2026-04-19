@@ -29,9 +29,9 @@ describe("terminal helper textarea CSS contract", () => {
     expect(ruleBody).toMatch(/left:\s*0\b/);
   });
 
-  it("prevents direct pointer interaction with the helper textarea", () => {
+  it("keeps helper textarea pointer-focusable for mobile keyboard activation", () => {
     const ruleBody = findHelperTextareaRule();
-    expect(ruleBody).toMatch(/pointer-events\s*:\s*none\b/);
+    expect(ruleBody).toMatch(/pointer-events\s*:\s*auto\b/);
   });
 
   it("keeps the helper textarea effectively invisible", () => {

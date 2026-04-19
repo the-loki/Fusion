@@ -3603,7 +3603,7 @@ describe("TerminalModal — xterm focus initialization (FN-1602)", () => {
     });
   });
 
-  it("focuses xterm helper textarea on user pointer gesture", async () => {
+  it("focuses xterm helper textarea on user pointer gesture (capture phase)", async () => {
     render(<TerminalModal isOpen={true} onClose={mockOnClose} />);
 
     await waitFor(() => {
@@ -3617,11 +3617,17 @@ describe("TerminalModal — xterm focus initialization (FN-1602)", () => {
     const setSelectionRangeSpy = vi.spyOn(helperTextarea, "setSelectionRange");
     terminalDiv.appendChild(helperTextarea);
 
-    fireEvent.pointerDown(terminalDiv);
+    // Simulate xterm child event handlers stopping bubble propagation.
+    const child = document.createElement("div");
+    child.addEventListener("pointerdown", (event) => event.stopPropagation());
+    terminalDiv.appendChild(child);
+
+    fireEvent.pointerDown(child);
 
     expect(mockTerminalInstance.focus).toHaveBeenCalled();
     expect(focusSpy).toHaveBeenCalled();
     expect(setSelectionRangeSpy).toHaveBeenCalledWith(0, 0);
+    expect(helperTextarea.getAttribute("inputmode")).toBe("text");
   });
 
   it("focuses xterm helper textarea on touch gesture", async () => {
@@ -3640,6 +3646,10 @@ describe("TerminalModal — xterm focus initialization (FN-1602)", () => {
     fireEvent.touchStart(terminalDiv);
 
     expect(focusSpy).toHaveBeenCalled();
+    expect(helperTextarea.autocapitalize).toBe("off");
+    expect(helperTextarea.autocomplete).toBe("off");
+    expect(helperTextarea.autocorrect).toBe("off");
+    expect(helperTextarea.spellcheck).toBe(false);
   });
 });
 
