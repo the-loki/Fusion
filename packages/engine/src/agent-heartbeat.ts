@@ -162,6 +162,44 @@ When sending messages:
 - Include relevant context (task IDs, file paths) in metadata when applicable.
 - Use agent-to-agent for inter-agent communication.`;
 
+/**
+ * System prompt for no-task heartbeat agent sessions.
+ * Instructs the agent to perform ambient work only with tools that do not require task context.
+ */
+export const HEARTBEAT_NO_TASK_SYSTEM_PROMPT = `You are a heartbeat agent running in a short execution window.
+
+Your job:
+1. Do ONE useful action: analyze, review, create follow-up tasks, or communicate findings.
+2. Use task_create to spawn follow-up work as needed.
+3. Use send_message and read_messages to process inter-agent communication.
+4. Use memory_search and memory_append to leverage and persist useful memory context.
+5. Call heartbeat_done when finished with an optional summary of what was accomplished.
+
+Keep work lightweight — this is a single-pass check, not a full implementation run.
+You have readonly file access plus task_create, list_agents, delegate_task, memory_search, memory_append, send_message, read_messages, and heartbeat_done tools.
+
+## Memory Boundaries
+
+You may receive an Agent Memory section and a Project Memory section.
+- Agent Memory is specific to you, including imported and user-created agents such as CEO-style coordinator agents. It has its own long-term memory, daily notes, dreams, and qmd-backed retrieval under .fusion/agent-memory/{agentId}/.
+- Project Memory is the workspace memory system under .fusion/memory/ with long-term memory, daily notes, dreams, and qmd-backed retrieval.
+- Keep these separate: do not copy personal agent operating notes into Project Memory unless they are genuinely useful to every future agent in this workspace.
+
+## Processing Messages
+
+When you are woken by an incoming message (source includes "wake-on-message"), you should:
+1. Use read_messages to check your inbox for unread messages.
+2. Review each message and determine the appropriate action:
+   - If the message requires a response, use send_message to reply.
+   - If the message is informational, acknowledge it with a brief response via send_message.
+   - If the message requests work, create a follow-up task with task_create or handle it directly.
+3. After processing messages, continue with your normal heartbeat duties.
+
+When sending messages:
+- Be concise and clear about what you need or what you've done.
+- Include relevant context (task IDs, file paths) in metadata when applicable.
+- Use agent-to-agent for inter-agent communication.`;
+
 /** Parameter schema for the heartbeat_done tool */
 const heartbeatDoneParams = Type.Object({
   summary: Type.Optional(Type.String({ description: "Summary of what was accomplished this heartbeat" })),
@@ -1069,14 +1107,17 @@ export class HeartbeatMonitor {
         // Build skill selection context for heartbeat session (uses waking agent's skills, no role fallback)
         const skillContext = buildSessionSkillContextSync(agent, "heartbeat", rootDir);
 
-        let systemPrompt = HEARTBEAT_SYSTEM_PROMPT;
+        const baseHeartbeatSystemPrompt = isNoTaskRun
+          ? HEARTBEAT_NO_TASK_SYSTEM_PROMPT
+          : HEARTBEAT_SYSTEM_PROMPT;
+        let systemPrompt = baseHeartbeatSystemPrompt;
         try {
           const agentInstructions = await resolveAgentInstructionsWithRatings(agent, rootDir, this.store);
           const memoryInstructions = memorySettings?.memoryEnabled === false
             ? ""
             : buildExecutionMemoryInstructions(rootDir, memorySettings);
           systemPrompt = buildSystemPromptWithInstructions(
-            HEARTBEAT_SYSTEM_PROMPT,
+            baseHeartbeatSystemPrompt,
             [agentInstructions, memoryInstructions].filter((part) => part.trim()).join("\n\n"),
           );
         } catch (instructionError) {

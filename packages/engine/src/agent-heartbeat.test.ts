@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { HeartbeatMonitor, HeartbeatTriggerScheduler, isBlockedStateDuplicate, type AgentSession, type HeartbeatExecutionOptions, HEARTBEAT_SYSTEM_PROMPT } from "./agent-heartbeat.js";
+import {
+  HeartbeatMonitor,
+  HeartbeatTriggerScheduler,
+  isBlockedStateDuplicate,
+  type AgentSession,
+  type HeartbeatExecutionOptions,
+  HEARTBEAT_SYSTEM_PROMPT,
+  HEARTBEAT_NO_TASK_SYSTEM_PROMPT,
+} from "./agent-heartbeat.js";
 import { AgentLogger } from "./agent-logger.js";
 import type { AgentStore, AgentHeartbeatRun, TaskStore, TaskDetail, Agent, MessageStore, Message, AgentBudgetStatus } from "@fusion/core";
 
@@ -1363,6 +1371,14 @@ describe("HeartbeatMonitor", () => {
         await monitor.executeHeartbeat({ agentId: "agent-001", source: "timer" });
 
         expect(mockedCreateKbAgent).toHaveBeenCalledOnce();
+        const callArgs = mockedCreateKbAgent.mock.calls[0]![0]!;
+        const systemPrompt = callArgs.systemPrompt;
+        expect(systemPrompt).not.toContain("task_log");
+        expect(systemPrompt).not.toContain("task_document_write");
+        expect(systemPrompt).not.toContain("task_document_read");
+        expect(systemPrompt).toContain("task_create");
+        expect(systemPrompt).toContain("heartbeat_done");
+
         // The execution prompt is passed to session.prompt by promptWithFallback mock
         const promptCalls = mockSession.prompt.mock.calls;
         expect(promptCalls.length).toBeGreaterThan(0);
@@ -2184,6 +2200,13 @@ describe("HeartbeatMonitor", () => {
     });
 
     describe("execution", () => {
+      it("no-task heartbeat system prompt does not reference task-scoped tools", () => {
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).not.toContain("task_log");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).not.toContain("task_document_write");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).not.toContain("task_document_read");
+        expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).not.toContain("task_document");
+      });
+
       it("creates session with enriched system prompt and expected tools", async () => {
         const store = createStoreWithAgentForExec({
           soul: "Act like a practical teammate who prioritizes clarity.",
