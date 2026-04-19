@@ -390,7 +390,7 @@ Fusion can automatically extract insights from project memory and prune transien
 
 1. **Scheduled Extraction**: When `insightExtractionEnabled` is `true`, a background automation runs on the configured `insightExtractionSchedule` (default: daily at 2 AM).
 
-2. **AI-Powered Analysis**: The automation uses an AI agent to read `.fusion/memory/MEMORY.md` and `.fusion/memory-insights.md`, extract new insights, and produce a pruned working memory candidate.
+2. **AI-Powered Analysis**: The automation uses an AI agent to read canonical long-term memory (`.fusion/memory/MEMORY.md`) from the layered `.fusion/memory/` workspace plus `.fusion/memory-insights.md`, extract new insights, and produce a pruned working memory candidate.
 
 3. **Insight Merging**: New insights are automatically merged into `.fusion/memory-insights.md` under the appropriate category (Patterns, Principles, Conventions, Pitfalls, Context). Duplicates are skipped.
 

@@ -109,7 +109,7 @@ When enabled, Fusion uses OpenClaw-style memory files:
 - `.fusion/memory/MEMORY.md` — long-term project memory
 - `.fusion/memory/YYYY-MM-DD.md` — daily running notes
 - `.fusion/memory/DREAMS.md` — dream-processing memory file
-- Legacy `.fusion/memory.md` is only used as a one-time migration seed for upgrades
+- Legacy `.fusion/memory.md` is compatibility-only (migration seed + mirrored alias) and should not be treated as canonical
 
 Use project memory for reusable patterns, constraints, and pitfalls that should persist across tasks.
 
@@ -117,7 +117,7 @@ Use project memory for reusable patterns, constraints, and pitfalls that should 
 
 Fusion can automatically extract insights from memory and prune transient content. Enable via `insightExtractionEnabled` setting:
 
-- `.fusion/memory/MEMORY.md` — Working/long-term memory source compacted and pruned by extraction jobs
+- `.fusion/memory/MEMORY.md` — Canonical long-term working memory file (inside the layered `.fusion/memory/` workspace) compacted/pruned by extraction jobs
 - `.fusion/memory-insights.md` — Distilled insights output
 - `.fusion/memory-audit.md` — Audit report after each extraction (includes pruning outcome)
 

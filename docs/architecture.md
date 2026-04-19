@@ -270,14 +270,10 @@ const backend = resolveMemoryBackend(settings);
 
 **Settings integration:**
 - `memoryEnabled`: Toggle controls whether memory instructions are injected into prompts
-- `memoryBackendType`: Select which backend to use (`file`, `readonly`, `qmd`, or custom). Unknown types are accepted and persisted verbatim; the system falls back to `file` at runtime.
+- `memoryBackendType`: Select which backend to use (`file`, `readonly`, `qmd`, or custom). Unknown types are accepted and persisted verbatim; runtime resolution falls back to `DEFAULT_MEMORY_BACKEND` (`qmd`).
 
-**QMD Backend Fallback Behavior:**
-The QMD backend (`qmd`) routes operations through the `qmd` CLI tool. When QMD is unavailable or fails:
-- Exit code 127 (binary not found): Falls back to file backend
-- Command timeout (30s): Falls back to file backend
-- Exit code 1 (general error): Falls back to file backend
-- Other exit codes: Throws error without fallback
+**QMD Backend Behavior:**
+The QMD backend (`qmd`) delegates read/write I/O to the file backend and schedules background QMD index refreshes. For search, it attempts QMD query first and falls back to local `.fusion/memory/` file search when QMD is unavailable, errors, or returns no matches.
 
 **Dashboard API:**
 - `GET /api/memory/backend` — Returns current backend status and capabilities
@@ -484,7 +480,7 @@ SQLite schema is initialized in `packages/core/src/db.ts` and uses:
   - `.fusion/memory/MEMORY.md`
   - `.fusion/memory/YYYY-MM-DD.md`
   - `.fusion/memory/DREAMS.md`
-- Upgrade migration may seed `MEMORY.md` from legacy `.fusion/memory.md` if present.
+- Legacy `.fusion/memory.md` is compatibility-only (migration seed + mirrored alias path) and is not canonical storage.
 
 ### File-based side stores
 Some data remains intentionally filesystem-based:
