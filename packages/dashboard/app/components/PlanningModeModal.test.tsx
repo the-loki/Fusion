@@ -884,6 +884,11 @@ describe("PlanningModeModal", () => {
 
   describe("Conversation history", () => {
     it("restores all persisted Q&A pairs when resuming a session", async () => {
+      mockConnectPlanningStream.mockImplementationOnce(() => ({
+        close: vi.fn(),
+        isConnected: vi.fn().mockReturnValue(true),
+      }));
+
       const resumedQuestion: PlanningQuestion = {
         id: "q-current",
         type: "text",

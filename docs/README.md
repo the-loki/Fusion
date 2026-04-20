@@ -62,6 +62,7 @@ For a full walkthrough (installation, onboarding, first task, and daily workflow
 | [Agent Sandbox Research](./agent-sandboxing-research.md) | Research on agent isolation, capability enforcement, and sandboxing approaches |
 | [Agent Gap Analysis](./agent-paperclip-gap-analysis.md) | Gap analysis for agent Paperclip integration |
 | [Test Audit Report](./test-audit-report.md) | Test coverage and effectiveness audit with recommendations |
+| [Skipped Test Inventory](./skipped-test-inventory.md) | Current intentional test-skip inventory and reconciliation status for older skip follow-ups |
 | [Dashboard Load Performance](./performance/dashboard-load.md) | SQLite index analysis and optimization for dashboard boot path queries |
 
 ## External Resources

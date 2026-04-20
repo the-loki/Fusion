@@ -1,0 +1,13 @@
+FN-2197 complete (2026-04-20)
+
+Summary:
+- Audited active skipped-test usage across package test suites and documented the reconciled inventory.
+- Added `docs/skipped-test-inventory.md` and linked it from `docs/README.md`.
+- Confirmed older actionable skip follow-ups (FN-2085, FN-2076, FN-2106, FN-2109) are resolved and no longer represented as active skip backlog.
+- Stabilized `PlanningModeModal` conversation-history resume test by overriding stream behavior in the targeted test case to avoid racey question replacement.
+
+Verification commands:
+- pnpm lint
+- pnpm typecheck
+- VITEST_MAX_WORKERS=2 pnpm test
+- pnpm build
