@@ -1779,23 +1779,28 @@ export function cancelPlanning(sessionId: string, projectId?: string, tabId?: st
 }
 
 /** Create a task from a completed planning session */
-export function createTaskFromPlanning(sessionId: string, projectId?: string): Promise<Task> {
+export function createTaskFromPlanning(
+  sessionId: string,
+  summary?: PlanningSummary,
+  projectId?: string,
+): Promise<Task> {
   return api<Task>(withProjectId("/planning/create-task", projectId), {
     method: "POST",
-    body: JSON.stringify({ sessionId }),
+    body: JSON.stringify(summary ? { sessionId, summary } : { sessionId }),
   });
 }
 
 /** Start subtask breakdown from a completed planning session */
 export function startPlanningBreakdown(
   sessionId: string,
+  summary?: PlanningSummary,
   projectId?: string,
 ): Promise<{ sessionId: string; subtasks: SubtaskItem[] }> {
   return api<{ sessionId: string; subtasks: SubtaskItem[] }>(
     withProjectId("/planning/start-breakdown", projectId),
     {
       method: "POST",
-      body: JSON.stringify({ sessionId }),
+      body: JSON.stringify(summary ? { sessionId, summary } : { sessionId }),
     },
   );
 }

@@ -877,7 +877,7 @@ describe("PlanningModeModal", () => {
       fireEvent.click(screen.getByText("Create Task"));
 
       await waitFor(() => {
-        expect(mockCreateTaskFromPlanning).toHaveBeenCalledWith("session-complete-2", undefined);
+        expect(mockCreateTaskFromPlanning).toHaveBeenCalledWith("session-complete-2", resumedSummary, undefined);
       });
     });
   });
@@ -1415,7 +1415,7 @@ describe("PlanningModeModal", () => {
       fireEvent.click(screen.getByText("Create Task"));
 
       await waitFor(() => {
-        expect(mockCreateTaskFromPlanning).toHaveBeenCalledWith("session-123", undefined);
+        expect(mockCreateTaskFromPlanning).toHaveBeenCalledWith("session-123", mockSummary, undefined);
         expect(mockOnTaskCreated).toHaveBeenCalledWith(createdTask);
       });
     });
@@ -1475,7 +1475,7 @@ describe("PlanningModeModal", () => {
       fireEvent.click(screen.getByText("Break into Tasks"));
 
       await waitFor(() => {
-        expect(mockStartPlanningBreakdown).toHaveBeenCalledWith("session-123", undefined);
+        expect(mockStartPlanningBreakdown).toHaveBeenCalledWith("session-123", mockSummary, undefined);
       });
 
       await waitFor(() => {

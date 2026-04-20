@@ -8611,6 +8611,68 @@ describe("Planning Mode Routes", () => {
       });
     });
 
+    describe("POST /planning/start-breakdown", () => {
+      it("uses summary override when generating subtasks", async () => {
+        const startRes = await REQUEST(
+          buildApp(),
+          "POST",
+          "/api/planning/start",
+          JSON.stringify({ initialPlan: "Build a user auth system" }),
+          { "Content-Type": "application/json" }
+        );
+        const sessionId = startRes.body.sessionId;
+
+        await REQUEST(
+          buildApp(),
+          "POST",
+          "/api/planning/respond",
+          JSON.stringify({ sessionId, responses: { scope: "medium" } }),
+          { "Content-Type": "application/json" }
+        );
+        await REQUEST(
+          buildApp(),
+          "POST",
+          "/api/planning/respond",
+          JSON.stringify({ sessionId, responses: { requirements: "Must have login" } }),
+          { "Content-Type": "application/json" }
+        );
+        await REQUEST(
+          buildApp(),
+          "POST",
+          "/api/planning/respond",
+          JSON.stringify({ sessionId, responses: { confirm: true } }),
+          { "Content-Type": "application/json" }
+        );
+
+        const res = await REQUEST(
+          buildApp(),
+          "POST",
+          "/api/planning/start-breakdown",
+          JSON.stringify({
+            sessionId,
+            summary: {
+              title: "Edited auth implementation",
+              description: "Use OAuth providers and secure refresh tokens",
+              suggestedSize: "L",
+              suggestedDependencies: ["FN-321"],
+              keyDeliverables: ["OAuth integration"],
+            },
+          }),
+          { "Content-Type": "application/json" }
+        );
+
+        expect(res.status).toBe(200);
+        expect(res.body.sessionId).toBe(sessionId);
+        expect(res.body.subtasks).toHaveLength(1);
+        expect(res.body.subtasks[0]).toEqual(
+          expect.objectContaining({
+            title: "OAuth integration",
+          }),
+        );
+        expect(res.body.subtasks[0].description).toContain("Use OAuth providers and secure refresh tokens");
+      });
+    });
+
     describe("POST /planning/create-task", () => {
       it("creates a task from completed planning session", async () => {
         // Setup mock store for task creation
@@ -8669,6 +8731,77 @@ describe("Planning Mode Routes", () => {
 
         expect(res.status).toBe(201);
         expect(store.createTask).toHaveBeenCalled();
+      });
+
+      it("uses summary override when provided", async () => {
+        (store.createTask as ReturnType<typeof vi.fn>).mockResolvedValue({
+          id: "FN-099",
+          description: "Edited task description",
+          column: "triage",
+          dependencies: ["FN-500"],
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+        (store.updateTask as ReturnType<typeof vi.fn>).mockResolvedValue({});
+        (store.logEntry as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+        const startRes = await REQUEST(
+          buildApp(),
+          "POST",
+          "/api/planning/start",
+          JSON.stringify({ initialPlan: "Build a user auth system" }),
+          { "Content-Type": "application/json" }
+        );
+        const sessionId = startRes.body.sessionId;
+
+        await REQUEST(
+          buildApp(),
+          "POST",
+          "/api/planning/respond",
+          JSON.stringify({ sessionId, responses: { scope: "medium" } }),
+          { "Content-Type": "application/json" }
+        );
+        await REQUEST(
+          buildApp(),
+          "POST",
+          "/api/planning/respond",
+          JSON.stringify({ sessionId, responses: { requirements: "Must have login" } }),
+          { "Content-Type": "application/json" }
+        );
+        await REQUEST(
+          buildApp(),
+          "POST",
+          "/api/planning/respond",
+          JSON.stringify({ sessionId, responses: { confirm: true } }),
+          { "Content-Type": "application/json" }
+        );
+
+        const res = await REQUEST(
+          buildApp(),
+          "POST",
+          "/api/planning/create-task",
+          JSON.stringify({
+            sessionId,
+            summary: {
+              title: "Edited auth task",
+              description: "Edited description from summary view",
+              suggestedSize: "S",
+              suggestedDependencies: ["FN-500"],
+              keyDeliverables: ["Login flow"],
+            },
+          }),
+          { "Content-Type": "application/json" }
+        );
+
+        expect(res.status).toBe(201);
+        expect(store.createTask).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: "Edited auth task",
+            description: "Edited description from summary view",
+            dependencies: ["FN-500"],
+          }),
+        );
+        expect(store.updateTask).toHaveBeenCalledWith("FN-099", { size: "S" });
       });
 
       it("creates a task from a persisted complete session when in-memory session is missing", async () => {

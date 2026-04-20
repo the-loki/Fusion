@@ -686,14 +686,14 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
     setView({ type: "loading" });
 
     try {
-      const task = await createTaskFromPlanning(view.session.sessionId, projectId);
+      const task = await createTaskFromPlanning(view.session.sessionId, editedSummary ?? undefined, projectId);
       onTaskCreated(task);
       handleCancel();
     } catch (err: any) {
       setError(err.message || "Failed to create task");
       setView({ type: "summary", session: view.session, summary: view.summary });
     }
-  }, [view, onTaskCreated, handleCancel]);
+  }, [editedSummary, view, projectId, onTaskCreated, handleCancel]);
 
   const handleStartBreakdown = useCallback(async () => {
     if (view.type !== "summary") return;
@@ -702,7 +702,7 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
     setView({ type: "loading" });
 
     try {
-      const result = await startPlanningBreakdown(view.session.sessionId, projectId);
+      const result = await startPlanningBreakdown(view.session.sessionId, editedSummary ?? undefined, projectId);
       setLockSessionId(result.sessionId);
       setView({
         type: "breakdown",
@@ -714,7 +714,7 @@ export function PlanningModeModal({ isOpen, onClose, onTaskCreated, onTasksCreat
       setError(err.message || "Failed to start breakdown");
       setView({ type: "summary", session: view.session, summary: view.summary });
     }
-  }, [view, projectId]);
+  }, [editedSummary, view, projectId]);
 
   const handleCreateTasksFromBreakdown = useCallback(async () => {
     if (view.type !== "breakdown") return;

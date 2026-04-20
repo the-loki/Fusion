@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import * as nodeFs from "node:fs";
 
 import { promisify } from "node:util";
-import type { TaskStore, Column, ScheduleType, ActivityEventType, ModelPreset, MessageType, ParticipantType, RoutineTriggerType, ProjectSettings, EnrichedChatSession } from "@fusion/core";
+import type { TaskStore, Column, ScheduleType, ActivityEventType, ModelPreset, MessageType, ParticipantType, RoutineTriggerType, ProjectSettings, EnrichedChatSession, PlanningSummary } from "@fusion/core";
 import { COLUMNS, VALID_TRANSITIONS, GLOBAL_SETTINGS_KEYS, type BatchStatusEntry, type BatchStatusResponse, type BatchStatusResult, type IssueInfo, type PrInfo, type Task, type PiExtensionEntry, type PiExtensionSettings, getCurrentRepo, isGhAuthenticated, AutomationStore, validateBackupSchedule, validateBackupRetention, validateBackupDir, syncBackupRoutine, exportSettings, importSettings, validateImportData, MessageStore, RoutineStore, isWebhookTrigger, resolveMemoryBackend, getMemoryBackendCapabilities, listMemoryBackendTypes, listProjectMemoryFiles, readProjectMemoryFile, readProjectMemoryFileContent, writeProjectMemoryFile, listAgentMemoryFiles, readAgentMemoryFile, writeAgentMemoryFile, readMemory, writeMemory, searchProjectMemory, isQmdAvailable, installQmd, refreshQmdProjectMemoryIndex, QMD_INSTALL_COMMAND, MemoryBackendError, scheduleQmdProjectMemoryRefresh, discoverPiExtensions, updatePiExtensionDisabledIds, getFusionAgentDir, getLegacyPiAgentDir, ensureMemoryFileWithBackend, readInsightsMemory, writeInsightsMemory, generateMemoryAudit, buildInsightExtractionPrompt, parseInsightExtractionResponse, processAndAuditInsightExtraction } from "@fusion/core";
 import type { ServerOptions } from "./server.js";
 import { GitHubClient, parseBadgeUrl } from "./github.js";
@@ -8858,6 +8858,41 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
     }
   });
 
+  const parsePlanningSummaryOverride = (summaryInput: unknown): PlanningSummary | undefined => {
+    if (summaryInput === undefined) {
+      return undefined;
+    }
+
+    if (!summaryInput || typeof summaryInput !== "object" || Array.isArray(summaryInput)) {
+      throw badRequest("summary must be an object");
+    }
+
+    const summary = summaryInput as Partial<PlanningSummary>;
+
+    if (typeof summary.title !== "string" || summary.title.trim().length === 0) {
+      throw badRequest("summary.title is required and must be a non-empty string");
+    }
+
+    if (typeof summary.description !== "string" || summary.description.trim().length === 0) {
+      throw badRequest("summary.description is required and must be a non-empty string");
+    }
+
+    return {
+      title: summary.title.trim(),
+      description: summary.description.trim(),
+      suggestedSize:
+        summary.suggestedSize === "S" || summary.suggestedSize === "M" || summary.suggestedSize === "L"
+          ? summary.suggestedSize
+          : "M",
+      suggestedDependencies: Array.isArray(summary.suggestedDependencies)
+        ? summary.suggestedDependencies.filter((dep): dep is string => typeof dep === "string" && dep.trim().length > 0)
+        : [],
+      keyDeliverables: Array.isArray(summary.keyDeliverables)
+        ? summary.keyDeliverables.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+        : [],
+    };
+  };
+
   /**
    * POST /api/planning/create-task
    * Create a task from a completed planning session.
@@ -8866,17 +8901,22 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
    */
   router.post("/planning/create-task", async (req, res) => {
     try {
-      const { sessionId } = req.body;
+      const { sessionId, summary: summaryInput } = req.body as {
+        sessionId?: unknown;
+        summary?: unknown;
+      };
 
       if (!sessionId || typeof sessionId !== "string") {
         throw badRequest("sessionId is required");
       }
 
+      const summaryOverride = parsePlanningSummaryOverride(summaryInput);
+
       const { store: scopedStore } = await getProjectContext(req);
       const { getSession, getSummary, cleanupSession } = await import("./planning.js");
 
       const session = getSession(sessionId);
-      let summary = getSummary(sessionId);
+      let summary = summaryOverride ?? getSummary(sessionId);
       let initialPlan = session?.initialPlan;
       let usedPersistedFallback = false;
 
@@ -8898,39 +8938,41 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
           throw badRequest("Planning session result is not available");
         }
 
-        try {
-          const parsedSummary = JSON.parse(persistedSession.result) as {
-            title?: unknown;
-            description?: unknown;
-            suggestedSize?: unknown;
-            suggestedDependencies?: unknown;
-            keyDeliverables?: unknown;
-          };
+        if (!summaryOverride) {
+          try {
+            const parsedSummary = JSON.parse(persistedSession.result) as {
+              title?: unknown;
+              description?: unknown;
+              suggestedSize?: unknown;
+              suggestedDependencies?: unknown;
+              keyDeliverables?: unknown;
+            };
 
-          summary = {
-            title:
-              typeof parsedSummary.title === "string" && parsedSummary.title.trim().length > 0
-                ? parsedSummary.title
-                : persistedSession.title,
-            description:
-              typeof parsedSummary.description === "string" && parsedSummary.description.trim().length > 0
-                ? parsedSummary.description
-                : persistedSession.title,
-            suggestedSize:
-              parsedSummary.suggestedSize === "S" ||
-              parsedSummary.suggestedSize === "M" ||
-              parsedSummary.suggestedSize === "L"
-                ? parsedSummary.suggestedSize
-                : "M",
-            suggestedDependencies: Array.isArray(parsedSummary.suggestedDependencies)
-              ? parsedSummary.suggestedDependencies.filter((dep): dep is string => typeof dep === "string")
-              : [],
-            keyDeliverables: Array.isArray(parsedSummary.keyDeliverables)
-              ? parsedSummary.keyDeliverables.filter((item): item is string => typeof item === "string")
-              : [],
-          };
-        } catch {
-          throw badRequest("Planning session result is invalid");
+            summary = {
+              title:
+                typeof parsedSummary.title === "string" && parsedSummary.title.trim().length > 0
+                  ? parsedSummary.title
+                  : persistedSession.title,
+              description:
+                typeof parsedSummary.description === "string" && parsedSummary.description.trim().length > 0
+                  ? parsedSummary.description
+                  : persistedSession.title,
+              suggestedSize:
+                parsedSummary.suggestedSize === "S" ||
+                parsedSummary.suggestedSize === "M" ||
+                parsedSummary.suggestedSize === "L"
+                  ? parsedSummary.suggestedSize
+                  : "M",
+              suggestedDependencies: Array.isArray(parsedSummary.suggestedDependencies)
+                ? parsedSummary.suggestedDependencies.filter((dep): dep is string => typeof dep === "string")
+                : [],
+              keyDeliverables: Array.isArray(parsedSummary.keyDeliverables)
+                ? parsedSummary.keyDeliverables.filter((item): item is string => typeof item === "string")
+                : [],
+            };
+          } catch {
+            throw badRequest("Planning session result is invalid");
+          }
         }
 
         try {
@@ -8993,17 +9035,26 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
    */
   router.post("/planning/start-breakdown", async (req, res) => {
     try {
-      const { sessionId } = req.body;
+      const { sessionId, summary: summaryInput } = req.body as {
+        sessionId?: unknown;
+        summary?: unknown;
+      };
 
       if (!sessionId || typeof sessionId !== "string") {
         throw badRequest("sessionId is required");
       }
+
+      const summaryOverride = parsePlanningSummaryOverride(summaryInput);
 
       const { getSession, generateSubtasksFromPlanning } = await import("./planning.js");
 
       const session = getSession(sessionId);
       if (!session) {
         throw notFound(`Planning session ${sessionId} not found or expired`);
+      }
+
+      if (summaryOverride) {
+        session.summary = summaryOverride;
       }
 
       if (!session.summary) {
