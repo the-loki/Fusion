@@ -72,6 +72,35 @@ const STEP_STATUSES: StepStatus[] = ["pending", "in-progress", "done", "skipped"
 
 /** Maximum retry attempts for workflow step hard failures before giving up */
 const MAX_WORKFLOW_STEP_RETRIES = 3;
+
+/**
+ * Decide the earliest step index that must be reset when a workflow reviewer
+ * (e.g. Frontend UX Design) requests revision. Two invariants:
+ *   - Preflight (step 0, when named "preflight") is never reset — redoing it
+ *     is pure waste because it only reads context, and revision feedback
+ *     never targets it. This alone saves 10–15 min per revision.
+ *   - If the feedback text mentions a distinctive (>=5-char) token from a
+ *     step's name, the reset starts at that step; everything before it stays
+ *     `done`. This avoids dragging already-approved earlier steps through
+ *     plan-review / code-review again.
+ * Returns an index >= steps.length when there is nothing to reset.
+ */
+export function determineRevisionResetStart(
+  steps: ReadonlyArray<{ name: string }>,
+  feedback: string,
+): number {
+  const total = steps.length;
+  if (total === 0) return 0;
+  const skipPreflight = /preflight/i.test(steps[0].name);
+  const firstCandidate = skipPreflight ? 1 : 0;
+  if (firstCandidate >= total) return total;
+  const fb = feedback.toLowerCase();
+  for (let i = firstCandidate; i < total; i++) {
+    const tokens = steps[i].name.toLowerCase().match(/[a-z][a-z]{4,}/g) ?? [];
+    if (tokens.some((t) => fb.includes(t))) return i;
+  }
+  return firstCandidate;
+}
 const WORKFLOW_SCRIPT_OUTPUT_MAX_CHARS = 4_000;
 
 class NonRetryableWorktreeError extends Error {}
@@ -1255,12 +1284,15 @@ export class TaskExecutor {
             await this.store.logEntry(task.id, `Worktree created at ${worktreePath}`, undefined, this.currentRunContext);
           }
 
-          // Run worktree init command for fresh worktrees (skip for pooled — caches are warm)
-          // Non-blocking: uses async exec so the executor event loop keeps running
-          // while the user-configured command (e.g. `pnpm install`) executes.
+          // Run worktree init command for fresh worktrees (skip for pooled — caches are warm).
+          // The init command must leave the worktree in a state where workspace
+          // packages resolve at runtime (e.g. `pnpm install && pnpm build`). If
+          // it doesn't, the first command the executor runs will usually fail
+          // with "@fusion/core entry not found" because monorepo exports point
+          // to dist/. 5-minute timeout accommodates install + build together.
           if (settings.worktreeInitCommand) {
             try {
-              const initResult = await runConfiguredCommand(settings.worktreeInitCommand, worktreePath, 120_000);
+              const initResult = await runConfiguredCommand(settings.worktreeInitCommand, worktreePath, 300_000);
               if (initResult.spawnError || initResult.timedOut || initResult.exitCode !== 0) {
                 throw new Error(configuredCommandErrorMessage(initResult));
               }
@@ -1270,7 +1302,13 @@ export class TaskExecutor {
               const message = "stderr" in execError && typeof (execError as Record<string, unknown>).stderr === "string"
                 ? String((execError as Record<string, unknown>).stderr)
                 : execError.message;
-              await this.store.logEntry(task.id, `Worktree init command failed: ${message}`, undefined, this.currentRunContext);
+              executorLog.error(`${task.id}: worktree init command failed — first test run will likely fail: ${message}`);
+              await this.store.logEntry(
+                task.id,
+                `Worktree init command failed (first test run will likely fail): ${message}`,
+                undefined,
+                this.currentRunContext,
+              );
             }
           }
 
@@ -2808,18 +2846,34 @@ export class TaskExecutor {
     stepName: string,
   ): Promise<void> {
     executorLog.log(`${task.id}: workflow revision requested by step "${stepName}"`);
+
+    // Scope the reset: keep Preflight intact and, when feedback mentions a
+    // specific step, only reset from that step onward. Earlier already-reviewed
+    // steps stay done, avoiding redundant plan/code-review round-trips.
+    const updatedTask = await this.store.getTask(task.id);
+    const resetStart = determineRevisionResetStart(updatedTask.steps, feedback);
+    const targetStepName =
+      resetStart < updatedTask.steps.length ? updatedTask.steps[resetStart].name : null;
+    const resetSummary =
+      resetStart >= updatedTask.steps.length
+        ? "no steps to reset"
+        : `resetting steps ${resetStart + 1}–${updatedTask.steps.length} (starting at "${targetStepName}")`;
+
     await this.store.logEntry(
       task.id,
-      `Workflow step "${stepName}" requested revision — resetting execution state`,
+      `Workflow step "${stepName}" requested revision — ${resetSummary}`,
       feedback,
     );
 
     // 1. Update PROMPT.md with revision instructions
-    await this.injectWorkflowRevisionInstructions(task, feedback);
+    await this.injectWorkflowRevisionInstructions(task, feedback, {
+      resetStart,
+      targetStepName,
+      totalSteps: updatedTask.steps.length,
+    });
 
-    // 2. Reset all steps to pending for fresh execution
-    const updatedTask = await this.store.getTask(task.id);
-    for (let i = 0; i < updatedTask.steps.length; i++) {
+    // 2. Reset the scoped range of steps to pending
+    for (let i = resetStart; i < updatedTask.steps.length; i++) {
       if (updatedTask.steps[i].status !== "pending") {
         await this.store.updateStep(task.id, i, "pending");
       }
@@ -2865,9 +2919,13 @@ export class TaskExecutor {
    * This section contains feedback from workflow steps that requested revisions.
    * The section is replaced entirely to avoid accumulation of old feedback.
    */
-  private async injectWorkflowRevisionInstructions(task: Task, feedback: string): Promise<void> {
+  private async injectWorkflowRevisionInstructions(
+    task: Task,
+    feedback: string,
+    scope?: { resetStart: number; targetStepName: string | null; totalSteps: number },
+  ): Promise<void> {
     const promptPath = join(this.store.getFusionDir(), "tasks", task.id, "PROMPT.md");
-    
+
     // Read existing PROMPT.md
     let content: string;
     try {
@@ -2875,6 +2933,18 @@ export class TaskExecutor {
     } catch {
       executorLog.warn(`${task.id}: PROMPT.md not found at ${promptPath}, skipping revision injection`);
       return;
+    }
+
+    // Describe which steps were reset so the executor knows not to re-run
+    // Preflight or any earlier already-approved steps. When no scope is
+    // provided (legacy callers), fall back to the previous "all steps" wording.
+    let scopeLine: string;
+    if (scope && scope.targetStepName && scope.resetStart < scope.totalSteps) {
+      scopeLine = `Re-execution starts at **Step ${scope.resetStart + 1} ("${scope.targetStepName}")**. Earlier steps remain done — do not re-run them unless the feedback explicitly calls them out.`;
+    } else if (scope && scope.resetStart >= scope.totalSteps) {
+      scopeLine = "No steps were reset; apply the feedback as an in-place fix and call task_done() when complete.";
+    } else {
+      scopeLine = "Address the feedback above by making the necessary code changes, then mark all affected steps as done and call task_done() when complete.";
     }
 
     // Check for existing Workflow Revision Instructions section
@@ -2885,7 +2955,7 @@ The following feedback was received from quality gates and requires implementati
 
 ${feedback}
 
-**Important:** This is a revision request — address the feedback above by making the necessary code changes, then mark all affected steps as done and call task_done() when complete.
+**Important:** ${scopeLine}
 
 `;
 

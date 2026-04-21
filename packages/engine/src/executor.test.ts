@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { AgentSemaphore } from "./concurrency.js";
-import { detectReviewHandoffIntent } from "./executor.js";
+import { detectReviewHandoffIntent, determineRevisionResetStart } from "./executor.js";
 
 // Mock external dependencies
 vi.mock("./pi.js", () => ({
@@ -428,7 +428,7 @@ describe("TaskExecutor worktreeInitCommand", () => {
     expect(initCall).toBeDefined();
     expect(initCall![1]).toMatchObject({
       cwd: expect.stringContaining(".worktrees/"),
-      timeout: 120_000,
+      timeout: 300_000,
     });
 
     // Should log success
@@ -11326,5 +11326,64 @@ describe("TaskExecutor messaging tools", () => {
     const toolNames = tools.map((t: any) => t.name);
     expect(toolNames).not.toContain("list_agents");
     expect(toolNames).not.toContain("delegate_task");
+  });
+});
+
+describe("determineRevisionResetStart", () => {
+  const steps = [
+    { name: "Preflight" },
+    { name: "Reposition the agent badge in TaskCard.tsx" },
+    { name: "Restyle `.card-agent-badge` and add `.card-agent-row` in styles.css" },
+    { name: "Update tests" },
+    { name: "Testing & Verification" },
+    { name: "Documentation & Delivery" },
+  ];
+
+  it("skips Preflight when feedback targets a later step", () => {
+    // Feedback is phrased to hit step 2's "restyle" without also mentioning
+    // step 1's distinctive tokens (reposition / badge / taskcard / agent).
+    const feedback = "The card styling needs more contrast — restyle the class tokens.";
+    expect(determineRevisionResetStart(steps, feedback)).toBe(2);
+  });
+
+  it("matches earliest step when multiple step names are mentioned", () => {
+    const feedback = "The reposition logic is off, and the restyle tokens also need a second pass.";
+    expect(determineRevisionResetStart(steps, feedback)).toBe(1);
+  });
+
+  it("falls back to first non-Preflight step when feedback matches nothing", () => {
+    const feedback = "Please improve overall polish and typography hierarchy.";
+    expect(determineRevisionResetStart(steps, feedback)).toBe(1);
+  });
+
+  it("never resets a Preflight step even if feedback somehow mentions preflight", () => {
+    const feedback = "Preflight context looks wrong; restyle the row as well.";
+    // Step 0 is Preflight → skipped. Earliest remaining match is step 2 (restyle).
+    expect(determineRevisionResetStart(steps, feedback)).toBe(2);
+  });
+
+  it("is case-insensitive across both feedback and step names", () => {
+    const feedback = "RESTYLE the component, please.";
+    expect(determineRevisionResetStart(steps, feedback)).toBe(2);
+  });
+
+  it("returns 0 when there is no Preflight and no match", () => {
+    const noPreflight = [{ name: "Apply Fix" }, { name: "Testing & Verification" }];
+    expect(determineRevisionResetStart(noPreflight, "please improve polish")).toBe(0);
+  });
+
+  it("returns steps.length for an empty step list (nothing to reset)", () => {
+    expect(determineRevisionResetStart([], "anything")).toBe(0);
+  });
+
+  it("returns steps.length when only a Preflight step exists (nothing to reset)", () => {
+    expect(determineRevisionResetStart([{ name: "Preflight" }], "anything")).toBe(1);
+  });
+
+  it("ignores short tokens like 'test' to avoid matching 'Update tests' for generic feedback", () => {
+    // "test" is 4 chars — below the 5+ char threshold — so generic feedback
+    // mentioning "test" alone should not target the "Update tests" step.
+    const feedback = "Please test this by clicking.";
+    expect(determineRevisionResetStart(steps, feedback)).toBe(1);
   });
 });
