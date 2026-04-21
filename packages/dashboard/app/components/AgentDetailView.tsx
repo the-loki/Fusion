@@ -1130,9 +1130,9 @@ function RunsTab({
             <button
               className="btn btn--sm btn--primary"
               onClick={() => void handleRunHeartbeat()}
-              aria-label={`Run heartbeat for ${agentName ?? agentId}`}
+              aria-label={`Run now for ${agentName ?? agentId}`}
             >
-              <Activity size={14} /> Run Heartbeat
+              <Activity size={14} /> Run Now
             </button>
           </div>
         )}
@@ -1405,9 +1405,9 @@ function RunsTab({
             <button
               className="btn btn--sm btn--primary"
               onClick={() => void handleRunHeartbeat()}
-              aria-label={`Run heartbeat for ${agentName ?? agentId}`}
+              aria-label={`Run now for ${agentName ?? agentId}`}
             >
-              <Activity size={14} /> Run Heartbeat
+              <Activity size={14} /> Run Now
             </button>
           </div>
         </div>

@@ -34,7 +34,7 @@ describe("Agent runs UI — static analysis", () => {
     });
   });
 
-  describe("AgentsView Run Heartbeat button", () => {
+  describe("AgentsView Run Now button", () => {
     it("has handleRunHeartbeat function", () => {
       expect(agentsViewContent).toContain("handleRunHeartbeat");
     });
@@ -44,12 +44,12 @@ describe("Agent runs UI — static analysis", () => {
       expect(agentsViewContent).toMatch(/startAgentRun.*Triggered from dashboard/);
     });
 
-    it("shows Run Heartbeat button for active agents with taskId", () => {
+    it("shows Run Now button for active agents", () => {
       // The button should appear in the active state block
-      // and should be conditioned on agent.taskId
+      // and always be available for active agents.
       const activeBlock = agentsViewContent.match(/agent\.state === "active"[\s\S]*?agent\.state === "paused"/)?.[0] ?? "";
       expect(activeBlock).toContain("handleRunHeartbeat");
-      expect(activeBlock).toContain("agent.taskId");
+      expect(activeBlock).toContain("Run Now");
     });
 
     it("shows disabled button for running agents", () => {
@@ -57,7 +57,7 @@ describe("Agent runs UI — static analysis", () => {
       expect(runningBlock).toContain("disabled");
     });
 
-    it("uses Activity icon for the Run Heartbeat button", () => {
+    it("uses Activity icon for the Run Now button", () => {
       expect(agentsViewContent).toContain("handleRunHeartbeat");
       // Activity icon is imported and used in run heartbeat buttons
       expect(agentsViewContent).toMatch(/from.*lucide-react/);
@@ -74,12 +74,12 @@ describe("Agent runs UI — static analysis", () => {
       expect(agentDetailViewContent).toMatch(/fetchAgentRunDetail/);
     });
 
-    it("has startAgentRun import for Run Heartbeat button", () => {
+    it("has startAgentRun import for Run Now button", () => {
       expect(agentDetailViewContent).toMatch(/import.*startAgentRun.*from.*api/);
     });
 
-    it("has Run Heartbeat button in runs tab", () => {
-      expect(agentDetailViewContent).toMatch(/Run Heartbeat/);
+    it("has Run Now button in runs tab", () => {
+      expect(agentDetailViewContent).toMatch(/Run Now/);
       expect(agentDetailViewContent).toMatch(/handleRunHeartbeat/);
     });
 

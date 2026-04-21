@@ -853,6 +853,55 @@ describe("AgentsView", () => {
     });
   });
 
+  describe("Run Now button", () => {
+    it("shows Run Now button for active agent without taskId", async () => {
+      const activeWithoutTaskId = { ...mockAgents[1] };
+      delete activeWithoutTaskId.taskId;
+      mockFetchAgents.mockResolvedValue([
+        mockAgents[0],
+        activeWithoutTaskId,
+        mockAgents[2],
+        mockAgents[3],
+      ]);
+
+      render(<AgentsView addToast={mockAddToast} />);
+
+      await waitFor(() => {
+        expect(screen.getByTitle("Run Now")).toBeTruthy();
+      });
+    });
+
+    it("Run Now button calls startAgentRun for active agent without taskId", async () => {
+      const activeWithoutTaskId = { ...mockAgents[1] };
+      delete activeWithoutTaskId.taskId;
+      mockFetchAgents.mockResolvedValue([
+        mockAgents[0],
+        activeWithoutTaskId,
+        mockAgents[2],
+        mockAgents[3],
+      ]);
+
+      render(<AgentsView addToast={mockAddToast} />);
+
+      await waitFor(() => {
+        expect(screen.getByTitle("Run Now")).toBeTruthy();
+      });
+
+      fireEvent.click(screen.getByTitle("Run Now"));
+
+      await waitFor(() => {
+        expect(mockStartAgentRun).toHaveBeenCalledWith(
+          "agent-002",
+          undefined,
+          expect.objectContaining({
+            source: "on_demand",
+            triggerDetail: "Triggered from dashboard",
+          }),
+        );
+      });
+    });
+  });
+
   describe("delete agent", () => {
     it("shows Delete button for idle and terminated agents in default view", async () => {
       render(<AgentsView addToast={mockAddToast} />);

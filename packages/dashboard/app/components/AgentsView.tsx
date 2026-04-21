@@ -730,16 +730,14 @@ export function AgentsView({ addToast, projectId }: AgentsViewProps) {
                     )}
                     {agent.state === "active" && (
                       <>
-                        {agent.taskId && (
-                          <button
-                            className="btn btn--sm"
-                            onClick={() => void handleRunHeartbeat(agent.id, agent.name)}
-                            title="Run Heartbeat"
-                            aria-label={`Run heartbeat for ${agent.name}`}
-                          >
-                            <Activity size={14} />
-                          </button>
-                        )}
+                        <button
+                          className="btn btn--sm"
+                          onClick={() => void handleRunHeartbeat(agent.id, agent.name)}
+                          title="Run Now"
+                          aria-label={`Run now for ${agent.name}`}
+                        >
+                          <Activity size={14} />
+                        </button>
                         <button
                           className="btn btn--sm"
                           onClick={() => void handleStateChange(agent.id, "paused")}
@@ -776,16 +774,14 @@ export function AgentsView({ addToast, projectId }: AgentsViewProps) {
                     )}
                     {agent.state === "running" && (
                       <>
-                        {agent.taskId && (
-                          <button
-                            className="btn btn--sm"
-                            disabled
-                            title="Run in progress"
-                            aria-label={`Heartbeat run in progress for ${agent.name}`}
-                          >
-                            <Activity size={14} />
-                          </button>
-                        )}
+                        <button
+                          className="btn btn--sm"
+                          disabled
+                          title="Run in progress"
+                          aria-label={`Heartbeat run in progress for ${agent.name}`}
+                        >
+                          <Activity size={14} />
+                        </button>
                         <button
                           className="btn btn--sm"
                           onClick={() => void handleStateChange(agent.id, "paused")}
@@ -990,16 +986,14 @@ export function AgentsView({ addToast, projectId }: AgentsViewProps) {
                     )}
                     {agent.state === "active" && (
                       <>
-                        {agent.taskId && (
-                          <button
-                            className="btn btn--sm"
-                            onClick={() => void handleRunHeartbeat(agent.id, agent.name)}
-                            title="Run Heartbeat"
-                            aria-label={`Run heartbeat for ${agent.name}`}
-                          >
-                            <Activity size={14} /> Run
-                          </button>
-                        )}
+                        <button
+                          className="btn btn--sm"
+                          onClick={() => void handleRunHeartbeat(agent.id, agent.name)}
+                          title="Run Now"
+                          aria-label={`Run now for ${agent.name}`}
+                        >
+                          <Activity size={14} /> Run Now
+                        </button>
                         <button
                           className="btn btn--sm"
                           onClick={() => void handleStateChange(agent.id, "paused")}
@@ -1036,16 +1030,14 @@ export function AgentsView({ addToast, projectId }: AgentsViewProps) {
                     )}
                     {agent.state === "running" && (
                       <>
-                        {agent.taskId && (
-                          <button
-                            className="btn btn--sm"
-                            disabled
-                            title="Run in progress"
-                            aria-label={`Heartbeat run in progress for ${agent.name}`}
-                          >
-                            <Activity size={14} /> Running
-                          </button>
-                        )}
+                        <button
+                          className="btn btn--sm"
+                          disabled
+                          title="Run in progress"
+                          aria-label={`Heartbeat run in progress for ${agent.name}`}
+                        >
+                          <Activity size={14} /> Running
+                        </button>
                         <button
                           className="btn btn--sm"
                           onClick={() => void handleStateChange(agent.id, "paused")}
