@@ -497,55 +497,61 @@ describe("planning module", () => {
     });
 
     it("logs error diagnostic when agent initialization fails and preserves error state", async () => {
-      const loggedErrors: Array<{ message: string; args: unknown[] }> = [];
-      __setPlanningDiagnostics({
-        log: vi.fn(),
-        warn: vi.fn(),
-        error: (message: string, ...args: unknown[]) => {
-          loggedErrors.push({ message, args });
-        },
+      // Import the shared helper for diagnostics capture
+      const { setDiagnosticsSink, resetDiagnosticsSink } = await import("./ai-session-diagnostics.js");
+
+      let loggedErrors: Array<{ level: string; scope: string; message: string; context: Record<string, unknown> }> = [];
+      setDiagnosticsSink((level, scope, message, context) => {
+        loggedErrors.push({ level, scope, message, context });
       });
 
-      __setCreateFnAgent(async () => {
-        throw new Error("Agent creation failed");
-      });
+      try {
+        __setCreateFnAgent(async () => {
+          throw new Error("Agent creation failed");
+        });
 
-      const sessionId = await createSessionWithAgent(
-        getUniqueIp(),
-        "Build auth system",
-        TEST_ROOT_DIR,
-      );
+        const sessionId = await createSessionWithAgent(
+          getUniqueIp(),
+          "Build auth system",
+          TEST_ROOT_DIR,
+        );
 
-      // Wait for the async initialization to complete (errors are logged in initializeAgent's catch block)
-      await vi.waitFor(
-        () => {
-          return loggedErrors.some(
-            (e) => e.message === `Agent initialization error for session ${sessionId}:`
-          );
-        },
-        { timeout: 10000 },
-      );
+        // Wait for the async initialization to complete (errors are logged in initializeAgent's catch block)
+        await vi.waitFor(
+          () => {
+            return loggedErrors.some(
+              (e) => e.message === "Agent initialization error for session" && e.context.sessionId === sessionId
+            );
+          },
+          { timeout: 10000 },
+        );
 
-      // Verify the error was logged
-      await vi.waitFor(
-        () => {
-          const agentError = loggedErrors.find(
-            (e) => e.message === `Agent initialization error for session ${sessionId}:`
-          );
-          expect(agentError).toBeDefined();
-        },
-        { timeout: 5000 },
-      );
+        // Verify the error was logged with correct structure
+        await vi.waitFor(
+          () => {
+            const agentError = loggedErrors.find(
+              (e) => e.message === "Agent initialization error for session" && e.context.sessionId === sessionId
+            );
+            expect(agentError).toBeDefined();
+            expect(agentError?.level).toBe("error");
+            expect(agentError?.scope).toBe("planning");
+          },
+          { timeout: 5000 },
+        );
 
-      const agentError = loggedErrors.find(
-        (e) => e.message === `Agent initialization error for session ${sessionId}:`
-      );
-      expect(agentError?.args[0]).toBeInstanceOf(Error);
-      expect((agentError?.args[0] as Error).message).toBe("Agent creation failed");
+        const agentError = loggedErrors.find(
+          (e) => e.message === "Agent initialization error for session" && e.context.sessionId === sessionId
+        );
+        expect(agentError?.context.error).toBeDefined();
+        expect((agentError?.context.error as { message: string }).message).toBe("Agent creation failed");
+        expect(agentError?.context.operation).toBe("initialize-agent");
 
-      // Verify session is in error state
-      const session = getSession(sessionId);
-      expect(session?.error).toContain("Agent creation failed");
+        // Verify session is in error state
+        const session = getSession(sessionId);
+        expect(session?.error).toContain("Agent creation failed");
+      } finally {
+        resetDiagnosticsSink();
+      }
     });
   });
 
@@ -973,7 +979,10 @@ describe("planning module", () => {
       expect(session?.thinkingOutput).toBe("thinking");
     });
 
-    it("skips corrupted rows and continues rehydrating valid sessions", () => {
+    it("skips corrupted rows and continues rehydrating valid sessions", async () => {
+      // Import the shared helper for diagnostics capture
+      const { setDiagnosticsSink, resetDiagnosticsSink } = await import("./ai-session-diagnostics.js");
+
       const store = new MockAiSessionStore();
       const goodRow = buildPlanningRow({ id: "planning-good", status: "awaiting_input" });
       const badRow = buildPlanningRow({
@@ -984,24 +993,31 @@ describe("planning module", () => {
       store.rows.set(goodRow.id, goodRow);
       store.rows.set(badRow.id, badRow);
 
-      const loggedErrors: Array<{ message: string; args: unknown[] }> = [];
-      __setPlanningDiagnostics({
-        log: vi.fn(),
-        warn: vi.fn(),
-        error: (message: string, ...args: unknown[]) => {
-          loggedErrors.push({ message, args });
-        },
+      let loggedErrors: Array<{ level: string; scope: string; message: string; context: Record<string, unknown> }> = [];
+      setDiagnosticsSink((level, scope, message, context) => {
+        loggedErrors.push({ level, scope, message, context });
       });
 
-      const rehydrated = rehydrateFromStore(store as any);
+      try {
+        const rehydrated = rehydrateFromStore(store as any);
 
-      expect(rehydrated).toBe(1);
-      expect(getSession(goodRow.id)).toBeDefined();
-      expect(getSession(badRow.id)).toBeUndefined();
-      expect(loggedErrors).toContainEqual({
-        message: `Failed to rehydrate session ${badRow.id}:`,
-        args: [expect.any(Error)],
-      });
+        expect(rehydrated).toBe(1);
+        expect(getSession(goodRow.id)).toBeDefined();
+        expect(getSession(badRow.id)).toBeUndefined();
+        expect(loggedErrors).toContainEqual(
+          expect.objectContaining({
+            level: "error",
+            scope: "planning",
+            message: "Failed to rehydrate session",
+            context: expect.objectContaining({
+              sessionId: "planning-bad",
+              operation: "rehydrate",
+            }),
+          })
+        );
+      } finally {
+        resetDiagnosticsSink();
+      }
     });
   });
 
@@ -1266,62 +1282,92 @@ describe("planning module", () => {
       expect(result.type).toBe("complete");
     });
 
-    it("logs error diagnostic when no JSON candidate found before throwing", () => {
-      const loggedErrors: Array<{ message: string; args: unknown[] }> = [];
-      __setPlanningDiagnostics({
-        log: vi.fn(),
-        warn: vi.fn(),
-        error: (message: string, ...args: unknown[]) => {
-          loggedErrors.push({ message, args });
-        },
+    it("logs error diagnostic when no JSON candidate found before throwing", async () => {
+      // Import the shared helper for diagnostics capture
+      const { setDiagnosticsSink, resetDiagnosticsSink } = await import("./ai-session-diagnostics.js");
+
+      let loggedErrors: Array<{ level: string; scope: string; message: string; context: Record<string, unknown> }> = [];
+      setDiagnosticsSink((level, scope, message, context) => {
+        loggedErrors.push({ level, scope, message, context });
       });
 
-      const input = "I'm not sure what to ask about this project.";
-      expect(() => parseAgentResponse(input)).toThrow("no valid JSON");
+      try {
+        const input = "I'm not sure what to ask about this project.";
+        expect(() => parseAgentResponse(input)).toThrow("no valid JSON");
 
-      expect(loggedErrors).toContainEqual({
-        message: "No JSON candidate found in agent response:",
-        args: [expect.stringContaining("I'm not sure")],
-      });
+        expect(loggedErrors).toContainEqual(
+          expect.objectContaining({
+            level: "error",
+            scope: "planning",
+            message: "No JSON candidate found in agent response",
+            context: expect.objectContaining({
+              inputSnippet: expect.stringContaining("I'm not sure"),
+              operation: "parse-json",
+            }),
+          })
+        );
+      } finally {
+        resetDiagnosticsSink();
+      }
     });
 
-    it("logs error diagnostic when repair also fails before throwing", () => {
-      const loggedErrors: Array<{ message: string; args: unknown[] }> = [];
-      __setPlanningDiagnostics({
-        log: vi.fn(),
-        warn: vi.fn(),
-        error: (message: string, ...args: unknown[]) => {
-          loggedErrors.push({ message, args });
-        },
+    it("logs error diagnostic when repair also fails before throwing", async () => {
+      // Import the shared helper for diagnostics capture
+      const { setDiagnosticsSink, resetDiagnosticsSink } = await import("./ai-session-diagnostics.js");
+
+      let loggedErrors: Array<{ level: string; scope: string; message: string; context: Record<string, unknown> }> = [];
+      setDiagnosticsSink((level, scope, message, context) => {
+        loggedErrors.push({ level, scope, message, context });
       });
 
-      // Invalid JSON that repair cannot fix (missing quotes around values, unclosed objects)
-      const input = '{"type":"question","data":{"id":q-1,"question":"What is this?';
-      expect(() => parseAgentResponse(input)).toThrow("Failed to parse AI response");
+      try {
+        // Invalid JSON that repair cannot fix (missing quotes around values, unclosed objects)
+        const input = '{"type":"question","data":{"id":q-1,"question":"What is this?';
+        expect(() => parseAgentResponse(input)).toThrow("Failed to parse AI response");
 
-      expect(loggedErrors).toContainEqual({
-        message: "Failed to parse agent response (repair also failed):",
-        args: [expect.stringContaining("{\"type\":\"question\"")],
-      });
+        expect(loggedErrors).toContainEqual(
+          expect.objectContaining({
+            level: "error",
+            scope: "planning",
+            message: "Failed to parse agent response (repair also failed)",
+            context: expect.objectContaining({
+              inputSnippet: expect.stringContaining('{"type":"question"'),
+              operation: "parse-json-repair",
+            }),
+          })
+        );
+      } finally {
+        resetDiagnosticsSink();
+      }
     });
 
-    it("logs error diagnostic for invalid response structure before throwing", () => {
-      const loggedErrors: Array<{ message: string; args: unknown[] }> = [];
-      __setPlanningDiagnostics({
-        log: vi.fn(),
-        warn: vi.fn(),
-        error: (message: string, ...args: unknown[]) => {
-          loggedErrors.push({ message, args });
-        },
+    it("logs error diagnostic for invalid response structure before throwing", async () => {
+      // Import the shared helper for diagnostics capture
+      const { setDiagnosticsSink, resetDiagnosticsSink } = await import("./ai-session-diagnostics.js");
+
+      let loggedErrors: Array<{ level: string; scope: string; message: string; context: Record<string, unknown> }> = [];
+      setDiagnosticsSink((level, scope, message, context) => {
+        loggedErrors.push({ level, scope, message, context });
       });
 
-      const input = '{"type":"unknown","data":null}';
-      expect(() => parseAgentResponse(input)).toThrow("invalid response structure");
+      try {
+        const input = '{"type":"unknown","data":null}';
+        expect(() => parseAgentResponse(input)).toThrow("invalid response structure");
 
-      expect(loggedErrors).toContainEqual({
-        message: "Invalid response structure from AI:",
-        args: [expect.stringContaining('"type":"unknown"')],
-      });
+        expect(loggedErrors).toContainEqual(
+          expect.objectContaining({
+            level: "error",
+            scope: "planning",
+            message: "Invalid response structure from AI",
+            context: expect.objectContaining({
+              parsedSnippet: expect.stringContaining('"type":"unknown"'),
+              operation: "parse-validate",
+            }),
+          })
+        );
+      } finally {
+        resetDiagnosticsSink();
+      }
     });
   });
 
@@ -1485,47 +1531,57 @@ describe("planning module", () => {
       expect(planningStreamManager.getBufferedEvents(sessionId, 0)).toEqual([]);
     });
 
-    it("broadcast callback throw logs error but broadcast continues and buffer remains valid", () => {
+    it("broadcast callback throw logs error but broadcast continues and buffer remains valid", async () => {
+      // Import the shared helper for diagnostics capture
+      const { setDiagnosticsSink, resetDiagnosticsSink } = await import("./ai-session-diagnostics.js");
+
       const sessionId = "stream-session-throw";
-      const loggedErrors: Array<{ message: string; args: unknown[] }> = [];
-      __setPlanningDiagnostics({
-        log: vi.fn(),
-        warn: vi.fn(),
-        error: (message: string, ...args: unknown[]) => {
-          loggedErrors.push({ message, args });
-        },
+      let loggedErrors: Array<{ level: string; scope: string; message: string; context: Record<string, unknown> }> = [];
+      setDiagnosticsSink((level, scope, message, context) => {
+        loggedErrors.push({ level, scope, message, context });
       });
 
-      let otherCallbackCalled = false;
-      const failingCallback = () => {
-        throw new Error("Callback failed");
-      };
-      const workingCallback = () => {
-        otherCallbackCalled = true;
-      };
+      try {
+        let otherCallbackCalled = false;
+        const failingCallback = () => {
+          throw new Error("Callback failed");
+        };
+        const workingCallback = () => {
+          otherCallbackCalled = true;
+        };
 
-      planningStreamManager.subscribe(sessionId, failingCallback);
-      planningStreamManager.subscribe(sessionId, workingCallback);
+        planningStreamManager.subscribe(sessionId, failingCallback);
+        planningStreamManager.subscribe(sessionId, workingCallback);
 
-      const eventId = planningStreamManager.broadcast(sessionId, {
-        type: "thinking",
-        data: "test",
-      });
+        const eventId = planningStreamManager.broadcast(sessionId, {
+          type: "thinking",
+          data: "test",
+        });
 
-      // Broadcast should continue despite callback failure
-      expect(eventId).toBe(1);
-      expect(otherCallbackCalled).toBe(true);
+        // Broadcast should continue despite callback failure
+        expect(eventId).toBe(1);
+        expect(otherCallbackCalled).toBe(true);
 
-      // Buffer should still be valid
-      const buffered = planningStreamManager.getBufferedEvents(sessionId, 0);
-      expect(buffered).toHaveLength(1);
-      expect(buffered[0]).toMatchObject({ id: 1, event: "thinking" });
+        // Buffer should still be valid
+        const buffered = planningStreamManager.getBufferedEvents(sessionId, 0);
+        expect(buffered).toHaveLength(1);
+        expect(buffered[0]).toMatchObject({ id: 1, event: "thinking" });
 
-      // Error should be logged
-      expect(loggedErrors).toContainEqual({
-        message: `Error broadcasting to client for session ${sessionId}:`,
-        args: [expect.any(Error)],
-      });
+        // Error should be logged with correct structure
+        expect(loggedErrors).toContainEqual(
+          expect.objectContaining({
+            level: "error",
+            scope: "planning",
+            message: "Error broadcasting to client",
+            context: expect.objectContaining({
+              sessionId,
+              operation: "broadcast",
+            }),
+          })
+        );
+      } finally {
+        resetDiagnosticsSink();
+      }
     });
   });
 

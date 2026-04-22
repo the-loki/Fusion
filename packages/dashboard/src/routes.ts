@@ -8,15 +8,25 @@ declare module "express" {
 }
 import multer from "multer";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdtemp, access, stat, mkdir, readdir, rm, readFile as fsReadFile } from "node:fs/promises";
+import * as fsPromises from "node:fs/promises";
 import { Readable } from "node:stream";
 import { pipeline as streamPipeline } from "node:stream/promises";
 import { execFile } from "node:child_process";
 import { resolve, sep, join } from "node:path";
 import { tmpdir } from "node:os";
 import * as nodeFs from "node:fs";
-
 import { promisify } from "node:util";
+
+const {
+  mkdtemp,
+  access,
+  stat,
+  mkdir,
+  readdir,
+  rm,
+  readFile: fsReadFile,
+  writeFile: fsWriteFile,
+} = fsPromises;
 import type { TaskStore, Column, ScheduleType, ActivityEventType, ModelPreset, MessageType, ParticipantType, RoutineTriggerType, ProjectSettings, EnrichedChatSession, PlanningSummary } from "@fusion/core";
 import { COLUMNS, VALID_TRANSITIONS, GLOBAL_SETTINGS_KEYS, type BatchStatusEntry, type BatchStatusResponse, type BatchStatusResult, type IssueInfo, type PrInfo, type Task, type PiExtensionEntry, type PiExtensionSettings, getCurrentRepo, isGhAvailable, isGhAuthenticated, AutomationStore, validateBackupSchedule, validateBackupRetention, validateBackupDir, syncBackupRoutine, exportSettings, importSettings, validateImportData, MessageStore, RoutineStore, isWebhookTrigger, resolveMemoryBackend, getMemoryBackendCapabilities, listMemoryBackendTypes, listProjectMemoryFiles, readProjectMemoryFile, readProjectMemoryFileContent, writeProjectMemoryFile, listAgentMemoryFiles, readAgentMemoryFile, writeAgentMemoryFile, readMemory, writeMemory, searchProjectMemory, isQmdAvailable, installQmd, refreshQmdProjectMemoryIndex, QMD_INSTALL_COMMAND, MemoryBackendError, scheduleQmdProjectMemoryRefresh, discoverPiExtensions, updatePiExtensionDisabledIds, getFusionAgentDir, getLegacyPiAgentDir, ensureMemoryFileWithBackend, readInsightsMemory, writeInsightsMemory, generateMemoryAudit, buildInsightExtractionPrompt, parseInsightExtractionResponse, processAndAuditInsightExtraction } from "@fusion/core";
 import type { ServerOptions } from "./server.js";
@@ -11686,6 +11696,177 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
     }
   });
 
+  // ── Agent Import Skill Persistence Helpers ─────────────────────────────────
+
+/**
+ * Slugify a string for safe use in filesystem paths.
+ * Removes dangerous characters, normalizes whitespace/unicode, limits to alphanumeric + hyphens.
+ */
+function slugifyPathSegment(value: string, fallback: string): string {
+  const normalized = value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/[\s_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return normalized.length > 0 ? normalized : fallback;
+}
+
+/**
+ * Generate YAML frontmatter + markdown body string.
+ */
+function toSkillMarkdown(frontmatter: Record<string, unknown>, body: string): string {
+  const lines: string[] = [];
+  for (const [key, value] of Object.entries(frontmatter)) {
+    if (value === undefined || value === null) continue;
+    if (Array.isArray(value)) {
+      lines.push(`${key}:`);
+      for (const item of value) {
+        lines.push(`  - ${String(item)}`);
+      }
+    } else if (typeof value === "object") {
+      lines.push(`${key}: ${JSON.stringify(value)}`);
+    } else {
+      lines.push(`${key}: ${String(value)}`);
+    }
+  }
+
+  return `---\n${lines.join("\n")}\n---\n${body}`;
+}
+
+interface SkillImportResult {
+  imported: Array<{ name: string; path: string }>;
+  skipped: string[];
+  errors: Array<{ name: string; error: string }>;
+}
+
+interface SkillManifestForImport {
+  name?: unknown;
+  description?: unknown;
+  slug?: unknown;
+  schema?: unknown;
+  kind?: unknown;
+  version?: unknown;
+  license?: unknown;
+  authors?: unknown;
+  tags?: unknown;
+  instructionBody?: unknown;
+}
+
+/**
+ * Persist skill manifests from an Agent Companies package to the project skills directory.
+ * Skills are written to: {projectRoot}/skills/imported/{companySlug}/{skillSlug}/SKILL.md
+ *
+ * Collision handling: if a SKILL.md already exists, the skill is skipped (not overwritten).
+ * Path safety: all segments are slugified to prevent directory traversal attacks.
+ */
+async function persistImportedSkills(
+  projectRoot: string,
+  skills: SkillManifestForImport[],
+  companySlug: string | undefined,
+): Promise<SkillImportResult> {
+  const result: SkillImportResult = {
+    imported: [],
+    skipped: [],
+    errors: [],
+  };
+
+  if (!skills || skills.length === 0) {
+    return result;
+  }
+
+  // Slugify company slug for directory safety
+  const safeCompanySlug = companySlug
+    ? slugifyPathSegment(companySlug, "unknown-company")
+    : "unknown-company";
+
+  const skillsBaseDir = join(projectRoot, "skills", "imported", safeCompanySlug);
+
+  const usedSlugs = new Set<string>();
+
+  for (const skill of skills) {
+    const name = typeof skill.name === "string" && skill.name.trim().length > 0
+      ? skill.name.trim()
+      : null;
+
+    if (!name) {
+      result.errors.push({ name: String(skill.name ?? "?"), error: "Skill missing valid name" });
+      continue;
+    }
+
+    // Generate unique slug
+    let skillSlug = slugifyPathSegment(name, "unnamed-skill");
+    if (usedSlugs.has(skillSlug)) {
+      let counter = 2;
+      while (usedSlugs.has(`${skillSlug}-${counter}`)) {
+        counter++;
+      }
+      skillSlug = `${skillSlug}-${counter}`;
+    }
+    usedSlugs.add(skillSlug);
+
+    const skillDir = join(skillsBaseDir, skillSlug);
+    const skillPath = join(skillDir, "SKILL.md");
+
+    // Check for collision
+    try {
+      await access(skillPath);
+      // File exists, skip
+      result.skipped.push(name);
+      continue;
+    } catch {
+      // File doesn't exist, proceed
+    }
+
+    // Build frontmatter
+    const frontmatter: Record<string, unknown> = {
+      name,
+      schema: "agentcompanies/v1",
+      kind: "skill",
+    };
+
+    if (typeof skill.description === "string" && skill.description.trim()) {
+      frontmatter.description = skill.description.trim();
+    }
+    if (typeof skill.slug === "string" && skill.slug.trim()) {
+      frontmatter.slug = skill.slug.trim();
+    }
+    if (typeof skill.version === "string" && skill.version.trim()) {
+      frontmatter.version = skill.version.trim();
+    }
+    if (typeof skill.license === "string" && skill.license.trim()) {
+      frontmatter.license = skill.license.trim();
+    }
+    if (Array.isArray(skill.authors)) {
+      const validAuthors = skill.authors.filter((a): a is string => typeof a === "string");
+      if (validAuthors.length > 0) frontmatter.authors = validAuthors;
+    }
+    if (Array.isArray(skill.tags)) {
+      const validTags = skill.tags.filter((t): t is string => typeof t === "string");
+      if (validTags.length > 0) frontmatter.tags = validTags;
+    }
+
+    // Build body from instructionBody
+    const body = typeof skill.instructionBody === "string"
+      ? skill.instructionBody
+      : `# ${name}\n\n<!-- Add skill instructions here. -->`;
+
+    try {
+      await mkdir(skillDir, { recursive: true });
+      const content = toSkillMarkdown(frontmatter, body);
+      await fsWriteFile(skillPath, content, "utf-8");
+      result.imported.push({ name, path: `skills/imported/${safeCompanySlug}/${skillSlug}/SKILL.md` });
+    } catch (err) {
+      result.errors.push({ name, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  return result;
+}
+
   /**
    * POST /api/agents/import
    * Import agents from Agent Companies sources.
@@ -11738,20 +11919,25 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         };
       } else if (typeof source === "string" && source.trim()) {
         const sourcePath = resolve(source);
-        try {
-          await access(sourcePath);
-        } catch {
-          throw badRequest(`source does not exist: ${sourcePath}`);
-        }
 
         const isArchive = sourcePath.endsWith(".tar.gz")
           || sourcePath.endsWith(".tgz")
           || sourcePath.endsWith(".zip");
 
         if (isArchive) {
+          try {
+            await stat(sourcePath);
+          } catch {
+            throw badRequest(`source does not exist: ${sourcePath}`);
+          }
           pkg = await parseCompanyArchive(sourcePath);
         } else {
-          const sourceStat = await stat(sourcePath);
+          let sourceStat: import("node:fs").Stats;
+          try {
+            sourceStat = await stat(sourcePath);
+          } catch {
+            throw badRequest(`source does not exist: ${sourcePath}`);
+          }
           if (sourceStat.isDirectory()) {
             pkg = parseCompanyDirectory(sourcePath);
           } else {
@@ -12059,6 +12245,14 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         }
       }
 
+      // Persist package skills to project skills directory
+      const projectRoot = scopedStore.getRootDir();
+      const skillImportResult = await persistImportedSkills(
+        projectRoot,
+        (pkg.skills ?? []) as SkillManifestForImport[],
+        companySlug,
+      );
+
       res.json({
         companyName,
         ...(companySlug ? { companySlug } : {}),
@@ -12066,6 +12260,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         skipped: result.skipped,
         errors,
         skillsCount: (pkg.skills ?? []).length,
+        skills: skillImportResult,
       });
     } catch (err: unknown) {
       if (err instanceof ApiError) {

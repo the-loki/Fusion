@@ -99,279 +99,6 @@ Documents view supports toggling between raw text and formatted markdown when vi
 
 The toggle button is accessible with `aria-pressed` for screen readers. Toggle state is scoped per-document, so switching between documents resets the view to raw mode.
 
-### File Browser and Editor Tools
-
-Fusion also includes file browsing/editing tools (for project root and task worktrees) in file/terminal workflows, so you can inspect generated artifacts and make targeted edits without leaving the dashboard.
-
-## Activity Log
-
-The activity log tracks task/system events over time.
-
-Features:
-
-- Event type filtering
-- Auto-refresh updates
-- Operational traceability for the current `ActivityEventType` set:
-  - `task:created`
-  - `task:moved`
-  - `task:updated`
-  - `task:deleted`
-  - `task:merged`
-  - `task:failed`
-  - `settings:updated`
-
-## Theme System
-
-Visual customization includes:
-
-- Theme mode: dark/light/system
-- **54 color themes** (including Ocean, Forest, Nord, Dracula, Gruvbox, Tokyo Night, and more)
-
-Theme preferences are stored in global settings.
-
-## Usage Dialog
-
-Usage view shows provider consumption and limits.
-
-Features:
-
-- Progress bars by provider/model
-- Reset window visibility
-- Helps diagnose capacity/rate-limit conditions
-
-## Spec Editor
-
-The spec editor lets you edit `PROMPT.md` directly.
-
-Features:
-
-- Manual prompt edits
-- AI revision requests
-- Rebuild/regenerate flows when task intent changes
-
-## Planning Mode
-
-Planning mode is an AI interview workflow for shaping task scope.
-
-Features:
-
-- Clarification Q&A
-- Summary generation
-- Two final actions: **Create Task** or **Break into Tasks**
-- Multi-task creation uses key deliverables and dependency linking
-
-### Session Lifecycle
-
-- **Send to Background** — Hides the modal but preserves the session server-side. The session continues running and can be resumed from the Background Sessions panel.
-- **Close (X button or Escape)** — Explicitly abandons the session on the server. The AI stops processing and the session is terminated. Use this when you want to cancel without saving progress.
-- **Session Persistence** — Planning sessions that are actively running (generating, awaiting input, complete, or error) appear in the Background Sessions panel and can be resumed.
-
-## Subtask Breakdown Dialog
-
-The subtask dialog supports structured decomposition before creation.
-
-Features:
-
-- AI-generated subtasks
-- Drag-and-drop reordering
-- Keyboard reordering controls
-- Dependency linking constrained to earlier items
-
-### Session Lifecycle
-
-- **Send to Background** — Hides the modal but preserves the session server-side. The session continues running and can be resumed from the Background Sessions panel.
-- **Close (X button or Cancel)** — Explicitly abandons the session on the server. The AI stops processing and the session is terminated. Confirmation is shown if there are unsaved changes.
-
-## Settings Modal
-
-Central place for model/provider config, execution behavior, notifications, backups, and UI preferences.
-
-![Settings modal](./screenshots/settings.png)
-
-## Workflow Step Manager
-
-Create and manage reusable quality gates for tasks.
-
-![Workflow step manager](./screenshots/workflow-steps.png)
-
-## Agents View
-
-Inspect agents, runtime status, run history, and configuration.
-
-![Agents view](./screenshots/agents-view.png)
-
-### Agent Skill Assignment
-
-Agents can be assigned skills that determine which capabilities are injected into their sessions at execution time. Skills are configured via the agent's `metadata.skills` field (an array of requested skill names).
-
-You can set `metadata.skills` in two ways:
-- **Dashboard**: Edit an agent and add or update the `skills` key in its metadata JSON.
-- **Import**: When importing agents from YAML, the `skills` list is mapped to `metadata.skills` automatically.
-
-During task execution, the engine's `buildSessionSkillContext` reads `metadata.skills` from the assigned agent. If valid skills are present, they take **precedence** over the default role fallback skills (e.g., `executor`, `reviewer`, `merger`, `triage`). If no skills are assigned, the engine falls back to the standard role-based skill mapping.
-
-## Mission Manager
-
-Manage mission hierarchy and progression state.
-
-![Mission manager](./screenshots/mission-manager.png)
-
-## Roadmaps View
-
-Roadmaps provide a dedicated planning surface for organizing product development with hierarchical milestones and features.
-
-> Available when the `experimentalFeatures.roadmap` toggle is enabled.
-
-![Roadmaps view](./screenshots/roadmaps-view.png)
-
-### Creating Roadmaps
-
-1. Click the **+** button in the Roadmaps sidebar to create a new roadmap
-2. Enter a title and optional description
-3. Click **Create** to save
-
-### Managing Milestones
-
-- Click **+ Add Milestone** to add milestones to the selected roadmap
-- Click the **pencil icon** to edit a milestone title inline (Enter to save, Escape to cancel)
-- Click the **trash icon** to delete a milestone (requires confirmation)
-
-### Managing Features
-
-- Click **+ Add Feature** within a milestone card to add features
-- Features are displayed in a scrollable list within each milestone
-- Hover over a feature to reveal edit and delete actions
-- Click the **pencil icon** to edit a feature title inline
-- Click the **trash icon** to delete a feature (requires confirmation)
-
-### Roadmap Drag-and-Drop Ordering
-
-Milestones and features can be reordered using native drag-and-drop:
-
-**Milestone Reordering:**
-- Drag a milestone by its grip handle on the left side of the milestone card
-- Drop it before or after other milestones to reorder
-- The new order is persisted immediately
-
-**Feature Reordering:**
-- Drag a feature by its grip handle on the left side of the feature row
-- Drop before or after other features within the same milestone to reorder
-- The new order is persisted immediately
-
-**Cross-Milestone Moves:**
-- Drag a feature and drop it into a different milestone card
-- The feature is moved to the new milestone at the drop position
-- Empty milestone areas also accept drops (appends to end)
-
-**Visual Feedback:**
-- Dragging items show reduced opacity
-- Drop targets highlight with a blue border
-- Drop position indicators show before/after placement with blue lines
-
-### Roadmap Actions
-
-- Click a roadmap in the sidebar to view its milestones and features
-- Use the header buttons to edit or delete the selected roadmap
-- Delete requires confirmation and removes all associated milestones and features
-
-### AI Milestone Suggestions
-
-Roadmaps View includes one-click AI-powered milestone generation to help you quickly create milestone ideas from a goal prompt.
-
-**How to use:**
-
-1. Select a roadmap from the sidebar
-2. In the "Generate Milestone Ideas" section, describe your roadmap goal in the text area
-3. Click **Generate Milestones** to create AI suggestions
-4. Review the suggested milestones:
-   - Click the **pencil icon** to edit a suggestion before accepting
-   - Click the **check icon** on any suggestion to accept it as a milestone
-   - Click **Accept All** to add all suggestions as milestones (in order)
-   - Click the **X** button to clear all suggestions
-
-**Editing Suggestions:**
-
-- Click the **pencil icon** on any suggestion to open the inline editor
-- Modify the title and/or description
-- Click **check** to save your changes or **X** to cancel
-- Changes are reflected immediately and used when accepting
-
-**Key features:**
-
-- Suggestions are generated using AI and include both titles and descriptions
-- Suggestions are editable before acceptance - click the pencil icon to modify
-- Empty or whitespace-only titles are not accepted (validation enforced)
-- Accepted milestones appear immediately in your roadmap
-- Milestones are created in the order displayed in the suggestion list
-- Suggestions are ephemeral (in-memory only) and don't persist to the database
-- The generate button is disabled when no roadmap is selected or prompt is empty
-
-### AI Feature Suggestions
-
-Within each milestone, you can generate AI-powered feature suggestions to quickly add features.
-
-**How to use:**
-
-1. Open a roadmap and select it
-2. Find the milestone you want to add features to
-3. Click the **AI Suggestions** button in the milestone's action bar
-4. Review the suggested features:
-   - Click the **pencil icon** to edit a suggestion before accepting
-   - Click the **check icon** on any suggestion to accept it as a feature
-   - Click **Accept All** to add all suggestions as features (in order)
-   - Click **Clear** to discard all suggestions
-
-**Editing Suggestions:**
-
-- Click the **pencil icon** on any feature suggestion to open the inline editor
-- Modify the title and/or description
-- Click **check** to save your changes or **X** to cancel
-- Changes are reflected immediately and used when accepting
-
-**Key features:**
-
-- Features are generated using AI based on the milestone's context
-- Suggestions include existing features to avoid duplication
-- Suggestions are editable before acceptance - click the pencil icon to modify
-- Empty or whitespace-only titles are not accepted (validation enforced)
-- Accepted features appear immediately in the milestone
-- Features are created in the order displayed in the suggestion list
-- Suggestion state is scoped to each milestone (no cross-milestone leakage)
-- The AI Suggestions button shows "Generating..." while a request is in flight
-
-### Empty States
-
-- **No roadmaps**: "No roadmaps yet. Click + to create one."
-- **No milestones**: "This roadmap has no milestones. Click + on a milestone lane to add one."
-- **No features**: "No features yet." displayed within each milestone card
-
-### Roadmap Export / Handoff
-
-Roadmaps can be exported as structured data for use in mission and task planning flows.
-
-**How to use:**
-
-1. Hover over a roadmap in the sidebar
-2. Click the **download icon** (↘) to open the export modal
-3. Click **Load Handoff Data** to fetch the roadmap's handoff payload
-4. Review the exported data:
-   - **Mission Planning Handoff**: Roadmap structure with milestones and features in deterministic order
-   - **Feature Task Handoffs**: Individual feature entries with source lineage (roadmap ID, milestone ID, feature ID, titles, and order indices)
-
-**Key features:**
-
-- This is a **read-only** export — no missions, slices, or tasks are created
-- The handoff preserves source lineage for traceability to the original roadmap
-- Ordering is deterministic (milestone order, then feature order)
-- Click **Copy to Clipboard** to copy the full handoff payload as JSON
-- Handoff data can be manually used to seed mission planning prompts or task creation flows
-
-**Use cases:**
-
-- Export a roadmap's milestone/feature structure to guide AI-assisted mission planning
-- Copy individual feature handoffs as task planning prompts
-- Preserve roadmap context when creating tasks in the task board
-
 ## Memory View
 
 Memory view provides a multi-file editor for project and daily memory files.
@@ -604,3 +331,78 @@ Possible error codes:
 - `upstream_timeout` — Request timed out
 - `upstream_http_error` — Upstream returned an error status
 - `upstream_invalid_payload` — Upstream returned invalid response format
+
+## Agent Import
+
+The Agent Import feature allows you to import agents from Agent Companies packages. When importing agents from companies.sh or local directories, Fusion now also persists any skill definitions from the package.
+
+### How It Works
+
+1. **Select Source**: Choose to import from:
+   - The companies.sh catalog (browse and search)
+   - A local directory containing AGENTS.md files
+   - A single manifest file (.md or .txt)
+   - Paste manifest content directly
+
+2. **Preview**: Review the agents and skills that will be imported before confirming
+
+3. **Import**: Upon confirmation:
+   - Agents are created in Fusion's agent store
+   - Skills are persisted to `skills/imported/{companySlug}/{skillSlug}/SKILL.md`
+   - Each skill's `SKILL.md` contains YAML frontmatter with skill metadata and the instruction body
+
+### Skill Persistence
+
+Skills from Agent Companies packages are persisted to the project-local skills directory:
+
+```
+{projectRoot}/
+  skills/
+    imported/
+      {companySlug}/          # slugified company name or "unknown-company"
+        {skillSlug}/          # slugified skill name
+          SKILL.md            # skill manifest with frontmatter + instructions
+```
+
+**Collision Handling**: If a `SKILL.md` file already exists at the target path, the import skips that skill (does not overwrite). This prevents accidental data loss.
+
+**Path Safety**: All path segments are slugified to prevent directory traversal attacks. Special characters are removed and whitespace is normalized to hyphens.
+
+### Import Result
+
+The import result shows:
+
+**Agents:**
+- Number of agents created
+- Number of agents skipped (already exist)
+- Number of errors (import failures)
+
+**Skills:**
+- Number of skills imported (written to disk)
+- Number of skills skipped (already exist)
+- Number of skill errors (write failures)
+
+### API Response
+
+The `POST /api/agents/import` endpoint returns skill import results:
+
+```json
+{
+  "companyName": "Example Co",
+  "companySlug": "example-co",
+  "created": [{ "id": "agent-1", "name": "CEO" }],
+  "skipped": [],
+  "errors": [],
+  "skillsCount": 3,
+  "skills": {
+    "imported": [
+      { "name": "review", "path": "skills/imported/example-co/review/SKILL.md" },
+      { "name": "strategy", "path": "skills/imported/example-co/strategy/SKILL.md" }
+    ],
+    "skipped": [],
+    "errors": []
+  }
+}
+```
+
+The `skills` object contains detailed import outcomes for each skill from the package.

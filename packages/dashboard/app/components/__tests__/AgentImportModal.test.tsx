@@ -240,6 +240,128 @@ describe("AgentImportModal", () => {
     expect(screen.getByText("Planner")).toBeInTheDocument();
   });
 
+  it("result step shows skill import stats when skills are imported", async () => {
+    renderModal(true);
+    await goToPreview();
+
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      await mockResponse({
+        ok: true,
+        body: {
+          companyName: "Acme AI",
+          created: [{ id: "agent-1", name: "Reviewer" }],
+          skipped: [],
+          errors: [],
+          skills: {
+            imported: [
+              { name: "review", path: "skills/imported/acme-ai/review/SKILL.md" },
+              { name: "strategy", path: "skills/imported/acme-ai/strategy/SKILL.md" },
+            ],
+            skipped: [],
+            errors: [],
+          },
+        },
+      }),
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Import 2 Agents/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/2 skills imported/)).toBeInTheDocument();
+      expect(screen.getByText("review")).toBeInTheDocument();
+      expect(screen.getByText("strategy")).toBeInTheDocument();
+    });
+  });
+
+  it("result step shows skill skipped count when skills already exist", async () => {
+    renderModal(true);
+    await goToPreview();
+
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      await mockResponse({
+        ok: true,
+        body: {
+          companyName: "Acme AI",
+          created: [{ id: "agent-1", name: "Reviewer" }],
+          skipped: [],
+          errors: [],
+          skills: {
+            imported: [],
+            skipped: ["review", "strategy"],
+            errors: [],
+          },
+        },
+      }),
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Import 2 Agents/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/2 skills skipped/)).toBeInTheDocument();
+    });
+  });
+
+  it("result step shows skill error count when skill writes fail", async () => {
+    renderModal(true);
+    await goToPreview();
+
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      await mockResponse({
+        ok: true,
+        body: {
+          companyName: "Acme AI",
+          created: [{ id: "agent-1", name: "Reviewer" }],
+          skipped: [],
+          errors: [],
+          skills: {
+            imported: [],
+            skipped: [],
+            errors: [{ name: "review", error: "Permission denied" }],
+          },
+        },
+      }),
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Import 2 Agents/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/1 skill error/)).toBeInTheDocument();
+      expect(screen.getByText(/review: Permission denied/)).toBeInTheDocument();
+    });
+  });
+
+  it("result step shows 'No skills in package' when skills array is empty", async () => {
+    renderModal(true);
+    await goToPreview();
+
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      await mockResponse({
+        ok: true,
+        body: {
+          companyName: "Acme AI",
+          created: [{ id: "agent-1", name: "Reviewer" }],
+          skipped: [],
+          errors: [],
+          skills: {
+            imported: [],
+            skipped: [],
+            errors: [],
+          },
+        },
+      }),
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Import 2 Agents/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/No skills in package/)).toBeInTheDocument();
+    });
+  });
+
   it("calls onImported after successful import", async () => {
     renderModal(true);
     await goToPreview();

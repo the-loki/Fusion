@@ -29984,6 +29984,21 @@ html .column.drag-over * {
   border-radius: var(--radius-sm);
 }
 
+.agent-import-result-divider {
+  height: 1px;
+  background: var(--border);
+  margin: var(--space-md) 0;
+}
+
+.agent-import-result-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: var(--space-sm);
+}
+
 /* Agent Import Browse Mode */
 .agent-import-browse {
   margin-bottom: var(--space-md);

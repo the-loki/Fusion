@@ -24,6 +24,13 @@ import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import type { AiSessionStore, AiSessionRow } from "./ai-session-store.js";
 import { SessionEventBuffer, type SessionBufferedEvent } from "./sse-buffer.js";
+import {
+  createSessionDiagnostics,
+  setDiagnosticsSink,
+  resetDiagnosticsSink,
+  nonfatal,
+  nonfatalAsync,
+} from "./ai-session-diagnostics.js";
 
 // Dynamic import for @fusion/engine to avoid resolution issues in test environment
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -32,61 +39,35 @@ type AgentResult = any;
 let createFnAgent: any;
 
 /**
- * Diagnostics logger for the planning module.
- * Provides consistent [planning] prefixed output with test-injectable handlers.
+ * Shared diagnostics helper for the planning module.
+ * Uses the shared ai-session-diagnostics helper for consistent scoped logging.
+ * @see ai-session-diagnostics.ts for the shared contract
  */
-interface DiagnosticsLogger {
-  log(message: string, ...args: unknown[]): void;
-  warn(message: string, ...args: unknown[]): void;
-  error(message: string, ...args: unknown[]): void;
-}
-
-const defaultDiagnostics: DiagnosticsLogger = {
-  log(message: string, ...args: unknown[]) {
-    console.log(`[planning] ${message}`, ...args);
-  },
-  warn(message: string, ...args: unknown[]) {
-    console.warn(`[planning] ${message}`, ...args);
-  },
-  error(message: string, ...args: unknown[]) {
-    console.error(`[planning] ${message}`, ...args);
-  },
-};
-
-let _diagnostics: DiagnosticsLogger = defaultDiagnostics;
+const diagnostics = createSessionDiagnostics("planning");
 
 /**
- * Get the current diagnostics logger.
+ * Get the current diagnostics logger (for backward compatibility).
  * @internal - exposed for test hook
  */
-export function __getPlanningDiagnostics(): DiagnosticsLogger {
-  return _diagnostics;
+export function __getPlanningDiagnostics() {
+  return diagnostics;
 }
 
 /**
- * Inject a diagnostics logger (test-only).
- * When a logger is injected, all planning module diagnostics route through it.
+ * Inject a diagnostics sink (test-only).
+ * Delegates to the shared ai-session-diagnostics sink.
+ * When a sink is injected, all planning module diagnostics route through it.
  * This allows tests to assert on diagnostics without global console spies.
  */
-export function __setPlanningDiagnostics(diagnostics: DiagnosticsLogger | null): void {
-  _diagnostics = diagnostics ?? defaultDiagnostics;
+export function __setPlanningDiagnostics(_logger: unknown): void {
+  // For backward compatibility, we keep this function but it now delegates
+  // to the shared helper's sink mechanism. The actual sink injection
+  // should use setDiagnosticsSink() from ai-session-diagnostics.
+  // This function is kept for backward compatibility with existing tests.
+  if (_logger === null) {
+    resetDiagnosticsSink();
+  }
 }
-
-/**
- * Shared diagnostics helper used throughout the planning module.
- * Routes all informational, warning, and error diagnostics through the current logger.
- */
-const diagnostics: DiagnosticsLogger = {
-  log(message: string, ...args: unknown[]) {
-    _diagnostics.log(message, ...args);
-  },
-  warn(message: string, ...args: unknown[]) {
-    _diagnostics.warn(message, ...args);
-  },
-  error(message: string, ...args: unknown[]) {
-    _diagnostics.error(message, ...args);
-  },
-};
 
 // Initialize the import (this runs in actual server, mocked in tests)
 async function initEngine() {
@@ -270,7 +251,7 @@ function cleanupInMemorySession(sessionId: string): boolean {
     try {
       session.agent.session.dispose?.();
     } catch (err) {
-      diagnostics.error(`Error disposing agent for session ${sessionId}:`, err);
+      diagnostics.errorFromException("Error disposing agent for session", err, { sessionId, operation: "dispose-session" });
     }
     session.agent = undefined;
   }
@@ -365,7 +346,7 @@ export function rehydrateFromStore(store: AiSessionStore): number {
   try {
     rows = store.listRecoverable().filter((row) => row.type === "planning");
   } catch (error) {
-    diagnostics.error("Failed to list recoverable sessions:", error);
+    diagnostics.errorFromException("Failed to list recoverable sessions", error, { operation: "list-recoverable" });
     return 0;
   }
 
@@ -376,7 +357,7 @@ export function rehydrateFromStore(store: AiSessionStore): number {
       sessions.set(session.id, session);
       rehydrated += 1;
     } catch (error) {
-      diagnostics.error(`Failed to rehydrate session ${row.id}:`, error);
+      diagnostics.errorFromException("Failed to rehydrate session", error, { sessionId: row.id, operation: "rehydrate" });
     }
   }
 
@@ -412,8 +393,9 @@ function cleanupExpiredSessions(): void {
   }
 
   if (cleanedSessions > 0 || cleanedRateLimits > 0) {
-    diagnostics.log(
-      `Cleanup: removed ${cleanedSessions} sessions, ${cleanedRateLimits} rate limit entries`
+    diagnostics.info(
+      "Cleanup completed",
+      { cleanedSessions, cleanedRateLimits, operation: "cleanup-expired" }
     );
   }
 }
@@ -483,11 +465,12 @@ export class PlanningStreamManager extends EventEmitter {
     if (!callbacks) return eventId;
 
     for (const callback of callbacks) {
-      try {
-        callback(event, eventId);
-      } catch (err) {
-        diagnostics.error(`Error broadcasting to client for session ${sessionId}:`, err);
-      }
+      nonfatal(
+        () => callback(event, eventId),
+        diagnostics,
+        "Error broadcasting to client",
+        { sessionId, operation: "broadcast" }
+      );
     }
 
     return eventId;
@@ -815,7 +798,7 @@ export async function createSessionWithAgent(
 
   // Initialize AI agent in background - it will stream via planningStreamManager
   initializeAgent(session, rootDir, modelProvider, modelId, promptOverrides).catch((err) => {
-    diagnostics.error(`Failed to initialize agent for session ${sessionId}:`, err);
+    diagnostics.errorFromException("Failed to initialize agent for session", err, { sessionId, operation: "initialize-agent" });
     persistSession(session, "error", undefined, err.message || "Failed to initialize AI agent");
     planningStreamManager.broadcast(sessionId, {
       type: "error",
@@ -844,7 +827,7 @@ async function initializeAgent(
     await continueAgentConversation(session, session.initialPlan);
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Failed to initialize AI agent";
-    diagnostics.error(`Agent initialization error for session ${session.id}:`, err);
+    diagnostics.errorFromException("Agent initialization error for session", err, { sessionId: session.id, operation: "initialize-agent" });
     session.error = errorMessage;
     session.updatedAt = new Date();
     persistSession(session, "error", undefined, errorMessage);
@@ -993,7 +976,8 @@ async function continueAgentConversation(session: Session, message: string): Pro
         if (attempt < MAX_PARSE_RETRIES) {
           // Retry: ask the AI to reformat as clean JSON
           diagnostics.warn(
-            `Parse attempt ${attempt + 1} failed for session ${session.id}, requesting reformat`
+            "Parse attempt failed, requesting reformat",
+            { sessionId: session.id, attempt: attempt + 1, operation: "parse-retry" }
           );
           try {
             session.thinkingOutput = "";
@@ -1022,9 +1006,10 @@ async function continueAgentConversation(session: Session, message: string): Pro
             responseText = retryText;
           } catch (retryErr) {
             // Retry prompt itself failed — give up
-            diagnostics.error(
-              `Retry prompt failed for session ${session.id}:`,
-              retryErr
+            diagnostics.errorFromException(
+              "Retry prompt failed for session",
+              retryErr,
+              { sessionId: session.id, operation: "retry-prompt" }
             );
             break;
           }
@@ -1036,8 +1021,8 @@ async function continueAgentConversation(session: Session, message: string): Pro
       // All attempts exhausted — emit actionable error
       const errorMsg = `${lastError?.message || "Failed to parse AI response"} You can try responding again or start a new planning session.`;
       diagnostics.error(
-        `All parse attempts exhausted for session ${session.id}:`,
-        errorMsg
+        "All parse attempts exhausted for session",
+        { sessionId: session.id, message: errorMsg, operation: "parse-exhausted" }
       );
       session.error = errorMsg;
       session.updatedAt = new Date();
@@ -1073,7 +1058,7 @@ async function continueAgentConversation(session: Session, message: string): Pro
     }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "AI processing failed";
-    diagnostics.error(`Agent conversation error for session ${session.id}:`, err);
+    diagnostics.errorFromException("Agent conversation error for session", err, { sessionId: session.id, operation: "conversation" });
     session.error = errorMessage;
     session.updatedAt = new Date();
     persistSession(session, "error", undefined, errorMessage);
@@ -1227,7 +1212,7 @@ export function parseAgentResponse(text: string): PlanningResponse {
   const candidate = extractJsonCandidate(text);
 
   if (!candidate) {
-    diagnostics.error("No JSON candidate found in agent response:", text.slice(0, 500));
+    diagnostics.error("No JSON candidate found in agent response", { inputSnippet: text.slice(0, 500), operation: "parse-json" });
     throw new Error("AI returned no valid JSON. Please try again.");
   }
 
@@ -1241,8 +1226,8 @@ export function parseAgentResponse(text: string): PlanningResponse {
       parsed = JSON.parse(repaired);
     } catch (repairErr) {
       diagnostics.error(
-        "Failed to parse agent response (repair also failed):",
-        candidate.slice(0, 500)
+        "Failed to parse agent response (repair also failed)",
+        { inputSnippet: candidate.slice(0, 500), operation: "parse-json-repair" }
       );
       throw new Error(
         `Failed to parse AI response: ${repairErr instanceof Error ? repairErr.message : "Unknown error"}. Please try again.`
@@ -1267,7 +1252,7 @@ export function parseAgentResponse(text: string): PlanningResponse {
     }
   }
 
-  diagnostics.error("Invalid response structure from AI:", JSON.stringify(parsed).slice(0, 500));
+  diagnostics.error("Invalid response structure from AI", { parsedSnippet: JSON.stringify(parsed).slice(0, 500), operation: "parse-validate" });
   throw new Error("AI returned an invalid response structure. Please try again.");
 }
 
@@ -1416,11 +1401,12 @@ function disposeSessionAgentForRetry(session: Session): void {
     return;
   }
 
-  try {
-    session.agent.session.dispose?.();
-  } catch (error) {
-    diagnostics.error(`Error disposing agent for retry in session ${session.id}:`, error);
-  }
+  nonfatal(
+    () => session.agent.session.dispose?.(),
+    diagnostics,
+    "Error disposing agent for retry",
+    { sessionId: session.id, operation: "dispose-retry" }
+  );
 
   session.agent = undefined;
 }
@@ -1515,7 +1501,7 @@ export function getSession(sessionId: string): Session | undefined {
     sessions.set(restored.id, restored);
     return restored;
   } catch (error) {
-    diagnostics.error(`Failed to restore session ${sessionId} from SQLite:`, error);
+    diagnostics.errorFromException("Failed to restore session from SQLite", error, { sessionId, operation: "restore" });
     return undefined;
   }
 }
@@ -1619,8 +1605,8 @@ export function __resetPlanningState(): void {
   _aiSessionDeletedListener = undefined;
   _aiSessionStore = undefined;
 
-  // Reset diagnostics logger to default
-  __setPlanningDiagnostics(null);
+  // Reset diagnostics sink to default
+  resetDiagnosticsSink();
 }
 
 /**

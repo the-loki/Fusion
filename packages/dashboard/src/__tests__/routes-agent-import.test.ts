@@ -15,6 +15,29 @@ const mockParseCompanyArchive = vi.fn();
 const mockParseSingleAgentManifest = vi.fn();
 const mockPrepareAgentCompaniesImport = vi.fn();
 
+// Use vi.hoisted to ensure mocks are available when vi.mock runs
+const { mockFsAccess, mockFsMkdir, mockFsWriteFile } = vi.hoisted(() => ({
+  mockFsAccess: vi.fn(),
+  mockFsMkdir: vi.fn(),
+  mockFsWriteFile: vi.fn(),
+}));
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>;
+  return {
+    ...actual,
+    default: actual,
+    mkdtemp: vi.fn(),
+    access: mockFsAccess,
+    stat: actual.stat,
+    mkdir: mockFsMkdir,
+    readdir: actual.readdir,
+    rm: actual.rm,
+    readFile: actual.readFile,
+    writeFile: mockFsWriteFile,
+  };
+});
+
 class MockAgentCompaniesParseError extends Error {
   constructor(message: string) {
     super(message);
@@ -74,6 +97,7 @@ describe("POST /api/agents/import", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    rmSync("/tmp/fn-1174-test", { recursive: true, force: true });
     testDir = mkdtempSync(join(tmpdir(), "fn-agent-import-route-"));
 
     mockInit.mockResolvedValue(undefined);
@@ -421,6 +445,199 @@ describe("POST /api/agents/import", () => {
 
     expect(response.status).toBe(400);
     expect((response.body as any).error).toContain("Invalid companies.sh slug");
+  });
+
+  it("live import persists skills and returns skill import result", async () => {
+    const sourceDir = join(testDir, "skills-live-company");
+    mkdirSync(join(sourceDir, "agents", "ceo"), { recursive: true });
+    writeFileSync(join(sourceDir, "agents", "ceo", "AGENTS.md"), "---\nname: CEO\n---\nLead");
+
+    mockParseCompanyDirectory.mockReturnValue({
+      company: { name: "Directory Co", slug: "directory-co" },
+      agents: [{ name: "Dir Agent", skills: ["review"] }],
+      teams: [{ name: "Engineering" }],
+      projects: [],
+      tasks: [],
+      skills: [
+        { name: "review", description: "Review code changes", instructionBody: "# Review\n\nReview instructions" },
+        { name: "strategy", description: "Strategic planning" },
+      ],
+    });
+
+    // Mock fs operations: access returns "not exists" for all skill paths, mkdir and write succeed
+    mockFsAccess.mockReset();
+    mockFsMkdir.mockReset();
+    mockFsWriteFile.mockReset();
+    mockFsAccess.mockRejectedValue(new Error("ENOENT"));
+    mockFsMkdir.mockResolvedValue(undefined);
+    mockFsWriteFile.mockResolvedValue(undefined);
+
+    const response = await postImport(app, { source: sourceDir });
+
+    expect(response.status).toBe(200);
+    const body = response.body as any;
+    expect(body.skills).toBeDefined();
+    expect(body.skills.imported).toHaveLength(2);
+    expect(body.skills.imported[0].name).toBe("review");
+    expect(body.skills.imported[0].path).toContain("skills/imported/directory-co/");
+    expect(body.skills.skipped).toEqual([]);
+    expect(body.skills.errors).toEqual([]);
+    expect(mockFsMkdir).toHaveBeenCalled();
+    expect(mockFsWriteFile).toHaveBeenCalledTimes(2);
+  });
+
+  it("live import skips skills that already exist", async () => {
+    const sourceDir = join(testDir, "skills-skipped-company");
+    mkdirSync(join(sourceDir, "agents", "ceo"), { recursive: true });
+    writeFileSync(join(sourceDir, "agents", "ceo", "AGENTS.md"), "---\nname: CEO\n---\nLead");
+
+    mockParseCompanyDirectory.mockReturnValue({
+      company: { name: "Directory Co", slug: "directory-co" },
+      agents: [{ name: "Dir Agent", skills: ["review"] }],
+      teams: [{ name: "Engineering" }],
+      projects: [],
+      tasks: [],
+      skills: [{ name: "review" }],
+    });
+
+    // Mock fs: access returns success (file exists)
+    mockFsAccess.mockReset();
+    mockFsMkdir.mockReset();
+    mockFsWriteFile.mockReset();
+    mockFsAccess.mockResolvedValue(undefined);
+    mockFsMkdir.mockResolvedValue(undefined);
+    mockFsWriteFile.mockResolvedValue(undefined);
+
+    const response = await postImport(app, { source: sourceDir });
+
+    expect(response.status).toBe(200);
+    const body = response.body as any;
+    expect(body.skills).toBeDefined();
+    expect(body.skills.imported).toEqual([]);
+    expect(body.skills.skipped).toEqual(["review"]);
+    expect(body.skills.errors).toEqual([]);
+    expect(mockFsWriteFile).not.toHaveBeenCalled();
+  });
+
+  it("live import handles skill write errors gracefully", async () => {
+    const sourceDir = join(testDir, "skills-error-company");
+    mkdirSync(join(sourceDir, "agents", "ceo"), { recursive: true });
+    writeFileSync(join(sourceDir, "agents", "ceo", "AGENTS.md"), "---\nname: CEO\n---\nLead");
+
+    mockParseCompanyDirectory.mockReturnValue({
+      company: { name: "Directory Co", slug: "directory-co" },
+      agents: [{ name: "Dir Agent", skills: ["review"] }],
+      teams: [{ name: "Engineering" }],
+      projects: [],
+      tasks: [],
+      skills: [{ name: "review" }],
+    });
+
+    // Mock fs: access returns "not exists", but mkdir fails
+    mockFsAccess.mockReset();
+    mockFsMkdir.mockReset();
+    mockFsWriteFile.mockReset();
+    mockFsAccess.mockRejectedValue(new Error("ENOENT"));
+    mockFsMkdir.mockRejectedValue(new Error("Permission denied"));
+    mockFsWriteFile.mockResolvedValue(undefined);
+
+    const response = await postImport(app, { source: sourceDir });
+
+    expect(response.status).toBe(200);
+    const body = response.body as any;
+    expect(body.skills).toBeDefined();
+    expect(body.skills.imported).toEqual([]);
+    expect(body.skills.skipped).toEqual([]);
+    expect(body.skills.errors).toHaveLength(1);
+    expect(body.skills.errors[0].name).toBe("review");
+    expect(body.skills.errors[0].error).toContain("Permission denied");
+  });
+
+  it("live import uses fallback company slug when not provided", async () => {
+    const sourceDir = join(testDir, "no-slug-company");
+    mkdirSync(join(sourceDir, "agents", "ceo"), { recursive: true });
+    writeFileSync(join(sourceDir, "agents", "ceo", "AGENTS.md"), "---\nname: CEO\n---\nLead");
+
+    mockParseCompanyDirectory.mockReturnValue({
+      company: { name: "Directory Co" }, // no slug
+      agents: [{ name: "Dir Agent", skills: ["review"] }],
+      teams: [],
+      projects: [],
+      tasks: [],
+      skills: [{ name: "review" }],
+    });
+
+    // Reset and setup mocks
+    mockFsAccess.mockReset();
+    mockFsMkdir.mockReset();
+    mockFsWriteFile.mockReset();
+    mockFsAccess.mockRejectedValue(new Error("ENOENT"));
+    mockFsMkdir.mockResolvedValue(undefined);
+    mockFsWriteFile.mockResolvedValue(undefined);
+
+    const response = await postImport(app, { source: sourceDir });
+
+    expect(response.status).toBe(200);
+    const body = response.body as any;
+    expect(body.skills.imported).toBeDefined();
+    expect(body.skills.imported.length).toBeGreaterThan(0);
+    expect(body.skills.imported[0].path).toContain("skills/imported/unknown-company/");
+  });
+
+  it("live import returns empty skills when package has no skills", async () => {
+    const sourceDir = join(testDir, "no-skills-live-company");
+    mkdirSync(join(sourceDir, "agents", "ceo"), { recursive: true });
+    writeFileSync(join(sourceDir, "agents", "ceo", "AGENTS.md"), "---\nname: CEO\n---\nLead");
+
+    mockParseCompanyDirectory.mockReturnValue({
+      company: { name: "Directory Co", slug: "directory-co" },
+      agents: [{ name: "Dir Agent", skills: ["review"] }],
+      teams: [{ name: "Engineering" }],
+      projects: [],
+      tasks: [],
+    });
+
+    const response = await postImport(app, { source: sourceDir });
+
+    expect(response.status).toBe(200);
+    const body = response.body as any;
+    expect(body.skills).toBeDefined();
+    expect(body.skills.imported).toEqual([]);
+    expect(body.skills.skipped).toEqual([]);
+    expect(body.skills.errors).toEqual([]);
+  });
+
+  it("dry-run does not persist skills", async () => {
+    const sourceDir = join(testDir, "dryrun-skills");
+    mkdirSync(join(sourceDir, "agents", "ceo"), { recursive: true });
+    writeFileSync(join(sourceDir, "agents", "ceo", "AGENTS.md"), "---\nname: CEO\n---\nLead");
+
+    mockParseCompanyDirectory.mockReturnValue({
+      company: { name: "Directory Co", slug: "directory-co" },
+      agents: [{ name: "Dir Agent", skills: ["review"] }],
+      teams: [],
+      projects: [],
+      tasks: [],
+      skills: [{ name: "review" }],
+    });
+
+    // Reset mocks to ensure clean state
+    mockFsAccess.mockReset();
+    mockFsMkdir.mockReset();
+    mockFsWriteFile.mockReset();
+
+    const response = await postImport(app, { source: sourceDir, dryRun: true });
+
+    expect(response.status).toBe(200);
+    const body = response.body as any;
+    expect(body.dryRun).toBe(true);
+    // dryRun returns skills preview, not skill import result
+    // (skill import result has imported/skipped/errors, preview has name/description)
+    expect(Array.isArray(body.skills)).toBe(true);
+    expect(body.skills[0]?.name).toBe("review");
+    // dryRun should NOT call fs operations
+    expect(mockFsWriteFile).not.toHaveBeenCalled();
+    expect(mockFsMkdir).not.toHaveBeenCalled();
   });
 });
 
