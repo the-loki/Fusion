@@ -493,11 +493,48 @@ export class TerminalService extends EventEmitter {
       (ptyOptions as IWindowsPtyForkOptions).useConpty = false;
     }
 
-    let ptyProcess: IPty;
-    try {
-      ptyProcess = pty.spawn(shell, shellArgs, ptyOptions);
-    } catch (spawnError) {
-      console.error(`[createSession] PTY spawn failed:`, spawnError);
+    const attemptedSpawns = new Set<string>();
+    const spawnAttempts: Array<{ shell: string; args: string[]; reason: string }> = [];
+    const addSpawnAttempt = (shellPath: string, args: string[], reason: string): void => {
+      const key = `${shellPath}\0${args.join("\0")}`;
+      if (attemptedSpawns.has(key)) return;
+      attemptedSpawns.add(key);
+      spawnAttempts.push({ shell: shellPath, args, reason });
+    };
+
+    addSpawnAttempt(shell, shellArgs, "primary");
+
+    if (shellArgs.length > 0) {
+      addSpawnAttempt(shell, [], "retry-without-login");
+    }
+
+    for (const allowedShell of this.getAllowedShells()) {
+      if (allowedShell === shell || !existsSync(allowedShell)) continue;
+      const shellName = path.basename(allowedShell).toLowerCase().replace(".exe", "");
+      const fallbackArgs = shellName === "bash" || shellName === "zsh" ? [] : [];
+      addSpawnAttempt(allowedShell, fallbackArgs, "allowed-fallback");
+    }
+
+    let ptyProcess: IPty | undefined;
+    let lastSpawnError: unknown;
+    for (const attempt of spawnAttempts) {
+      try {
+        console.info(
+          `[createSession] Spawning terminal via ${attempt.reason}: ${attempt.shell} ${attempt.args.join(" ")} in ${cwd}`,
+        );
+        ptyProcess = pty.spawn(attempt.shell, attempt.args, ptyOptions);
+        break;
+      } catch (spawnError) {
+        lastSpawnError = spawnError;
+        console.error(
+          `[createSession] PTY spawn failed (${attempt.reason}) for ${attempt.shell} ${attempt.args.join(" ")}:`,
+          spawnError,
+        );
+      }
+    }
+
+    if (!ptyProcess) {
+      console.error(`[createSession] All PTY spawn attempts failed`, lastSpawnError);
       return {
         success: false,
         code: "pty_spawn_failed",
