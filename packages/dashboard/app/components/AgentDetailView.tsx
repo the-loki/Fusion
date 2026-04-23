@@ -17,7 +17,7 @@ import { getAgentHealthStatus } from "../utils/agentHealth";
 import type { AgentHealthStatus } from "../utils/agentHealth";
 import { SkillMultiselect } from "./SkillMultiselect";
 import { subscribeSse } from "../sse-bus";
-import { DEFAULT_HEARTBEAT_INTERVAL_MS, formatHeartbeatInterval } from "../utils/heartbeatIntervals";
+import { DEFAULT_HEARTBEAT_INTERVAL_MS, formatHeartbeatInterval, resolveHeartbeatIntervalMs } from "../utils/heartbeatIntervals";
 import { CustomModelDropdown } from "./CustomModelDropdown";
 
 /**
@@ -410,52 +410,28 @@ export function AgentDetailView({ agentId, projectId, onClose, addToast, onChild
               </>
             )}
             {agent.state === "active" && (
-              <>
-                <button className="btn btn--compact" onClick={() => void handleStateChange("paused")}>
-                  <Pause size={14} />
-                  Pause
-                </button>
-                <button className="btn btn--danger btn--compact" onClick={() => void handleStateChange("terminated")}>
-                  <Square size={14} />
-                  Stop
-                </button>
-              </>
+              <button className="btn btn--compact" onClick={() => void handleStateChange("paused")}>
+                <Pause size={14} />
+                Pause
+              </button>
             )}
             {agent.state === "paused" && (
-              <>
-                <button className="btn btn--primary btn--compact" onClick={() => void handleStateChange("active")}>
-                  <Play size={14} />
-                  Resume
-                </button>
-                <button className="btn btn--danger btn--compact" onClick={() => void handleStateChange("terminated")}>
-                  <Square size={14} />
-                  Stop
-                </button>
-              </>
+              <button className="btn btn--primary btn--compact" onClick={() => void handleStateChange("active")}>
+                <Play size={14} />
+                Resume
+              </button>
             )}
             {agent.state === "running" && (
-              <>
-                <button className="btn btn--compact" onClick={() => void handleStateChange("paused")}>
-                  <Pause size={14} />
-                  Pause
-                </button>
-                <button className="btn btn--danger btn--compact" onClick={() => void handleStateChange("terminated")}>
-                  <Square size={14} />
-                  Stop
-                </button>
-              </>
+              <button className="btn btn--compact" onClick={() => void handleStateChange("paused")}>
+                <Pause size={14} />
+                Pause
+              </button>
             )}
             {agent.state === "error" && (
-              <>
-                <button className="btn btn--primary btn--compact" onClick={() => void handleStateChange("active")}>
-                  <Play size={14} />
-                  Retry
-                </button>
-                <button className="btn btn--danger btn--compact" onClick={() => void handleStateChange("terminated")}>
-                  <Square size={14} />
-                  Stop
-                </button>
-              </>
+              <button className="btn btn--primary btn--compact" onClick={() => void handleStateChange("active")}>
+                <Play size={14} />
+                Retry
+              </button>
             )}
             {agent.state === "terminated" && (
               <>
@@ -801,12 +777,32 @@ function DashboardTab({
           <div className="info-item">
             <span className="info-label">Last Heartbeat</span>
             <span className="info-value">
-              {agent.lastHeartbeatAt 
+              {agent.lastHeartbeatAt
                 ? relativeTime(agent.lastHeartbeatAt)
                 : "Never"
               }
             </span>
           </div>
+          {(() => {
+            // Next heartbeat is only meaningful while the agent is in a ticking
+            // state — paused/terminated/error agents have no scheduled next tick.
+            const isTicking = agent.state === "active" || agent.state === "running";
+            if (!isTicking || !agent.lastHeartbeatAt) return null;
+            const intervalMs = resolveHeartbeatIntervalMs(
+              agent.runtimeConfig?.heartbeatIntervalMs,
+            );
+            const nextAt = new Date(
+              new Date(agent.lastHeartbeatAt).getTime() + intervalMs,
+            );
+            return (
+              <div className="info-item">
+                <span className="info-label">Next Heartbeat</span>
+                <span className="info-value" title={nextAt.toLocaleString()}>
+                  {relativeTime(nextAt.toISOString())}
+                </span>
+              </div>
+            );
+          })()}
         </div>
       </div>
 

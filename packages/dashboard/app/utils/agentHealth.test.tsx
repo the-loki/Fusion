@@ -131,41 +131,10 @@ describe("getAgentHealthStatus", () => {
     });
   });
 
-  // ── Heartbeat monitoring disabled ──────────────────────────────────────────
-
-  describe("heartbeat monitoring disabled", () => {
-    it('returns "Disabled" when runtimeConfig.enabled === false', () => {
-      const agent = makeAgent({
-        state: "active",
-        runtimeConfig: { enabled: false },
-      });
-      const status = getAgentHealthStatus(agent);
-      expect(status.label).toBe("Disabled");
-      expect(status.stateDerived).toBe(false);
-      expect(status.color).toBe("var(--text-secondary)");
-    });
-
-    it('returns "Disabled" even with stale heartbeat data', () => {
-      const agent = makeAgent({
-        state: "active",
-        lastHeartbeatAt: new Date(FIXED_NOW - 1_000_000).toISOString(), // very stale
-        runtimeConfig: { enabled: false, heartbeatTimeoutMs: 60000 },
-      });
-      const status = getAgentHealthStatus(agent);
-      expect(status.label).toBe("Disabled");
-      expect(status.stateDerived).toBe(false);
-    });
-
-    it('returns "Disabled" for idle agents with monitoring disabled', () => {
-      const agent = makeAgent({
-        state: "idle",
-        runtimeConfig: { enabled: false },
-      });
-      const status = getAgentHealthStatus(agent);
-      expect(status.label).toBe("Disabled");
-      expect(status.stateDerived).toBe(false);
-    });
-  });
+  // Heartbeat scheduling is driven by agent.state on the server; there is no
+  // separate "disabled" UI concept anymore. Non-task-worker agents with a
+  // legacy `runtimeConfig.enabled === false` on disk are rendered by state
+  // just like any other agent.
 
   describe("task worker health classification", () => {
     it('returns "Running" for metadata-marked task workers with disabled heartbeat', () => {
@@ -203,7 +172,7 @@ describe("getAgentHealthStatus", () => {
       expect(status.color).toBe("var(--state-active-text)");
     });
 
-    it('keeps non-task-worker disabled agents as "Disabled"', () => {
+    it('ignores legacy runtimeConfig.enabled=false on non-task-worker agents', () => {
       const agent = makeAgent({
         name: "Reviewer",
         role: "reviewer",
@@ -211,8 +180,8 @@ describe("getAgentHealthStatus", () => {
         runtimeConfig: { enabled: false },
       });
       const status = getAgentHealthStatus(agent);
-      expect(status.label).toBe("Disabled");
-      expect(status.stateDerived).toBe(false);
+      // No persisted heartbeat, no lastHeartbeatAt → Starting... not Disabled.
+      expect(status.label).toBe("Starting...");
     });
   });
 
@@ -282,158 +251,77 @@ describe("getAgentHealthStatus", () => {
       expect(status.color).toBe("var(--state-error-text)");
     });
 
-    it("uses per-agent heartbeatTimeoutMs when configured", () => {
+    it("ignores heartbeatTimeoutMs — that's the per-run work budget, not freshness", () => {
+      // 30s interval → staleness threshold = max(60s floor, 60s) = 60s. A
+      // 45s-old heartbeat is healthy regardless of what heartbeatTimeoutMs says.
       const agent = makeAgent({
         state: "active",
-        // 90s ago - would be unresponsive with default 60s, but within 120s timeout
-        lastHeartbeatAt: new Date(FIXED_NOW - 90_000).toISOString(),
-        runtimeConfig: { heartbeatIntervalMs: 30_000, heartbeatTimeoutMs: 120_000 },
-      });
-      const status = getAgentHealthStatus(agent);
-      expect(status.label).toBe("Healthy");
-      expect(status.stateDerived).toBe(false);
-    });
-
-    it("marks as unresponsive when exceeding per-agent timeout", () => {
-      const agent = makeAgent({
-        state: "active",
-        // 60s ago - would be healthy with default 60s, but exceeds 30s custom timeout
-        lastHeartbeatAt: new Date(FIXED_NOW - 60_000).toISOString(),
+        lastHeartbeatAt: new Date(FIXED_NOW - 45_000).toISOString(),
         runtimeConfig: { heartbeatIntervalMs: 30_000, heartbeatTimeoutMs: 30_000 },
       });
-      const status = getAgentHealthStatus(agent);
-      expect(status.label).toBe("Unresponsive");
-      expect(status.stateDerived).toBe(false);
+      expect(getAgentHealthStatus(agent).label).toBe("Healthy");
     });
   });
 
-  // ── Non-periodic agents (no heartbeatIntervalMs) ────────────────────────────
+  // ── Agents without explicit heartbeatIntervalMs ───────────────────────────
+  //
+  // Agents that never had an interval persisted still get the server-side
+  // default interval (1h), so they render Healthy within ~2h of the last
+  // heartbeat and tip into Unresponsive beyond that.
 
-  describe("non-periodic agents (no heartbeatIntervalMs)", () => {
-    it('returns "Healthy" for agent without heartbeatIntervalMs regardless of elapsed time', () => {
-      // This is an event-driven agent - no timer-based heartbeats expected
+  describe("agents without explicit heartbeatIntervalMs", () => {
+    it('returns "Healthy" within the default-interval grace window', () => {
       const agent = makeAgent({
         state: "active",
-        lastHeartbeatAt: new Date(FIXED_NOW - 1_000_000).toISOString(), // very stale heartbeat
-        runtimeConfig: { enabled: true }, // no heartbeatIntervalMs - event-driven
+        lastHeartbeatAt: new Date(FIXED_NOW - 60_000).toISOString(), // 1m ago
+        runtimeConfig: {}, // no interval — falls back to 1h default
       });
-      const status = getAgentHealthStatus(agent);
-      expect(status.label).toBe("Healthy");
-      expect(status.stateDerived).toBe(false);
-      expect(status.color).toBe("var(--state-active-text)");
+      expect(getAgentHealthStatus(agent).label).toBe("Healthy");
     });
 
-    it('returns "Healthy" for agent with stale heartbeat when no heartbeatIntervalMs is set', () => {
+    it('returns "Unresponsive" once elapsed exceeds 2× the default 1h interval', () => {
       const agent = makeAgent({
         state: "active",
-        lastHeartbeatAt: new Date(FIXED_NOW - 60_001).toISOString(), // just over 60s ago
-        runtimeConfig: {}, // empty runtimeConfig - no heartbeatIntervalMs
+        lastHeartbeatAt: new Date(FIXED_NOW - 3 * 3_600_000).toISOString(), // 3h ago
+        runtimeConfig: {},
       });
-      const status = getAgentHealthStatus(agent);
-      expect(status.label).toBe("Healthy");
-      expect(status.stateDerived).toBe(false);
+      expect(getAgentHealthStatus(agent).label).toBe("Unresponsive");
     });
 
-    it('returns "Healthy" for agent with heartbeatIntervalMs: 0 (invalid, treated as non-periodic)', () => {
+    it("clamps invalid intervals (0/negative) to the scheduler minimum (1s)", () => {
+      // 0/-5000 clamp to 1000ms → threshold falls back to the 60s floor.
+      // A heartbeat 120s old is stale.
       const agent = makeAgent({
         state: "active",
-        lastHeartbeatAt: new Date(FIXED_NOW - 1_000_000).toISOString(), // very stale
-        runtimeConfig: { heartbeatIntervalMs: 0 }, // 0 is invalid, treated as non-periodic
+        lastHeartbeatAt: new Date(FIXED_NOW - 120_000).toISOString(),
+        runtimeConfig: { heartbeatIntervalMs: 0 },
       });
-      const status = getAgentHealthStatus(agent);
-      expect(status.label).toBe("Healthy");
-      expect(status.stateDerived).toBe(false);
-    });
-
-    it('returns "Healthy" for agent with heartbeatIntervalMs: -5000 (negative, treated as non-periodic)', () => {
-      const agent = makeAgent({
-        state: "active",
-        lastHeartbeatAt: new Date(FIXED_NOW - 100_000).toISOString(), // stale
-        runtimeConfig: { heartbeatIntervalMs: -5000 }, // negative is invalid
-      });
-      const status = getAgentHealthStatus(agent);
-      expect(status.label).toBe("Healthy");
-      expect(status.stateDerived).toBe(false);
-    });
-
-    it('returns "Healthy" for agent with heartbeatIntervalMs: undefined (non-periodic)', () => {
-      const agent = makeAgent({
-        state: "active",
-        lastHeartbeatAt: new Date(FIXED_NOW - 500_000).toISOString(), // very stale
-        runtimeConfig: { heartbeatTimeoutMs: 60_000, heartbeatIntervalMs: undefined as unknown as number },
-      });
-      const status = getAgentHealthStatus(agent);
-      expect(status.label).toBe("Healthy");
-      expect(status.stateDerived).toBe(false);
-    });
-
-    it('returns "Healthy" for periodic agent with heartbeatIntervalMs: 60000 and stale heartbeat shows "Unresponsive"', () => {
-      const agent = makeAgent({
-        state: "active",
-        lastHeartbeatAt: new Date(FIXED_NOW - 120_000).toISOString(), // 120s ago, exceeds 60s timeout
-        runtimeConfig: { heartbeatIntervalMs: 60_000 }, // periodic with 60s interval
-      });
-      const status = getAgentHealthStatus(agent);
-      expect(status.label).toBe("Unresponsive");
-      expect(status.stateDerived).toBe(false);
+      expect(getAgentHealthStatus(agent).label).toBe("Unresponsive");
     });
   });
 
-  // ── Per-agent timeout overrides ────────────────────────────────────────────
+  // ── Staleness floor ───────────────────────────────────────────────────────
+  //
+  // Short intervals get a 60s floor so the UI doesn't flicker between
+  // Healthy and Unresponsive every tick for second-level heartbeats.
 
-  describe("per-agent timeout overrides", () => {
-    it("returns 'Healthy' for non-periodic agent regardless of elapsed time (no heartbeatIntervalMs)", () => {
+  describe("staleness floor", () => {
+    it("holds Healthy below the 60s floor even for sub-minute intervals", () => {
       const agent = makeAgent({
         state: "active",
-        lastHeartbeatAt: new Date(FIXED_NOW - 59_000).toISOString(), // 59s ago
+        lastHeartbeatAt: new Date(FIXED_NOW - 30_000).toISOString(),
+        runtimeConfig: { heartbeatIntervalMs: 10_000 },
       });
-      const status = getAgentHealthStatus(agent);
-      expect(status.label).toBe("Healthy");
-      expect(status.stateDerived).toBe(false);
+      expect(getAgentHealthStatus(agent).label).toBe("Healthy");
     });
 
-    it("returns 'Healthy' for agent with runtimeConfig but no heartbeatIntervalMs", () => {
+    it("tips to Unresponsive past the floor", () => {
       const agent = makeAgent({
         state: "active",
-        lastHeartbeatAt: new Date(FIXED_NOW - 59_000).toISOString(),
-        runtimeConfig: { maxConcurrentRuns: 2 }, // has other config, but no heartbeatIntervalMs
+        lastHeartbeatAt: new Date(FIXED_NOW - 61_000).toISOString(),
+        runtimeConfig: { heartbeatIntervalMs: 10_000 },
       });
-      const status = getAgentHealthStatus(agent);
-      expect(status.label).toBe("Healthy");
-      expect(status.stateDerived).toBe(false);
-    });
-
-    it("handles custom timeout of 30 seconds with periodic heartbeat", () => {
-      const agent = makeAgent({
-        state: "active",
-        lastHeartbeatAt: new Date(FIXED_NOW - 45_000).toISOString(), // 45s ago
-        runtimeConfig: { heartbeatIntervalMs: 30_000, heartbeatTimeoutMs: 30_000 },
-      });
-      const status = getAgentHealthStatus(agent);
-      expect(status.label).toBe("Unresponsive");
-      expect(status.stateDerived).toBe(false);
-    });
-
-    it("handles custom timeout of 120 seconds with periodic heartbeat", () => {
-      const agent = makeAgent({
-        state: "active",
-        lastHeartbeatAt: new Date(FIXED_NOW - 90_000).toISOString(), // 90s ago
-        runtimeConfig: { heartbeatIntervalMs: 30_000, heartbeatTimeoutMs: 120_000 },
-      });
-      const status = getAgentHealthStatus(agent);
-      expect(status.label).toBe("Healthy");
-      expect(status.stateDerived).toBe(false);
-    });
-
-    it("handles very short timeout of 5 seconds with periodic heartbeat", () => {
-      const agent = makeAgent({
-        state: "active",
-        lastHeartbeatAt: new Date(FIXED_NOW - 6_000).toISOString(), // 6s ago
-        runtimeConfig: { heartbeatIntervalMs: 10_000, heartbeatTimeoutMs: 5_000 },
-      });
-      const status = getAgentHealthStatus(agent);
-      expect(status.label).toBe("Unresponsive");
-      expect(status.stateDerived).toBe(false);
+      expect(getAgentHealthStatus(agent).label).toBe("Unresponsive");
     });
   });
 
@@ -503,12 +391,6 @@ describe("getAgentHealthStatus", () => {
         expectedLabel: "Starting...",
         expectedStateDerived: false,
       },
-      {
-        name: "disabled",
-        agent: makeAgent({ state: "active", runtimeConfig: { enabled: false } }),
-        expectedLabel: "Disabled",
-        expectedStateDerived: false,
-      },
     ])("sets stateDerived correctly for $name", ({ agent, expectedLabel, expectedStateDerived }) => {
       const status = getAgentHealthStatus(agent);
       expect(status.label).toBe(expectedLabel);
@@ -541,26 +423,25 @@ describe("getAgentHealthStatus", () => {
       expect(status.stateDerived).toBe(false);
     });
 
-    it("treats runtimeConfig.enabled as true when undefined (non-periodic)", () => {
+    it("100s stale heartbeat with no explicit interval → Healthy (default 1h applies)", () => {
+      // 1h default interval → 2h threshold, so 100s is well within range.
       const agent = makeAgent({
         state: "active",
-        lastHeartbeatAt: new Date(FIXED_NOW - 100_000).toISOString(), // stale
-        runtimeConfig: { heartbeatTimeoutMs: 120_000 }, // no heartbeatIntervalMs, so non-periodic
+        lastHeartbeatAt: new Date(FIXED_NOW - 100_000).toISOString(),
+        runtimeConfig: { heartbeatTimeoutMs: 120_000 }, // no heartbeatIntervalMs
       });
-      const status = getAgentHealthStatus(agent);
-      expect(status.label).toBe("Healthy"); // non-periodic agents are always Healthy when they have heartbeat
-      expect(status.stateDerived).toBe(false);
+      expect(getAgentHealthStatus(agent).label).toBe("Healthy");
     });
 
-    it("treats runtimeConfig.enabled === true with periodic heartbeat", () => {
+    it("ignores runtimeConfig.enabled and uses interval-based staleness", () => {
+      // 30s interval → 60s threshold. 100s elapsed is stale regardless of any
+      // legacy enabled flag or per-run timeout.
       const agent = makeAgent({
         state: "active",
-        lastHeartbeatAt: new Date(FIXED_NOW - 100_000).toISOString(), // stale
+        lastHeartbeatAt: new Date(FIXED_NOW - 100_000).toISOString(),
         runtimeConfig: { enabled: true, heartbeatIntervalMs: 30_000, heartbeatTimeoutMs: 120_000 },
       });
-      const status = getAgentHealthStatus(agent);
-      expect(status.label).toBe("Healthy"); // within 120s timeout
-      expect(status.stateDerived).toBe(false);
+      expect(getAgentHealthStatus(agent).label).toBe("Unresponsive");
     });
 
     it("returns consistent icons for all states", () => {
@@ -570,6 +451,7 @@ describe("getAgentHealthStatus", () => {
         { agent: makeAgent({ state: "paused" }), expectedIconType: "Pause" },
         { agent: makeAgent({ state: "running" }), expectedIconType: "Activity" },
         { agent: makeAgent({ state: "idle" }), expectedIconType: "Bot" },
+        // state=active + no lastHeartbeatAt → "Starting..." → Bot icon
         { agent: makeAgent({ state: "active", runtimeConfig: { enabled: false } }), expectedIconType: "Bot" },
         {
           agent: makeAgent({

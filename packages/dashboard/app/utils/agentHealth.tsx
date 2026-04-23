@@ -1,9 +1,27 @@
 import type { JSX } from "react";
 import { Bot, Heart, Activity, Pause, Square } from "lucide-react";
 import type { Agent } from "../api";
+import { resolveHeartbeatIntervalMs } from "./heartbeatIntervals";
 
-/** Default heartbeat timeout when not configured per-agent */
-const DEFAULT_HEARTBEAT_TIMEOUT_MS = 60_000;
+// Heartbeat scheduling is driven by `agent.state` on the server — active and
+// running tick, everything else does not. There is no separate "heartbeat
+// enabled" flag surfaced in the UI, so this file derives freshness straight
+// from state + lastHeartbeatAt and ignores any legacy `runtimeConfig.enabled`
+// value that may still be persisted on older agent records.
+
+/**
+ * Grace multiplier applied to an agent's configured interval before flagging
+ * it Unresponsive. A human reads "missed two scheduled ticks" as "something
+ * is wrong", which is what 2× captures; this also tolerates timer jitter and
+ * a paused engine restarting without causing a UI flicker.
+ */
+const HEARTBEAT_GRACE_MULTIPLIER = 2;
+
+/**
+ * Staleness floor. Even on an agent configured for 1s heartbeats we don't
+ * want the UI flickering between Healthy/Unresponsive on every tick.
+ */
+const MIN_HEARTBEAT_STALENESS_MS = 60_000;
 
 /** Shape of the health status returned by getAgentHealthStatus */
 export interface AgentHealthStatus {
@@ -28,37 +46,18 @@ type AgentHealthInput = Pick<
 >;
 
 /**
- * Extract the heartbeat timeout from agent runtimeConfig.
- * Returns undefined if not set or if monitoring is disabled.
+ * Compute the staleness threshold for an agent. Elapsed time beyond this is
+ * classified as Unresponsive.
+ *
+ * Uses the same interval resolver as the dashboard dropdown — if the agent
+ * has no explicit heartbeatIntervalMs persisted, the server-side default
+ * (1h) applies — so agents that were never configured (no dropdown write)
+ * and agents that were explicitly configured both get consistent treatment,
+ * differing only by their scheduled cadence.
  */
-function getHeartbeatTimeoutMs(runtimeConfig?: Record<string, unknown>): number | undefined {
-  if (!runtimeConfig) return undefined;
-  if (runtimeConfig.enabled === false) return undefined;
-  if (typeof runtimeConfig.heartbeatTimeoutMs !== "number") return undefined;
-  return runtimeConfig.heartbeatTimeoutMs;
-}
-
-/**
- * Determines if heartbeat monitoring is enabled for the agent.
- * Returns false if runtimeConfig.enabled === false, true otherwise.
- */
-function isHeartbeatEnabled(runtimeConfig?: Record<string, unknown>): boolean {
-  if (!runtimeConfig) return true;
-  if (typeof runtimeConfig.enabled === "boolean") return runtimeConfig.enabled;
-  return true;
-}
-
-/**
- * Determines if the agent has periodic heartbeat configuration.
- * An agent has periodic heartbeats if heartbeatIntervalMs is a positive number.
- * Agents with periodic heartbeat timers should show "Unresponsive" if no heartbeat
- * is received within the timeout window. Agents without periodic heartbeat (event-driven)
- * should not be marked "Unresponsive" based on elapsed time.
- */
-function hasPeriodicHeartbeat(runtimeConfig?: Record<string, unknown>): boolean {
-  if (!runtimeConfig) return false;
-  const intervalMs = runtimeConfig.heartbeatIntervalMs;
-  return typeof intervalMs === "number" && Number.isFinite(intervalMs) && intervalMs > 0;
+function getStalenessThresholdMs(runtimeConfig?: Record<string, unknown>): number {
+  const intervalMs = resolveHeartbeatIntervalMs(runtimeConfig?.heartbeatIntervalMs);
+  return Math.max(intervalMs * HEARTBEAT_GRACE_MULTIPLIER, MIN_HEARTBEAT_STALENESS_MS);
 }
 
 function isTaskWorkerAgent(agent: AgentHealthInput): boolean {
@@ -85,11 +84,10 @@ function isTaskWorkerAgent(agent: AgentHealthInput): boolean {
  * - "Error" — agent.state === "error" (uses lastError if available)
  * - "Paused" — agent.state === "paused" (uses pauseReason if available)
  * - "Running" — agent.state === "running", or a detected task worker in "active"
- * - "Disabled" — runtimeConfig.enabled === false for non-task-worker agents
  * - "Starting..." — state === "active" && no lastHeartbeatAt
  * - "Idle" — state !== "active" && no lastHeartbeatAt
- * - "Healthy" — heartbeat is fresh within the configured timeout
- * - "Unresponsive" — heartbeat exceeded the configured timeout
+ * - "Healthy" — heartbeat is fresh within 2× the configured interval
+ * - "Unresponsive" — heartbeat exceeded 2× the configured interval
  *
  * @param agent - The agent object (partial Agent shape is accepted)
  * @returns A health status object with label, icon, color, and stateDerived metadata
@@ -136,16 +134,6 @@ export function getAgentHealthStatus(agent: AgentHealthInput): AgentHealthStatus
     };
   }
 
-  // Check if heartbeat monitoring is enabled
-  if (!isHeartbeatEnabled(runtimeConfig)) {
-    return {
-      label: "Disabled",
-      icon: <Bot size={14} />,
-      color: "var(--text-secondary)",
-      stateDerived: false,
-    };
-  }
-
   // No heartbeat data yet
   if (!lastHeartbeatAt) {
     return {
@@ -156,25 +144,15 @@ export function getAgentHealthStatus(agent: AgentHealthInput): AgentHealthStatus
     };
   }
 
-  // For agents without periodic heartbeat configuration (event-driven agents),
-  // return "Healthy" if they have a lastHeartbeatAt. These agents don't have
-  // timer-based triggers, so absence of recent heartbeats is not a signal of
-  // unresponsiveness.
-  if (!hasPeriodicHeartbeat(runtimeConfig)) {
-    return {
-      label: "Healthy",
-      icon: <Heart size={14} />,
-      color: "var(--state-active-text)",
-      stateDerived: false,
-    };
-  }
-
-  // Agent has periodic heartbeat — check if within timeout window
+  // Every non-task-worker agent has an effective interval — either explicitly
+  // configured, or the scheduler's 1h default. Compare elapsed time to that
+  // interval (with grace) rather than to `heartbeatTimeoutMs`, which is the
+  // per-run work budget and has nothing to do with between-tick freshness.
   const lastHeartbeat = new Date(lastHeartbeatAt).getTime();
   const elapsed = Date.now() - lastHeartbeat;
-  const timeoutMs = getHeartbeatTimeoutMs(runtimeConfig) ?? DEFAULT_HEARTBEAT_TIMEOUT_MS;
+  const stalenessThresholdMs = getStalenessThresholdMs(runtimeConfig);
 
-  if (elapsed > timeoutMs) {
+  if (elapsed > stalenessThresholdMs) {
     return {
       label: "Unresponsive",
       icon: <Activity size={14} />,
