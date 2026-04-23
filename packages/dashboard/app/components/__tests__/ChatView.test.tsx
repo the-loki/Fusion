@@ -1688,3 +1688,127 @@ describe("ChatView project-scoped agent fetching", () => {
     });
   });
 });
+
+describe("ChatView sidebar structure", () => {
+  it("renders sidebar with explicit section class names", () => {
+    setupMockChat({ sessions: [], filteredSessions: [] });
+
+    render(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+
+    // Verify explicit sidebar section class names exist
+    expect(document.querySelector(".chat-sidebar")).toBeInTheDocument();
+    expect(document.querySelector(".chat-sidebar-header")).toBeInTheDocument();
+    expect(document.querySelector(".chat-sidebar-search")).toBeInTheDocument();
+    expect(document.querySelector(".chat-sidebar-list")).toBeInTheDocument();
+    expect(document.querySelector(".chat-sidebar-footer")).toBeInTheDocument();
+  });
+
+  it("renders desktop header New Chat button", () => {
+    setupMockChat({ sessions: [], filteredSessions: [] });
+
+    render(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+
+    expect(screen.getByTestId("chat-new-btn")).toBeInTheDocument();
+  });
+
+  it("renders mobile footer New Chat button", () => {
+    setupMockChat({ sessions: [], filteredSessions: [] });
+
+    render(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+
+    expect(screen.getByTestId("chat-new-btn-mobile")).toBeInTheDocument();
+  });
+
+  it("opens new chat dialog when clicking mobile footer New Chat button", async () => {
+    setupMockChat({ sessions: [], filteredSessions: [] });
+
+    render(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+
+    await userEvent.click(screen.getByTestId("chat-new-btn-mobile"));
+
+    const dialog = document.querySelector(".chat-new-dialog");
+    expect(dialog).toBeInTheDocument();
+  });
+
+  it("session list has both chat-session-list and chat-sidebar-list classes", () => {
+    setupMockChat({
+      sessions: [{ id: "session-001", agentId: "agent-001", status: "active", title: "Test Chat", updatedAt: "2026-04-08T00:00:00.000Z" }],
+      filteredSessions: [{ id: "session-001", agentId: "agent-001", status: "active", title: "Test Chat", updatedAt: "2026-04-08T00:00:00.000Z" }],
+    });
+
+    render(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+
+    const sessionList = document.querySelector(".chat-session-list");
+    expect(sessionList).toBeInTheDocument();
+    expect(sessionList).toHaveClass("chat-sidebar-list");
+  });
+});
+
+describe("ChatView mobile CSS contract", () => {
+  const css = fs.readFileSync(stylesPath, "utf-8");
+
+  // Helper to find a selector rule within any mobile media query block
+  function findMobileRule(selector: string): string | null {
+    const mobileRegex = /@media\s*\(max-width:\s*768px\)\s*\{([\s\S]*?)\n\}/g;
+    let match;
+    while ((match = mobileRegex.exec(css)) !== null) {
+      const mediaContent = match[1];
+      if (mediaContent.includes(selector)) {
+        const ruleMatch = mediaContent.match(new RegExp(`${selector}\\s*\\{([^}]*)\\}`));
+        if (ruleMatch) return ruleMatch[1];
+      }
+    }
+    return null;
+  }
+
+  // Helper to check if any mobile media query contains a selector with a specific property
+  function mobileRuleContains(selector: string, property: string): boolean {
+    const ruleCSS = findMobileRule(selector);
+    return ruleCSS !== null && ruleCSS.includes(property);
+  }
+
+  // Helper to check if a selector does NOT contain a property in any mobile media query
+  function mobileRuleNotContains(selector: string, property: string): boolean {
+    const mobileRegex = /@media\s*\(max-width:\s*768px\)\s*\{([\s\S]*?)\n\}/g;
+    let match;
+    while ((match = mobileRegex.exec(css)) !== null) {
+      const mediaContent = match[1];
+      if (mediaContent.includes(selector)) {
+        const ruleMatch = mediaContent.match(new RegExp(`${selector}\\s*\\{([^}]*)\\}`));
+        if (ruleMatch && ruleMatch[1].includes(property)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  it("mobile .chat-sidebar uses height: 100% instead of max-height: 40vh", () => {
+    expect(mobileRuleContains(".chat-sidebar", "height: 100%")).toBe(true);
+    expect(mobileRuleNotContains(".chat-sidebar", "max-height: 40vh")).toBe(true);
+  });
+
+  it("mobile .chat-sidebar-header is hidden", () => {
+    expect(mobileRuleContains(".chat-sidebar-header", "display: none")).toBe(true);
+  });
+
+  it("mobile .chat-sidebar-search is hidden", () => {
+    expect(mobileRuleContains(".chat-sidebar-search", "display: none")).toBe(true);
+  });
+
+  it("mobile .chat-sidebar-list has flex: 1 and overflow-y: auto for scrolling", () => {
+    expect(mobileRuleContains(".chat-sidebar-list", "flex: 1")).toBe(true);
+    expect(mobileRuleContains(".chat-sidebar-list", "overflow-y: auto")).toBe(true);
+    expect(mobileRuleContains(".chat-sidebar-list", "min-height: 0")).toBe(true);
+  });
+
+  it("mobile .chat-sidebar-footer exists with display: flex and border-top", () => {
+    expect(mobileRuleContains(".chat-sidebar-footer", "display: flex")).toBe(true);
+    expect(mobileRuleContains(".chat-sidebar-footer", "border-top")).toBe(true);
+  });
+
+  it("mobile .chat-sidebar-footer-btn has flex: 1 for full-width button", () => {
+    expect(mobileRuleContains(".chat-sidebar-footer-btn", "flex: 1")).toBe(true);
+    expect(mobileRuleContains(".chat-sidebar-footer-btn", "justify-content: center")).toBe(true);
+  });
+});

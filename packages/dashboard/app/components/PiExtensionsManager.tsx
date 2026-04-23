@@ -26,12 +26,28 @@ import {
   RefreshCw,
   Trash2,
 } from "lucide-react";
-import { fetchPiSettings, updatePiSettings, installPiPackage, type PiSettings } from "../api";
+import { fetchPiSettings, updatePiSettings, installPiPackage, fetchPiExtensions, updatePiExtensions, type PiSettings, type PiExtensionEntry } from "../api";
 import type { ToastType } from "../hooks/useToast";
 
 interface PiExtensionsManagerProps {
   addToast: (message: string, type?: ToastType) => void;
   projectId?: string;
+}
+
+/** Map source value to CSS class suffix */
+function getSourceClass(source: PiExtensionEntry["source"]): string {
+  return source.replace(/-/g, "-");
+}
+
+/** Get display label for extension source */
+function getSourceLabel(source: PiExtensionEntry["source"]): string {
+  const labels: Record<PiExtensionEntry["source"], string> = {
+    "fusion-global": "Fusion Global",
+    "pi-global": "Pi Global",
+    "fusion-project": "Fusion Project",
+    "pi-project": "Pi Project",
+  };
+  return labels[source] ?? source;
 }
 
 /** Determine package source type from the source string */
@@ -46,12 +62,17 @@ function getPackageLabel(source: string): string {
   return source.replace(/^(npm:|git:)/, "");
 }
 
-export function PiExtensionsManager({ addToast }: PiExtensionsManagerProps) {
+export function PiExtensionsManager({ addToast, projectId }: PiExtensionsManagerProps) {
   const [settings, setSettings] = useState<PiSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [installing, setInstalling] = useState(false);
   const [newSource, setNewSource] = useState("");
   const [expandedPackages, setExpandedPackages] = useState<Set<number>>(new Set());
+
+  // Discovered extensions state
+  const [extensions, setExtensions] = useState<PiExtensionEntry[]>([]);
+  const [extensionsLoading, setExtensionsLoading] = useState(true);
+  const [updatingExtensions, setUpdatingExtensions] = useState(false);
 
   const loadSettings = useCallback(async () => {
     try {
@@ -65,9 +86,41 @@ export function PiExtensionsManager({ addToast }: PiExtensionsManagerProps) {
     }
   }, [addToast]);
 
+  const loadExtensions = useCallback(async () => {
+    try {
+      setExtensionsLoading(true);
+      const data = await fetchPiExtensions(projectId);
+      setExtensions(data.extensions);
+    } catch (err) {
+      addToast(`Failed to load extensions: ${err instanceof Error ? err.message : String(err)}`, "error");
+    } finally {
+      setExtensionsLoading(false);
+    }
+  }, [addToast, projectId]);
+
+  const handleToggleExtension = useCallback(async (ext: PiExtensionEntry) => {
+    try {
+      setUpdatingExtensions(true);
+      const disabledIds = ext.enabled
+        ? [...extensions.filter((e) => e.enabled && e.id !== ext.id).map((e) => e.id), ext.id]
+        : extensions.filter((e) => e.enabled && e.id !== ext.id).map((e) => e.id);
+      await updatePiExtensions(disabledIds, projectId);
+      await loadExtensions();
+      addToast(ext.enabled ? "Extension disabled" : "Extension enabled", "success");
+    } catch (err) {
+      addToast(`Failed to update extension: ${err instanceof Error ? err.message : String(err)}`, "error");
+    } finally {
+      setUpdatingExtensions(false);
+    }
+  }, [extensions, projectId, loadExtensions, addToast]);
+
   useEffect(() => {
     void loadSettings();
   }, [loadSettings]);
+
+  useEffect(() => {
+    void loadExtensions();
+  }, [loadExtensions]);
 
   const toggleExpanded = (index: number) => {
     setExpandedPackages((prev) => {
@@ -330,6 +383,60 @@ export function PiExtensionsManager({ addToast }: PiExtensionsManagerProps) {
           </div>
         </>
       )}
+
+      {/* Discovered Extensions Section */}
+      <div className="pi-ext-discovered-section">
+        <div className="pi-ext-discovered-header">
+          <h4>Discovered Extensions</h4>
+          <button
+            className="btn btn-sm"
+            onClick={loadExtensions}
+            disabled={extensionsLoading}
+            title="Refresh extensions"
+          >
+            <RefreshCw size={14} className={extensionsLoading ? "spin" : ""} />
+          </button>
+        </div>
+        <p className="pi-ext-description">
+          Installed extensions resolved from packages and configured paths.
+        </p>
+
+        {extensionsLoading ? (
+          <div className="loading-state">Loading extensions…</div>
+        ) : extensions.length === 0 ? (
+          <div className="empty-state">
+            <Package size={32} className="text-muted" />
+            <p>No extensions discovered.</p>
+          </div>
+        ) : (
+          <div className="pi-ext-list">
+            {extensions.map((ext) => (
+              <div key={ext.id} className="pi-ext-item">
+                <div className="pi-ext-item-content">
+                  <div className="pi-ext-info">
+                    <span className="pi-ext-name">{ext.name}</span>
+                    <span className={`pi-ext-source-badge pi-ext-source-badge--${getSourceClass(ext.source)}`}>
+                      {getSourceLabel(ext.source)}
+                    </span>
+                  </div>
+                  <span className="pi-ext-path">{ext.path}</span>
+                </div>
+                <div className="pi-ext-actions">
+                  <label className="toggle-switch">
+                    <input
+                      type="checkbox"
+                      checked={ext.enabled}
+                      onChange={() => void handleToggleExtension(ext)}
+                      disabled={updatingExtensions}
+                    />
+                    <span className="toggle-slider" />
+                  </label>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -55,6 +55,8 @@ import {
   fetchPiSettings,
   updatePiSettings,
   installPiPackage,
+  fetchPiExtensions,
+  updatePiExtensions,
   fetchProjectTasks,
   fetchProjectConfig,
   fetchExecutorStats,
@@ -5931,5 +5933,117 @@ describe("installPiPackage", () => {
       method: "POST",
       body: JSON.stringify({ source: "git:https://github.com/example/pi-extension.git" }),
     }));
+  });
+});
+
+describe("fetchPiExtensions", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("sends GET to /api/settings/pi-extensions", async () => {
+    const mockSettings = {
+      extensions: [
+        { id: "ext-1", name: "Example", source: "fusion-global", path: "/path/to/ext", enabled: true },
+      ],
+      disabledIds: [],
+      settingsPath: "/path/to/settings",
+    };
+    globalThis.fetch = vi.fn().mockReturnValue(mockFetchResponse(true, mockSettings));
+
+    const result = await fetchPiExtensions();
+
+    expect(result.extensions).toEqual(mockSettings.extensions);
+    expect(result.disabledIds).toEqual(mockSettings.disabledIds);
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/settings/pi-extensions", expect.any(Object));
+  });
+
+  it("includes projectId query param when provided", async () => {
+    globalThis.fetch = vi.fn().mockReturnValue(mockFetchResponse(true, { extensions: [], disabledIds: [], settingsPath: "" }));
+
+    await fetchPiExtensions("proj-123");
+
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/settings/pi-extensions?projectId=proj-123", expect.any(Object));
+  });
+
+  it("returns empty extensions when no extensions", async () => {
+    globalThis.fetch = vi.fn().mockReturnValue(mockFetchResponse(true, { extensions: [], disabledIds: [], settingsPath: "" }));
+
+    const result = await fetchPiExtensions();
+
+    expect(result.extensions).toEqual([]);
+  });
+
+  it("handles all source types", async () => {
+    const mockSettings = {
+      extensions: [
+        { id: "ext-1", name: "Fusion Global", source: "fusion-global", path: "/path", enabled: true },
+        { id: "ext-2", name: "Pi Global", source: "pi-global", path: "/path", enabled: true },
+        { id: "ext-3", name: "Fusion Project", source: "fusion-project", path: "/path", enabled: false },
+        { id: "ext-4", name: "Pi Project", source: "pi-project", path: "/path", enabled: true },
+      ],
+      disabledIds: ["ext-3"],
+      settingsPath: "/path/to/settings",
+    };
+    globalThis.fetch = vi.fn().mockReturnValue(mockFetchResponse(true, mockSettings));
+
+    const result = await fetchPiExtensions();
+
+    expect(result.extensions).toHaveLength(4);
+    expect(result.extensions[0].source).toBe("fusion-global");
+  });
+
+  it("throws error on API failure", async () => {
+    globalThis.fetch = vi.fn().mockReturnValue(mockFetchResponse(false, { error: "Server error" }, 500));
+
+    await expect(fetchPiExtensions()).rejects.toThrow();
+  });
+});
+
+describe("updatePiExtensions", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("sends PUT to /api/settings/pi-extensions with disabledIds", async () => {
+    const mockSettings = { extensions: [], disabledIds: ["ext-1", "ext-2"], settingsPath: "" };
+    globalThis.fetch = vi.fn().mockReturnValue(mockFetchResponse(true, mockSettings));
+
+    const result = await updatePiExtensions(["ext-1", "ext-2"]);
+
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/settings/pi-extensions", expect.objectContaining({
+      method: "PUT",
+      body: JSON.stringify({ disabledIds: ["ext-1", "ext-2"] }),
+    }));
+    expect(result.disabledIds).toEqual(["ext-1", "ext-2"]);
+  });
+
+  it("includes projectId query param when provided", async () => {
+    globalThis.fetch = vi.fn().mockReturnValue(mockFetchResponse(true, { extensions: [], disabledIds: [], settingsPath: "" }));
+
+    await updatePiExtensions([], "proj-456");
+
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/settings/pi-extensions?projectId=proj-456", expect.any(Object));
+  });
+
+  it("sends empty disabledIds array", async () => {
+    globalThis.fetch = vi.fn().mockReturnValue(mockFetchResponse(true, { extensions: [], disabledIds: [], settingsPath: "" }));
+
+    await updatePiExtensions([]);
+
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/settings/pi-extensions", expect.objectContaining({
+      method: "PUT",
+      body: JSON.stringify({ disabledIds: [] }),
+    }));
+  });
+
+  it("throws error on API failure", async () => {
+    globalThis.fetch = vi.fn().mockReturnValue(mockFetchResponse(false, { error: "Server error" }, 500));
+
+    await expect(updatePiExtensions(["ext-1"])).rejects.toThrow();
   });
 });

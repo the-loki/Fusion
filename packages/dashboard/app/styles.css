@@ -35410,6 +35410,11 @@ html .column.drag-over * {
 
 /* ── Chat View Mobile Styles ────────────────────────────────────────────────── */
 
+/* Default: hide footer, mobile will override to show bottom-anchored New Chat */
+.chat-sidebar-footer {
+  display: none;
+}
+
 @media (max-width: 768px) {
   .chat-view {
     flex-direction: column;
@@ -35418,9 +35423,41 @@ html .column.drag-over * {
   .chat-sidebar {
     width: 100%;
     min-width: 100%;
-    max-height: 40vh;
+    height: 100%;
+    max-height: none;
     border-right: none;
     border-bottom: 1px solid var(--border);
+    flex-direction: column;
+  }
+
+  /* Desktop header hidden on mobile - New Chat is in footer instead */
+  .chat-sidebar-header {
+    display: none;
+  }
+
+  /* Hide search controls on mobile list view */
+  .chat-sidebar-search {
+    display: none;
+  }
+
+  /* Session list fills available space with scrolling */
+  .chat-sidebar-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  /* Footer with bottom-anchored New Chat action */
+  .chat-sidebar-footer {
+    display: flex;
+    padding: var(--space-md);
+    border-top: 1px solid var(--border);
+    background: var(--bg-secondary);
+  }
+
+  .chat-sidebar-footer-btn {
+    flex: 1;
+    justify-content: center;
   }
 
   .chat-sidebar--hidden {
@@ -36034,7 +36071,7 @@ html .column.drag-over * {
   align-items: center;
   justify-content: center;
   gap: var(--space-sm);
-  padding: 32px;
+  padding: var(--space-2xl);
   text-align: center;
   color: var(--text-muted);
 }
@@ -36125,14 +36162,14 @@ html .column.drag-over * {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
-    padding: 10px 12px;
+    padding: calc(var(--space-sm) + 2px) var(--space-md);
     flex-wrap: wrap;
   }
 
   .pi-ext-expand-btn {
     background: none;
     border: none;
-    padding: 2px;
+    padding: var(--space-xs);
     cursor: pointer;
     color: var(--text-muted);
     display: flex;
@@ -36238,8 +36275,8 @@ html .column.drag-over * {
   .pi-ext-filter-tag {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
-    padding: 2px 6px;
+    gap: var(--space-xs);
+    padding: var(--space-xs) calc(var(--space-xs) + 4px);
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
@@ -36298,8 +36335,8 @@ html .column.drag-over * {
   .pi-ext-resource-tag {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
-    padding: 3px 6px;
+    gap: var(--space-xs);
+    padding: calc(var(--space-xs) + 1px) calc(var(--space-xs) + 4px);
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
@@ -36323,7 +36360,7 @@ html .column.drag-over * {
     color: var(--text-dim);
     display: flex;
     align-items: center;
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     transition: color var(--transition-fast);
   }
 
@@ -36342,18 +36379,65 @@ html .column.drag-over * {
       align-items: stretch;
     }
 
-    .pi-ext-add-form-row .btn {
+    .pi-ext-add-form-row .btn,
+    .pi-ext-add-form-row .btn-primary {
       width: 100%;
     }
 
     .pi-ext-package-header {
-      padding: 8px 10px;
+      padding: var(--space-sm) calc(var(--space-sm) + 2px);
     }
 
     .pi-ext-resource-path {
       max-width: 120px;
     }
   }
+}
+
+/* Discovered Extensions Section */
+.pi-ext-discovered-section {
+  margin-top: var(--space-lg);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--border);
+}
+
+.pi-ext-discovered-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-sm);
+}
+
+.pi-ext-discovered-header h4 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* Pi Extensions source badge variants */
+.pi-ext-source-badge--fusion-global {
+  color: var(--color-info);
+  background: color-mix(in srgb, var(--color-info) 12%, transparent);
+}
+
+.pi-ext-source-badge--pi-global {
+  color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+}
+
+.pi-ext-source-badge--fusion-project {
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+}
+
+.pi-ext-source-badge--pi-project {
+  color: var(--color-muted);
+  background: color-mix(in srgb, var(--color-muted) 12%, transparent);
+}
+
+.pi-ext-source-badge--package {
+  color: var(--in-progress);
+  background: color-mix(in srgb, var(--in-progress) 12%, transparent);
 }
 
 /* Plugin toggle switch */

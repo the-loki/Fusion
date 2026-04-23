@@ -7,6 +7,8 @@ import { PiExtensionsManager } from "../PiExtensionsManager";
 const mockFetchPiSettings = vi.fn();
 const mockUpdatePiSettings = vi.fn();
 const mockInstallPiPackage = vi.fn();
+const mockFetchPiExtensions = vi.fn();
+const mockUpdatePiExtensions = vi.fn();
 
 // Mock lucide-react icons
 vi.mock("lucide-react", () => ({
@@ -51,6 +53,8 @@ vi.mock("../../api", () => ({
   fetchPiSettings: (...args: unknown[]) => mockFetchPiSettings(...args),
   updatePiSettings: (...args: unknown[]) => mockUpdatePiSettings(...args),
   installPiPackage: (...args: unknown[]) => mockInstallPiPackage(...args),
+  fetchPiExtensions: (...args: unknown[]) => mockFetchPiExtensions(...args),
+  updatePiExtensions: (...args: unknown[]) => mockUpdatePiExtensions(...args),
 }));
 
 const mockPiSettings = {
@@ -65,12 +69,27 @@ const mockPiSettings = {
   themes: ["/path/to/themes"],
 };
 
+const mockExtensions = [
+  { id: "ext-1", name: "Example Extension", source: "fusion-global" as const, path: "/path/to/ext-1", enabled: true },
+  { id: "ext-2", name: "Another Extension", source: "pi-project" as const, path: "/path/to/ext-2", enabled: false },
+  { id: "ext-3", name: "Fusion Project Extension", source: "fusion-project" as const, path: "/path/to/ext-3", enabled: true },
+];
+
+const mockExtensionsSettings = {
+  extensions: mockExtensions,
+  disabledIds: ["ext-2"],
+  settingsPath: "/path/to/settings",
+};
+
 const addToast = vi.fn();
 
 describe("PiExtensionsManager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     cleanup();
+    // Default mock for fetchPiExtensions to return empty settings
+    mockFetchPiExtensions.mockResolvedValue({ extensions: [], disabledIds: [], settingsPath: "" });
+    mockUpdatePiExtensions.mockResolvedValue({ extensions: [], disabledIds: [], settingsPath: "" });
   });
 
   describe("Rendering", () => {
@@ -142,8 +161,11 @@ describe("PiExtensionsManager", () => {
       mockFetchPiSettings.mockImplementation(() => new Promise(() => {}));
       render(<PiExtensionsManager addToast={addToast} />);
 
-      const refreshBtn = screen.getByTestId("icon-refresh");
-      expect(refreshBtn).toHaveClass("spin");
+      const refreshIcons = screen.getAllByTestId("icon-refresh");
+      expect(refreshIcons.length).toBeGreaterThan(0);
+      refreshIcons.forEach((icon) => {
+        expect(icon).toHaveClass("spin");
+      });
     });
   });
 
@@ -163,7 +185,8 @@ describe("PiExtensionsManager", () => {
       render(<PiExtensionsManager addToast={addToast} />);
 
       await waitFor(() => {
-        expect(screen.getByTestId("icon-package")).toBeTruthy();
+        const emptyState = screen.getByText("No packages configured.").closest(".empty-state");
+        expect(emptyState?.querySelector('[data-testid="icon-package"]')).toBeTruthy();
       });
     });
   });
@@ -381,6 +404,140 @@ describe("PiExtensionsManager", () => {
 
       await waitFor(() => {
         expect(addToast).toHaveBeenCalledWith("Failed to remove package: Update failed", "error");
+      });
+    });
+  });
+
+  describe("Discovered Extensions Section", () => {
+    it("renders discovered extensions section header", async () => {
+      mockFetchPiSettings.mockResolvedValueOnce(mockPiSettings);
+      mockFetchPiExtensions.mockResolvedValueOnce({ extensions: [], disabledIds: [], settingsPath: "" });
+      render(<PiExtensionsManager addToast={addToast} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole("heading", { name: "Discovered Extensions" })).toBeTruthy();
+      });
+    });
+
+    it("renders extension entries from fetchPiExtensions", async () => {
+      mockFetchPiSettings.mockResolvedValueOnce(mockPiSettings);
+      mockFetchPiExtensions.mockResolvedValueOnce(mockExtensionsSettings);
+
+      render(<PiExtensionsManager addToast={addToast} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Example Extension")).toBeTruthy();
+        expect(screen.getByText("Another Extension")).toBeTruthy();
+        expect(screen.getByText("Fusion Project Extension")).toBeTruthy();
+      });
+    });
+
+    it("shows source badges for each extension", async () => {
+      mockFetchPiSettings.mockResolvedValueOnce(mockPiSettings);
+      mockFetchPiExtensions.mockResolvedValueOnce(mockExtensionsSettings);
+
+      render(<PiExtensionsManager addToast={addToast} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Fusion Global")).toBeTruthy();
+        expect(screen.getByText("Pi Project")).toBeTruthy();
+        expect(screen.getByText("Fusion Project")).toBeTruthy();
+      });
+    });
+
+    it("displays extension paths", async () => {
+      mockFetchPiSettings.mockResolvedValueOnce(mockPiSettings);
+      mockFetchPiExtensions.mockResolvedValueOnce(mockExtensionsSettings);
+
+      render(<PiExtensionsManager addToast={addToast} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("/path/to/ext-1")).toBeTruthy();
+        expect(screen.getByText("/path/to/ext-2")).toBeTruthy();
+        expect(screen.getByText("/path/to/ext-3")).toBeTruthy();
+      });
+    });
+
+    it("renders toggle switches for each extension", async () => {
+      mockFetchPiSettings.mockResolvedValueOnce(mockPiSettings);
+      mockFetchPiExtensions.mockResolvedValueOnce(mockExtensionsSettings);
+
+      render(<PiExtensionsManager addToast={addToast} />);
+
+      await waitFor(() => {
+        const toggles = screen.getAllByRole("checkbox");
+        expect(toggles).toHaveLength(3);
+        expect(toggles[0]).toBeChecked(); // ext-1 enabled
+        expect(toggles[1]).not.toBeChecked(); // ext-2 disabled
+        expect(toggles[2]).toBeChecked(); // ext-3 enabled
+      });
+    });
+
+    it("coexists with existing global package/path UI", async () => {
+      mockFetchPiSettings.mockResolvedValueOnce(mockPiSettings);
+      mockFetchPiExtensions.mockResolvedValueOnce(mockExtensionsSettings);
+
+      render(<PiExtensionsManager addToast={addToast} />);
+
+      await waitFor(() => {
+        // Global package UI
+        expect(screen.getByText("pi-example")).toBeTruthy();
+        // Discovered extensions
+        expect(screen.getByText("Example Extension")).toBeTruthy();
+      });
+    });
+
+    it("forwards projectId to fetchPiExtensions", async () => {
+      mockFetchPiSettings.mockResolvedValueOnce(mockPiSettings);
+      mockFetchPiExtensions.mockResolvedValueOnce({ extensions: [], disabledIds: [], settingsPath: "" });
+
+      render(<PiExtensionsManager addToast={addToast} projectId="test-project-123" />);
+
+      await waitFor(() => {
+        expect(mockFetchPiExtensions).toHaveBeenCalledWith("test-project-123");
+      });
+    });
+
+    it("toggles extension enabled state", async () => {
+      mockFetchPiSettings.mockResolvedValueOnce(mockPiSettings);
+      mockFetchPiExtensions.mockResolvedValueOnce(mockExtensionsSettings);
+      mockUpdatePiExtensions.mockResolvedValueOnce(undefined);
+
+      render(<PiExtensionsManager addToast={addToast} />);
+
+      await waitFor(() => {
+        const toggles = screen.getAllByRole("checkbox");
+        expect(toggles[0]).toBeChecked();
+      });
+
+      // Click the first toggle to disable
+      const toggles = screen.getAllByRole("checkbox");
+      await userEvent.click(toggles[0]);
+
+      await waitFor(() => {
+        expect(mockUpdatePiExtensions).toHaveBeenCalled();
+      });
+    });
+
+    it("shows error toast when fetch extensions fails", async () => {
+      mockFetchPiSettings.mockResolvedValueOnce(mockPiSettings);
+      mockFetchPiExtensions.mockRejectedValueOnce(new Error("Failed to load"));
+
+      render(<PiExtensionsManager addToast={addToast} />);
+
+      await waitFor(() => {
+        expect(addToast).toHaveBeenCalledWith("Failed to load extensions: Failed to load", "error");
+      });
+    });
+
+    it("shows empty state when no extensions found", async () => {
+      mockFetchPiSettings.mockResolvedValueOnce(mockPiSettings);
+      mockFetchPiExtensions.mockResolvedValueOnce({ extensions: [], disabledIds: [], settingsPath: "" });
+
+      render(<PiExtensionsManager addToast={addToast} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("No extensions discovered.")).toBeTruthy();
       });
     });
   });

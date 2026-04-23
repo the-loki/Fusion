@@ -1017,6 +1017,7 @@ export function ChatView({ projectId, addToast }: ChatViewProps) {
     <div className="chat-view">
       {/* Sidebar */}
       <div className={`chat-sidebar${!sidebarVisible ? " chat-sidebar--hidden" : ""}`}>
+        {/* Desktop header with New Chat button */}
         <div className="chat-sidebar-header">
           <button
             className="btn btn-sm btn-primary"
@@ -1027,7 +1028,8 @@ export function ChatView({ projectId, addToast }: ChatViewProps) {
             New Chat
           </button>
         </div>
-        <div style={{ padding: "0 12px 8px" }}>
+        {/* Search section */}
+        <div className="chat-sidebar-search">
           <div className="chat-sidebar-search-wrapper">
             <Search size={14} className="chat-sidebar-search-icon" />
             <input
@@ -1040,7 +1042,8 @@ export function ChatView({ projectId, addToast }: ChatViewProps) {
             />
           </div>
         </div>
-        <div className="chat-session-list">
+        {/* Session list section */}
+        <div className="chat-session-list chat-sidebar-list">
           {sessionsLoading ? (
             <div style={{ padding: "12px", color: "var(--text-secondary)", fontSize: "13px" }}>
               Loading...
@@ -1088,6 +1091,17 @@ export function ChatView({ projectId, addToast }: ChatViewProps) {
               </div>
             ))
           )}
+        </div>
+        {/* Mobile footer with New Chat action */}
+        <div className="chat-sidebar-footer">
+          <button
+            className="btn btn-sm btn-primary chat-sidebar-footer-btn"
+            onClick={() => setShowNewDialog(true)}
+            data-testid="chat-new-btn-mobile"
+          >
+            <Plus size={14} />
+            New Chat
+          </button>
         </div>
       </div>
 
