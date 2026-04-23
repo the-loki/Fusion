@@ -133,7 +133,7 @@ The `runtimeConfig` field on agents supports the following options:
 | `modelId` | `string` | — | AI model ID override for heartbeat session |
 | `budgetConfig` | `AgentBudgetConfig` | — | Token budget governance settings |
 
-Heartbeat values are validated and minimum-clamped.
+Heartbeat values are validated and minimum-clamped to 5 minutes (300,000 ms).
 Project setting `heartbeatMultiplier` (default `1`) scales resolved heartbeat intervals globally; per-agent `heartbeatIntervalMs` remains the base interval before multiplier scaling.
 
 ## Agent Instructions (Dashboard)

@@ -19,6 +19,8 @@ import {
   formatHeartbeatInterval,
   getHeartbeatIntervalOptions,
   resolveHeartbeatIntervalMs,
+  MIN_HEARTBEAT_INTERVAL_MS,
+  HEARTBEAT_INTERVAL_PRESETS,
 } from "../utils/heartbeatIntervals";
 import { isEphemeralAgent } from "@fusion/core";
 
@@ -279,6 +281,10 @@ export function AgentsView({ addToast, projectId }: AgentsViewProps) {
   const roleSelectRef = useRef<HTMLSelectElement>(null);
   const [showSystemAgents, setShowSystemAgents] = useState(false);
   const [updatingHeartbeatAgentId, setUpdatingHeartbeatAgentId] = useState<string | null>(null);
+  /** Agent ID currently showing custom heartbeat input */
+  const [customHeartbeatAgentId, setCustomHeartbeatAgentId] = useState<string | null>(null);
+  /** Custom minutes input value for each agent */
+  const [customHeartbeatMinutes, setCustomHeartbeatMinutes] = useState<Record<string, string>>({});
 
   const hierarchy = useAgentHierarchy(agents, projectId);
 
@@ -442,6 +448,16 @@ export function AgentsView({ addToast, projectId }: AgentsViewProps) {
   };
 
   const handleHeartbeatIntervalChange = async (agent: Agent, newIntervalMs: number) => {
+    // Clear custom input state when selecting a preset
+    if (customHeartbeatAgentId === agent.id) {
+      setCustomHeartbeatAgentId(null);
+      setCustomHeartbeatMinutes((prev) => {
+        const next = { ...prev };
+        delete next[agent.id];
+        return next;
+      });
+    }
+
     setUpdatingHeartbeatAgentId(agent.id);
     try {
       await updateAgent(
@@ -461,6 +477,108 @@ export function AgentsView({ addToast, projectId }: AgentsViewProps) {
     } finally {
       setUpdatingHeartbeatAgentId(null);
     }
+  };
+
+  /**
+   * Handle saving custom heartbeat interval from typed minutes input.
+   * Validation behavior:
+   * - Empty value: do not save; show validation toast
+   * - Non-numeric value: do not save; show validation toast
+   * - Value <= 0: do not save; show validation toast
+   * - Value 1-4: save as 5 minutes (300000 ms) and show clamp-info toast
+   * - Value >= 5: save exact minute value converted to ms
+   */
+  const handleCustomHeartbeatSave = async (agent: Agent) => {
+    const inputValue = customHeartbeatMinutes[agent.id] ?? "";
+
+    // Validate: empty value
+    if (inputValue.trim() === "") {
+      addToast("Please enter a heartbeat interval in minutes", "error");
+      return;
+    }
+
+    // Validate: non-numeric value
+    const minutes = Number(inputValue);
+    if (isNaN(minutes)) {
+      addToast("Heartbeat interval must be a valid number", "error");
+      return;
+    }
+
+    // Validate: zero or negative
+    if (minutes <= 0) {
+      addToast("Heartbeat interval must be greater than 0", "error");
+      return;
+    }
+
+    // Handle values 1-4: clamp to 5 minutes
+    if (minutes >= 1 && minutes < 5) {
+      setUpdatingHeartbeatAgentId(agent.id);
+      try {
+        await updateAgent(
+          agent.id,
+          {
+            runtimeConfig: {
+              ...(agent.runtimeConfig ?? {}),
+              heartbeatIntervalMs: MIN_HEARTBEAT_INTERVAL_MS,
+            },
+          },
+          projectId,
+        );
+        addToast(`Heartbeat interval set to 5 minutes (minimum). ${minutes} minute${minutes !== 1 ? "s" : ""} was below the 5-minute minimum.`, "success");
+        setCustomHeartbeatAgentId(null);
+        setCustomHeartbeatMinutes((prev) => {
+          const next = { ...prev };
+          delete next[agent.id];
+          return next;
+        });
+        void loadAgents();
+      } catch (err: any) {
+        addToast(`Failed to update heartbeat interval: ${err.message}`, "error");
+      } finally {
+        setUpdatingHeartbeatAgentId(null);
+      }
+      return;
+    }
+
+    // Handle values >= 5: save exact minute value
+    const intervalMs = Math.round(minutes * 60_000);
+    setUpdatingHeartbeatAgentId(agent.id);
+    try {
+      await updateAgent(
+        agent.id,
+        {
+          runtimeConfig: {
+            ...(agent.runtimeConfig ?? {}),
+            heartbeatIntervalMs: intervalMs,
+          },
+        },
+        projectId,
+      );
+      addToast(`Heartbeat interval updated to ${formatHeartbeatInterval(intervalMs)} for ${agent.name}`, "success");
+      setCustomHeartbeatAgentId(null);
+      setCustomHeartbeatMinutes((prev) => {
+        const next = { ...prev };
+        delete next[agent.id];
+        return next;
+      });
+      void loadAgents();
+    } catch (err: any) {
+      addToast(`Failed to update heartbeat interval: ${err.message}`, "error");
+    } finally {
+      setUpdatingHeartbeatAgentId(null);
+    }
+  };
+
+  /** Handle selecting custom option from dropdown */
+  const handleSelectCustomHeartbeat = (agent: Agent) => {
+    const configuredIntervalMs = resolveHeartbeatIntervalMs(agent.runtimeConfig?.heartbeatIntervalMs);
+    // Convert ms to minutes for the input field
+    const currentMinutes = Math.round(configuredIntervalMs / 60_000);
+    setCustomHeartbeatAgentId(agent.id);
+    setCustomHeartbeatMinutes((prev) => ({
+      ...prev,
+      [agent.id]: String(currentMinutes),
+    }));
   };
 
   const handleCloseDetail = useCallback(() => {
@@ -806,19 +924,88 @@ export function AgentsView({ addToast, projectId }: AgentsViewProps) {
                     )}
                     <div className="agent-heartbeat-control">
                       <span className="text-secondary">Heartbeat:</span>
-                      <select
-                        className="select agent-heartbeat-select"
-                        value={configuredIntervalMs}
-                        onChange={(e) => void handleHeartbeatIntervalChange(agent, Number(e.target.value))}
-                        disabled={isUpdatingHeartbeat}
-                        aria-label={`Set heartbeat interval for ${agent.name}`}
-                      >
-                        {heartbeatOptions.map((preset) => (
-                          <option key={preset.value} value={preset.value}>
-                            {preset.label}
-                          </option>
-                        ))}
-                      </select>
+                      {customHeartbeatAgentId === agent.id ? (
+                        // Custom input mode
+                        <>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            className="input agent-heartbeat-custom-input"
+                            value={customHeartbeatMinutes[agent.id] ?? ""}
+                            onChange={(e) => setCustomHeartbeatMinutes((prev) => ({
+                              ...prev,
+                              [agent.id]: e.target.value,
+                            }))}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                void handleCustomHeartbeatSave(agent);
+                              } else if (e.key === "Escape") {
+                                setCustomHeartbeatAgentId(null);
+                                setCustomHeartbeatMinutes((prev) => {
+                                  const next = { ...prev };
+                                  delete next[agent.id];
+                                  return next;
+                                });
+                              }
+                            }}
+                            disabled={isUpdatingHeartbeat}
+                            aria-label={`Custom heartbeat interval in minutes for ${agent.name}`}
+                          />
+                          <span className="text-secondary">min</span>
+                          <button
+                            className="btn btn--sm"
+                            onClick={() => void handleCustomHeartbeatSave(agent)}
+                            disabled={isUpdatingHeartbeat}
+                            title="Save custom interval"
+                          >
+                            Save
+                          </button>
+                          <button
+                            className="btn btn--sm"
+                            onClick={() => {
+                              setCustomHeartbeatAgentId(null);
+                              setCustomHeartbeatMinutes((prev) => {
+                                const next = { ...prev };
+                                delete next[agent.id];
+                                return next;
+                              });
+                            }}
+                            disabled={isUpdatingHeartbeat}
+                            title="Cancel custom interval"
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        // Preset selection mode
+                        <>
+                          <select
+                            className="select agent-heartbeat-select"
+                            value={configuredIntervalMs}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              if (value === "__custom__") {
+                                handleSelectCustomHeartbeat(agent);
+                              } else {
+                                void handleHeartbeatIntervalChange(agent, Number(value));
+                              }
+                            }}
+                            disabled={isUpdatingHeartbeat}
+                            aria-label={`Set heartbeat interval for ${agent.name}`}
+                          >
+                            {heartbeatOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                            {/* Only show "Custom..." if current value is a preset; if it's already custom, it's already in the list */}
+                            {HEARTBEAT_INTERVAL_PRESETS.some((p) => p.value === configuredIntervalMs) && (
+                              <option value="__custom__">Custom...</option>
+                            )}
+                          </select>
+                        </>
+                      )}
                       {isUpdatingHeartbeat && <span className="agent-heartbeat-saving text-secondary">Saving…</span>}
                       {agent.lastHeartbeatAt && (() => {
                         const lastAt = new Date(agent.lastHeartbeatAt);

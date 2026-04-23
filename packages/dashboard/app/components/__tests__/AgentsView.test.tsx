@@ -183,15 +183,30 @@ describe("AgentsView", () => {
       });
     });
 
-    it("shows heartbeat interval control on agent cards", async () => {
+    it("shows heartbeat interval control on agent cards with 5m minimum presets", async () => {
       render(<AgentsView addToast={mockAddToast} />);
 
       await waitFor(() => {
         expect(screen.getByLabelText("Set heartbeat interval for Test Agent 2")).toBeTruthy();
       });
 
-      expect(screen.getAllByText("30s").length).toBeGreaterThan(0);
-      expect(screen.getByDisplayValue("30s")).toBeTruthy();
+      // Agent 2 has heartbeatIntervalMs: 30000 (30s) which should be clamped to 5m
+      expect(screen.getByDisplayValue("5m")).toBeTruthy();
+
+      // Verify all expected presets are present
+      const select = screen.getByLabelText("Set heartbeat interval for Test Agent 2") as HTMLSelectElement;
+      const options = Array.from(select.options).map(o => o.text);
+      expect(options).toContain("5m");
+      expect(options).toContain("48h");
+      expect(options).toContain("72h");
+      expect(options).toContain("1w");
+
+      // Verify old sub-5m presets are NOT present
+      expect(options).not.toContain("1s");
+      expect(options).not.toContain("5s");
+      expect(options).not.toContain("10s");
+      expect(options).not.toContain("30s");
+      expect(options).not.toContain("1m");
     });
 
     it("uses the system default heartbeat interval when runtime config is unset", async () => {
@@ -220,28 +235,22 @@ describe("AgentsView", () => {
         expect(screen.getByLabelText("Set heartbeat interval for Test Agent 2")).toBeTruthy();
       });
 
+      // Change from 5m (clamped from 30s) to 15m
       const intervalSelect = screen.getByLabelText("Set heartbeat interval for Test Agent 2");
-      fireEvent.change(intervalSelect, { target: { value: "60000" } });
+      fireEvent.change(intervalSelect, { target: { value: "900000" } });
 
       await waitFor(() => {
         expect(mockUpdateAgent).toHaveBeenCalledWith(
           "agent-002",
           expect.objectContaining({
-            runtimeConfig: expect.objectContaining({ heartbeatIntervalMs: 60000 }),
+            runtimeConfig: expect.objectContaining({ heartbeatIntervalMs: 900000 }),
           }),
           undefined,
         );
       });
     });
 
-    it("shows a custom heartbeat option when configured interval is not a preset", async () => {
-      mockFetchAgents.mockResolvedValue([
-        {
-          ...mockAgents[1],
-          runtimeConfig: { heartbeatIntervalMs: 65_000 },
-        },
-      ]);
-
+    it("shows Custom... option in dropdown that reveals typed input", async () => {
       render(<AgentsView addToast={mockAddToast} />);
 
       await waitFor(() => {
@@ -249,9 +258,197 @@ describe("AgentsView", () => {
       });
 
       const intervalSelect = screen.getByLabelText("Set heartbeat interval for Test Agent 2") as HTMLSelectElement;
-      expect(intervalSelect.value).toBe("65000");
-      expect(intervalSelect.options[intervalSelect.selectedIndex]?.text).toBe("1m (custom)");
-      expect(screen.getByRole("option", { name: "1m (custom)" })).toBeTruthy();
+
+      // Change to Custom... option
+      fireEvent.change(intervalSelect, { target: { value: "__custom__" } });
+
+      await waitFor(() => {
+        // Should show custom input with minutes field
+        expect(screen.getByLabelText("Custom heartbeat interval in minutes for Test Agent 2")).toBeTruthy();
+        expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+        expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+      });
+    });
+
+    it("can enter custom minutes value and save it", async () => {
+      render(<AgentsView addToast={mockAddToast} />);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("Set heartbeat interval for Test Agent 2")).toBeTruthy();
+      });
+
+      // Select Custom... option
+      const intervalSelect = screen.getByLabelText("Set heartbeat interval for Test Agent 2");
+      fireEvent.change(intervalSelect, { target: { value: "__custom__" } });
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("Custom heartbeat interval in minutes for Test Agent 2")).toBeTruthy();
+      });
+
+      // Enter 7 minutes
+      const customInput = screen.getByLabelText("Custom heartbeat interval in minutes for Test Agent 2");
+      fireEvent.change(customInput, { target: { value: "7" } });
+
+      // Click Save
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => {
+        // Should save 7 minutes = 420000 ms
+        expect(mockUpdateAgent).toHaveBeenCalledWith(
+          "agent-002",
+          expect.objectContaining({
+            runtimeConfig: expect.objectContaining({ heartbeatIntervalMs: 420000 }),
+          }),
+          undefined,
+        );
+      });
+    });
+
+    it("clamps custom value 1-4 minutes to 5 minutes with info toast", async () => {
+      render(<AgentsView addToast={mockAddToast} />);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("Set heartbeat interval for Test Agent 2")).toBeTruthy();
+      });
+
+      // Select Custom... option
+      const intervalSelect = screen.getByLabelText("Set heartbeat interval for Test Agent 2");
+      fireEvent.change(intervalSelect, { target: { value: "__custom__" } });
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("Custom heartbeat interval in minutes for Test Agent 2")).toBeTruthy();
+      });
+
+      // Enter 3 minutes
+      const customInput = screen.getByLabelText("Custom heartbeat interval in minutes for Test Agent 2");
+      fireEvent.change(customInput, { target: { value: "3" } });
+
+      // Click Save
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => {
+        // Should save 5 minutes (minimum) = 300000 ms
+        expect(mockUpdateAgent).toHaveBeenCalledWith(
+          "agent-002",
+          expect.objectContaining({
+            runtimeConfig: expect.objectContaining({ heartbeatIntervalMs: 300000 }),
+          }),
+          undefined,
+        );
+        // Should show info toast about clamping
+        expect(mockAddToast).toHaveBeenCalledWith(
+          expect.stringContaining("5 minutes (minimum)"),
+          "success",
+        );
+      });
+    });
+
+    it("does not save when custom input is empty", async () => {
+      render(<AgentsView addToast={mockAddToast} />);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("Set heartbeat interval for Test Agent 2")).toBeTruthy();
+      });
+
+      // Select Custom... option
+      const intervalSelect = screen.getByLabelText("Set heartbeat interval for Test Agent 2");
+      fireEvent.change(intervalSelect, { target: { value: "__custom__" } });
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("Custom heartbeat interval in minutes for Test Agent 2")).toBeTruthy();
+      });
+
+      // Clear the pre-filled value to empty
+      const customInput = screen.getByLabelText("Custom heartbeat interval in minutes for Test Agent 2");
+      fireEvent.change(customInput, { target: { value: "" } });
+
+      // Wait for state to update
+      await waitFor(() => {
+        expect((customInput as HTMLInputElement).value).toBe("");
+      });
+
+      // Click Save with empty input
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      // Should not call updateAgent
+      expect(mockUpdateAgent).not.toHaveBeenCalled();
+      // Should show error toast
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.stringContaining("enter a heartbeat interval"),
+        "error",
+      );
+    });
+
+    it("does not save when custom input is non-numeric", async () => {
+      render(<AgentsView addToast={mockAddToast} />);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("Set heartbeat interval for Test Agent 2")).toBeTruthy();
+      });
+
+      // Select Custom... option
+      const intervalSelect = screen.getByLabelText("Set heartbeat interval for Test Agent 2");
+      fireEvent.change(intervalSelect, { target: { value: "__custom__" } });
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("Custom heartbeat interval in minutes for Test Agent 2")).toBeTruthy();
+      });
+
+      // Clear and enter non-numeric value
+      const customInput = screen.getByLabelText("Custom heartbeat interval in minutes for Test Agent 2");
+      fireEvent.change(customInput, { target: { value: "abc" } });
+
+      // Wait for state to update
+      await waitFor(() => {
+        expect((customInput as HTMLInputElement).value).toBe("abc");
+      });
+
+      // Click Save
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      // Should not call updateAgent
+      expect(mockUpdateAgent).not.toHaveBeenCalled();
+      // Should show error toast
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.stringContaining("valid number"),
+        "error",
+      );
+    });
+
+    it("does not save when custom input is zero or negative", async () => {
+      render(<AgentsView addToast={mockAddToast} />);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("Set heartbeat interval for Test Agent 2")).toBeTruthy();
+      });
+
+      // Select Custom... option
+      const intervalSelect = screen.getByLabelText("Set heartbeat interval for Test Agent 2");
+      fireEvent.change(intervalSelect, { target: { value: "__custom__" } });
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("Custom heartbeat interval in minutes for Test Agent 2")).toBeTruthy();
+      });
+
+      // Enter 0
+      const customInput = screen.getByLabelText("Custom heartbeat interval in minutes for Test Agent 2");
+      fireEvent.change(customInput, { target: { value: "0" } });
+
+      // Wait for state to update
+      await waitFor(() => {
+        expect((customInput as HTMLInputElement).value).toBe("0");
+      });
+
+      // Click Save
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      // Should not call updateAgent
+      expect(mockUpdateAgent).not.toHaveBeenCalled();
+      // Should show error toast
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.stringContaining("greater than 0"),
+        "error",
+      );
     });
 
     it("shows refresh button", async () => {
