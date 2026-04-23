@@ -926,10 +926,54 @@ export interface AuthProvider {
   id: string;
   name: string;
   authenticated: boolean;
-  /** Whether this provider uses OAuth or API key authentication */
-  type?: "oauth" | "api_key";
+  /**
+   * How this provider authenticates / is activated.
+   * - "oauth": OAuth flow (user clicks Login → redirect)
+   * - "api_key": API key stored locally
+   * - "cli": a locally-installed CLI binary is the backing transport
+   *   (e.g. the synthetic `claude-cli` provider). Cards should render a
+   *   one-click Enable/Disable + Test button rather than login/key inputs.
+   */
+  type?: "oauth" | "api_key" | "cli";
   /** Masked hint of the stored API key (first 3 + bullets + last 4 chars) */
   keyHint?: string;
+}
+
+/**
+ * Snapshot of the Claude-CLI-via-pi health state. Powers the
+ * "Anthropic — via Claude CLI" provider card.
+ */
+export interface ClaudeCliStatus {
+  binary: {
+    available: boolean;
+    version?: string;
+    binaryPath?: string;
+    reason?: string;
+    probeDurationMs: number;
+  };
+  enabled: boolean;
+  extension: {
+    status: "ok" | "not-installed" | "missing-entry" | "error";
+    path?: string;
+    packageVersion?: string;
+    reason?: string;
+  } | null;
+  ready: boolean;
+}
+
+/** Probe the local Claude CLI binary + setting + extension state. */
+export function fetchClaudeCliStatus(): Promise<ClaudeCliStatus> {
+  return api<ClaudeCliStatus>("/providers/claude-cli/status");
+}
+
+/** Enable or disable the Claude CLI provider. Refuses enable if binary is missing. */
+export function setClaudeCliEnabled(
+  enabled: boolean,
+): Promise<{ enabled: boolean; restartRequired: boolean }> {
+  return api<{ enabled: boolean; restartRequired: boolean }>("/auth/claude-cli", {
+    method: "POST",
+    body: JSON.stringify({ enabled }),
+  });
 }
 
 /** Fetch authentication status for all OAuth providers */

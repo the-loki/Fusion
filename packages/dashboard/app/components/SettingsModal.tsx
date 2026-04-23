@@ -11,6 +11,7 @@ import { CustomModelDropdown } from "./CustomModelDropdown";
 import { FileEditor } from "./FileEditor";
 import { PluginManager } from "./PluginManager";
 import { PiExtensionsManager } from "./PiExtensionsManager";
+import { ClaudeCliProviderCard } from "./ClaudeCliProviderCard";
 import { PluginSlot } from "./PluginSlot";
 import { AgentPromptsManager } from "./AgentPromptsManager";
 import { applyPresetToSelection, generateUniquePresetId } from "../utils/modelPresets";
@@ -1225,27 +1226,6 @@ export function SettingsModal({
               </small>
             </div>
 
-            {/* --- Claude CLI routing --- */}
-            <h4 className="settings-section-heading settings-section-heading--spaced">Claude CLI</h4>
-            <div className="form-group">
-              <label htmlFor="useClaudeCli" className="checkbox-label">
-                <input
-                  id="useClaudeCli"
-                  type="checkbox"
-                  checked={form.useClaudeCli === true}
-                  onChange={(e) => setForm((f) => ({ ...f, useClaudeCli: e.target.checked }))}
-                />
-                Route AI calls through the Claude CLI (via pi-claude-cli)
-              </label>
-              <small>
-                When enabled, Fusion sends model calls to your locally-installed Claude CLI instead
-                of the direct Anthropic API — useful if you already have a Claude subscription and
-                want to use its quota. Requires <code>pi-claude-cli</code> installed as a pi
-                extension. Fusion will also install its skill into each project's{" "}
-                <code>.claude/skills/fusion/</code> so Claude Code sessions can use the{" "}
-                <code>fn_*</code> tools natively.
-              </small>
-            </div>
           </>
         );
       }
@@ -3045,8 +3025,14 @@ export function SettingsModal({
       case "pi-extensions":
         return <PiExtensionsManager addToast={addToast} projectId={projectId} />;
       case "authentication":
+        // CLI-backed providers (currently just claude-cli) render their own
+        // compact card with Enable/Disable + Test actions — bypassing the
+        // OAuth/API-key rendering below. Filter them out of the standard
+        // sort and render alongside.
+        const cliAuthProviders = authProviders.filter((p) => p.type === "cli");
+        const nonCliProviders = authProviders.filter((p) => p.type !== "cli");
         // Sort providers: authenticated first, then unauthenticated. Within each bucket, sort alphabetically by name.
-        const sortedProviders = [...authProviders].sort((a, b) => {
+        const sortedProviders = [...nonCliProviders].sort((a, b) => {
           if (a.authenticated !== b.authenticated) {
             return a.authenticated ? -1 : 1;
           }
@@ -3225,6 +3211,22 @@ export function SettingsModal({
                 <small className="settings-muted">
                   Re-run the setup wizard to review or update your AI provider and model configuration.
                 </small>
+              </div>
+            )}
+
+            {cliAuthProviders.some((p) => p.id === "claude-cli") && (
+              <div className="auth-provider-group">
+                <div className="auth-group-label">Local CLI</div>
+                <ClaudeCliProviderCard
+                  authenticated={
+                    cliAuthProviders.find((p) => p.id === "claude-cli")
+                      ?.authenticated ?? false
+                  }
+                  onToggled={() => {
+                    // Refetch so the provider list reflects the new state.
+                    void loadAuthStatus();
+                  }}
+                />
               </div>
             )}
           </>

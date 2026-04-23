@@ -30,6 +30,7 @@ const {
 import type { TaskStore, Column, ScheduleType, ActivityEventType, ModelPreset, MessageType, ParticipantType, RoutineTriggerType, ProjectSettings, EnrichedChatSession, PlanningSummary } from "@fusion/core";
 import { COLUMNS, VALID_TRANSITIONS, GLOBAL_SETTINGS_KEYS, type BatchStatusEntry, type BatchStatusResponse, type BatchStatusResult, type IssueInfo, type PrInfo, type Task, type PiExtensionEntry, type PiExtensionSettings, getCurrentRepo, isGhAvailable, isGhAuthenticated, AutomationStore, validateBackupSchedule, validateBackupRetention, validateBackupDir, syncBackupRoutine, exportSettings, importSettings, validateImportData, MessageStore, validateMessageMetadata, RoutineStore, isWebhookTrigger, resolveMemoryBackend, getMemoryBackendCapabilities, listMemoryBackendTypes, listProjectMemoryFiles, readProjectMemoryFile, readProjectMemoryFileContent, writeProjectMemoryFile, listAgentMemoryFiles, readAgentMemoryFile, writeAgentMemoryFile, readMemory, writeMemory, searchProjectMemory, isQmdAvailable, installQmd, refreshQmdProjectMemoryIndex, QMD_INSTALL_COMMAND, MemoryBackendError, scheduleQmdProjectMemoryRefresh, discoverPiExtensions, updatePiExtensionDisabledIds, getFusionAgentDir, getLegacyPiAgentDir, ensureMemoryFileWithBackend, readInsightsMemory, writeInsightsMemory, generateMemoryAudit, buildInsightExtractionPrompt, parseInsightExtractionResponse, processAndAuditInsightExtraction } from "@fusion/core";
 import type { ServerOptions } from "./server.js";
+import { probeClaudeCli } from "./claude-cli-probe.js";
 import { GitHubClient, parseBadgeUrl } from "./github.js";
 import { githubRateLimiter } from "./github-poll.js";
 import { terminalSessionManager } from "./terminal.js";
@@ -3736,7 +3737,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       const { store: scopedStore } = await getProjectContext(req);
       const { createBackupManager } = await import("@fusion/core");
       const settings = await scopedStore.getSettings();
-      const manager = createBackupManager(scopedStore["kbDir"], settings);
+      const manager = createBackupManager(scopedStore["fusionDir"], settings);
       const backups = await manager.listBackups();
       
       // Calculate total size
@@ -3764,7 +3765,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       const { store: scopedStore } = await getProjectContext(req);
       const { runBackupCommand } = await import("@fusion/core");
       const settings = await scopedStore.getSettings();
-      const result = await runBackupCommand(scopedStore["kbDir"], settings);
+      const result = await runBackupCommand(scopedStore["fusionDir"], settings);
       
       if (result.success) {
         res.json({
@@ -6811,7 +6812,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
   });
 
   // ---------- Auth routes ----------
-  registerAuthRoutes(router, options?.authStorage);
+  registerAuthRoutes(router, options?.authStorage, store, options);
 
   // ── PR Management Routes ─────────────────────────────────────────
 
@@ -18968,7 +18969,12 @@ function registerModelsRoute(
  * Uses pi-coding-agent's AuthStorage for credential management.
  * If no AuthStorage is provided, authentication routes return an unavailable status.
  */
-function registerAuthRoutes(router: Router, authStorage?: AuthStorageLike): void {
+function registerAuthRoutes(
+  router: Router,
+  authStorage?: AuthStorageLike,
+  store?: TaskStore,
+  options?: ServerOptions,
+): void {
   // Use injected AuthStorage or fail gracefully if not provided.
   // When running via the CLI/engine, AuthStorage is passed in via ServerOptions.
   function getAuthStorage(): AuthStorageLike {
@@ -19005,12 +19011,12 @@ function registerAuthRoutes(router: Router, authStorage?: AuthStorageLike): void
    *   ghCli: { available: boolean, authenticated: boolean }
    * }
    */
-  router.get("/auth/status", (_req, res) => {
+  router.get("/auth/status", async (_req, res) => {
     try {
       const storage = getAuthStorage();
       storage.reload();
       const oauthProviders = storage.getOAuthProviders();
-      const providers: { id: string; name: string; authenticated: boolean; type: "oauth" | "api_key"; keyHint?: string }[] = oauthProviders.map((p) => ({
+      const providers: { id: string; name: string; authenticated: boolean; type: "oauth" | "api_key" | "cli"; keyHint?: string }[] = oauthProviders.map((p) => ({
         id: p.id,
         name: p.name,
         authenticated: storage.hasAuth(p.id),
@@ -19040,12 +19046,169 @@ function registerAuthRoutes(router: Router, authStorage?: AuthStorageLike): void
         }
       }
 
+      // Inject the synthetic "Anthropic — via Claude CLI" provider. Its
+      // "authenticated" state is a product of three facts: the `claude`
+      // binary must be on PATH, the user must have enabled useClaudeCli,
+      // and the vendored extension must have loaded cleanly. We compute
+      // them here once per /auth/status call so the provider list rendered
+      // by onboarding + settings stays consistent with what a direct call
+      // to /providers/claude-cli/status would return.
+      if (store) {
+        let enabled = false;
+        try {
+          const globalSettings = await store.getGlobalSettingsStore().getSettings();
+          enabled = globalSettings.useClaudeCli === true;
+        } catch {
+          // Unreadable settings — fall through with enabled=false
+        }
+        const extension = options?.getClaudeCliExtensionStatus?.() ?? null;
+        const binary = await probeClaudeCli();
+        const extensionOk = extension === null || extension.status === "ok";
+        providers.push({
+          id: "claude-cli",
+          name: "Anthropic — via Claude CLI",
+          authenticated: enabled && binary.available && extensionOk,
+          type: "cli" as const,
+        });
+      }
+
       const ghCli = {
         available: isGhAvailable(),
         authenticated: isGhAuthenticated(),
       };
 
       res.json({ providers, ghCli });
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        throw err;
+      }
+      rethrowAsApiError(err);
+    }
+  });
+
+  /**
+   * GET /api/providers/claude-cli/status
+   * Dedicated diagnostic endpoint for the "Anthropic — via Claude CLI"
+   * provider card. Runs three checks:
+   *   1. `claude --version` binary probe (with short timeout)
+   *   2. GlobalSettings.useClaudeCli toggle state
+   *   3. Cached @fusion/pi-claude-cli extension resolution from the host
+   *
+   * Response fields are structured so the frontend can render a clear
+   * "what's working, what isn't" breakdown without itself having to know
+   * about pi internals.
+   */
+  /**
+   * POST /api/auth/claude-cli
+   * Enable or disable the "Anthropic — via Claude CLI" synthetic provider.
+   * Body: { enabled: boolean }
+   *
+   * Rather than add yet another settings API, this delegates to the
+   * existing PUT /api/settings/global path — same cache invalidation,
+   * same onUseClaudeCliToggled hook firing, same downstream skill
+   * backfill behavior. The thin wrapper exists so the frontend provider
+   * card has a shape-appropriate endpoint ("turn this provider on/off")
+   * without calling a generic settings route.
+   *
+   * When `enabled=true` is requested we probe the claude binary first
+   * and refuse if it's missing — saving the user from a confusing state
+   * where the toggle is "on" but nothing actually works.
+   */
+  router.post("/auth/claude-cli", async (req, res) => {
+    try {
+      if (!store) {
+        throw new ApiError(500, "Settings store unavailable");
+      }
+      const enabled = req.body?.enabled;
+      if (typeof enabled !== "boolean") {
+        throw badRequest("enabled must be a boolean");
+      }
+
+      if (enabled) {
+        const binary = await probeClaudeCli();
+        if (!binary.available) {
+          throw new ApiError(
+            400,
+            `Cannot enable Claude CLI routing: ${binary.reason ?? "claude binary not available"}`,
+          );
+        }
+      }
+
+      // Snapshot prior value so we only fire the toggle hook on an actual
+      // transition — mirrors the logic in PUT /api/settings/global.
+      let prev = false;
+      try {
+        const priorGlobal = await store.getGlobalSettingsStore().getSettings();
+        prev = priorGlobal.useClaudeCli === true;
+      } catch {
+        // Unreadable prior — treat as false so a first enable still fires.
+      }
+
+      const settings = await store.updateGlobalSettings({ useClaudeCli: enabled });
+      invalidateAllGlobalSettingsCaches();
+      const engineManager = options?.engineManager;
+      if (engineManager) {
+        for (const engine of engineManager.getAllEngines().values()) {
+          engine.getTaskStore().getGlobalSettingsStore().invalidateCache();
+        }
+      }
+
+      const next = settings.useClaudeCli === true;
+      if (options?.onUseClaudeCliToggled && prev !== next) {
+        try {
+          options.onUseClaudeCliToggled(prev, next);
+        } catch (hookErr) {
+          console.warn(
+            `[auth/claude-cli] onUseClaudeCliToggled callback threw: ${hookErr instanceof Error ? hookErr.message : String(hookErr)}`,
+          );
+        }
+      }
+
+      res.json({
+        enabled: next,
+        // Pi extension registrations can't be added/removed mid-process,
+        // so flipping on/off requires a restart for the model routing
+        // itself to take effect. Skill install/backfill happens
+        // immediately either way. Surface this so the UI can show a
+        // "Restart Fusion to activate" prompt when next !== prev.
+        restartRequired: prev !== next,
+      });
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        throw err;
+      }
+      rethrowAsApiError(err);
+    }
+  });
+
+  router.get("/providers/claude-cli/status", async (_req, res) => {
+    try {
+      const binary = await probeClaudeCli();
+      let enabled = false;
+      if (store) {
+        try {
+          const globalSettings = await store.getGlobalSettingsStore().getSettings();
+          enabled = globalSettings.useClaudeCli === true;
+        } catch {
+          // Best-effort: unreadable settings still allow the binary probe
+          // to surface, just with enabled=false.
+        }
+      }
+      const extension = options?.getClaudeCliExtensionStatus?.() ?? null;
+
+      res.json({
+        binary,
+        enabled,
+        extension,
+        // Convenience field: the provider card considers everything "ready"
+        // when the binary is available, the user has enabled the toggle,
+        // AND the host loaded the extension without error. Surfacing this
+        // keeps the UI render logic simple.
+        ready:
+          binary.available &&
+          enabled &&
+          (extension === null || extension.status === "ok"),
+      });
     } catch (err: unknown) {
       if (err instanceof ApiError) {
         throw err;

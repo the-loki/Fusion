@@ -25,6 +25,11 @@ import {
   ensureClaudeSkillsForAllProjectsOnStartup,
   maybeInstallClaudeSkillForNewProject,
 } from "./claude-skills-runner.js";
+import {
+  getCachedClaudeCliResolution,
+  resolveClaudeCliExtensionPaths,
+  setCachedClaudeCliResolution,
+} from "./claude-cli-extension.js";
 import { DashboardTUI, DashboardLogSink, isTTYAvailable, type SystemInfo } from "./dashboard-tui.js";
 
 // Re-export for backward compatibility with tests
@@ -759,9 +764,31 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
       .filter((r) => r.enabled)
       .map((r) => r.path);
 
+    const claudeCliPaths = await (async () => {
+      try {
+        const globalSettings = await store.getGlobalSettingsStore().getSettings();
+        const result = resolveClaudeCliExtensionPaths(globalSettings);
+        setCachedClaudeCliResolution(result.resolution);
+        if (result.warning) {
+          console.warn(`[extensions] pi-claude-cli: ${result.warning}`);
+        }
+        return result.paths;
+      } catch (err) {
+        console.warn(
+          `[extensions] Unable to evaluate useClaudeCli setting: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        setCachedClaudeCliResolution(null);
+        return [];
+      }
+    })();
+
     // Load all enabled extensions: Fusion/Pi filesystem-discovered + package-resolved.
     const extensionsResult = await discoverAndLoadExtensions(
-      [...getEnabledPiExtensionPaths(cwd), ...packageExtensionPaths],
+      [
+        ...getEnabledPiExtensionPaths(cwd),
+        ...packageExtensionPaths,
+        ...claudeCliPaths,
+      ],
       cwd,
       join(cwd, ".fusion", "disabled-auto-extension-discovery"),
     );
@@ -1000,6 +1027,17 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
       onProjectRegistered: ({ path }) => {
         maybeInstallClaudeSkillForNewProject(path);
       },
+      getClaudeCliExtensionStatus: () => {
+        const r = getCachedClaudeCliResolution();
+        if (!r) return null;
+        if (r.status === "ok") {
+          return { status: "ok", path: r.path, packageVersion: r.packageVersion };
+        }
+        if (r.status === "not-installed") {
+          return { status: "not-installed" };
+        }
+        return { status: r.status, reason: r.reason };
+      },
       onUseClaudeCliToggled: (_prev, next) => {
         if (!next) return;
         void (async () => {
@@ -1207,6 +1245,17 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
       pluginRunner: pluginLoader,
       onProjectRegistered: ({ path }) => {
         maybeInstallClaudeSkillForNewProject(path);
+      },
+      getClaudeCliExtensionStatus: () => {
+        const r = getCachedClaudeCliResolution();
+        if (!r) return null;
+        if (r.status === "ok") {
+          return { status: "ok", path: r.path, packageVersion: r.packageVersion };
+        }
+        if (r.status === "not-installed") {
+          return { status: "not-installed" };
+        }
+        return { status: r.status, reason: r.reason };
       },
       onUseClaudeCliToggled: (_prev, next) => {
         if (!next) return;

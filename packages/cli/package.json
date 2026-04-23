@@ -45,6 +45,7 @@
     "test": "vitest run --silent=passed-only --reporter=dot"
   },
   "dependencies": {
+    "@fusion/pi-claude-cli": "workspace:*",
     "@mariozechner/pi-ai": "^0.62.0",
     "@mariozechner/pi-coding-agent": "^0.62.0",
     "express": "^5.1.0",

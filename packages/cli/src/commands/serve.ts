@@ -46,6 +46,11 @@ import {
   ensureClaudeSkillsForAllProjectsOnStartup,
   maybeInstallClaudeSkillForNewProject,
 } from "./claude-skills-runner.js";
+import {
+  getCachedClaudeCliResolution,
+  resolveClaudeCliExtensionPaths,
+  setCachedClaudeCliResolution,
+} from "./claude-cli-extension.js";
 
 const DIAGNOSTIC_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 let diagnosticIntervalHandle: ReturnType<typeof setInterval> | null = null;
@@ -441,8 +446,33 @@ export async function runServe(
       .filter((r) => r.enabled)
       .map((r) => r.path);
 
+    // Conditionally load the vendored pi-claude-cli extension so the user's
+    // "Anthropic — via Claude CLI" provider routing takes effect without
+    // requiring a manual `pi-claude-cli` install.
+    const claudeCliPaths = await (async () => {
+      try {
+        const globalSettings = await store.getGlobalSettingsStore().getSettings();
+        const result = resolveClaudeCliExtensionPaths(globalSettings);
+        setCachedClaudeCliResolution(result.resolution);
+        if (result.warning) {
+          console.warn(`[extensions] pi-claude-cli: ${result.warning}`);
+        }
+        return result.paths;
+      } catch (err) {
+        console.warn(
+          `[extensions] Unable to evaluate useClaudeCli setting: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        setCachedClaudeCliResolution(null);
+        return [];
+      }
+    })();
+
     const extensionsResult = await discoverAndLoadExtensions(
-      [...getEnabledPiExtensionPaths(cwd), ...packageExtensionPaths],
+      [
+        ...getEnabledPiExtensionPaths(cwd),
+        ...packageExtensionPaths,
+        ...claudeCliPaths,
+      ],
       cwd,
       join(cwd, ".fusion", "disabled-auto-extension-discovery"),
     );
@@ -620,6 +650,17 @@ export async function runServe(
       // Fire-and-forget: install the fusion Claude-skill when pi-claude-cli
       // is configured. The runner logs its own outcome and swallows errors.
       maybeInstallClaudeSkillForNewProject(path);
+    },
+    getClaudeCliExtensionStatus: () => {
+      const r = getCachedClaudeCliResolution();
+      if (!r) return null;
+      if (r.status === "ok") {
+        return { status: "ok", path: r.path, packageVersion: r.packageVersion };
+      }
+      if (r.status === "not-installed") {
+        return { status: "not-installed" };
+      }
+      return { status: r.status, reason: r.reason };
     },
     onUseClaudeCliToggled: (_prev, next) => {
       if (!next) return; // Toggle-off leaves existing skill symlinks alone.

@@ -224,6 +224,26 @@ export interface ServerOptions {
    * settings PUT to fail.
    */
   onUseClaudeCliToggled?: (prev: boolean, next: boolean) => void;
+  /**
+   * Returns the host's last-observed resolution of the bundled
+   * `@fusion/pi-claude-cli` extension. Populated by serve/daemon/dashboard
+   * at startup after calling `resolveClaudeCliExtensionPaths`.
+   *
+   * The shape intentionally mirrors `ClaudeCliExtensionResolution` from the
+   * CLI package but is described structurally so dashboard doesn't need to
+   * depend on `@runfusion/fusion`.
+   *
+   * Returns `null` when the host hasn't evaluated the setting yet (very
+   * early startup) — callers should treat null as "unknown, try again".
+   */
+  getClaudeCliExtensionStatus?: () =>
+    | {
+        status: "ok" | "not-installed" | "missing-entry" | "error";
+        path?: string;
+        packageVersion?: string;
+        reason?: string;
+      }
+    | null;
   /** Optional SkillsAdapter for skills discovery, execution toggling, and catalog fetching */
   skillsAdapter?: SkillsAdapter;
   /** Daemon mode configuration with bearer token authentication.

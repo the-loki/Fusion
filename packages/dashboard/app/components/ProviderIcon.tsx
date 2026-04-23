@@ -155,11 +155,46 @@ function KimiIcon({ size, color, label = "Kimi" }: { size: number; color: string
   );
 }
 
+// Anthropic "A" mark composited with a small terminal "> _" badge in the
+// bottom-right, visually signalling "Anthropic, but via the local CLI".
+function ClaudeCliIcon({ size, color, label = "Anthropic — via Claude CLI" }: { size: number; color: string; label?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      data-testid="claude-cli-icon"
+      aria-label={label}
+    >
+      {/* Anthropic "A" mark, slightly shrunk + shifted to leave room for the badge */}
+      <g transform="translate(-1 -1.5) scale(0.82)">
+        <path
+          d="M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z"
+          fill={color}
+        />
+      </g>
+      {/* Terminal badge — filled square with "> _" glyph */}
+      <rect x="13" y="13" width="10" height="9" rx="1.5" fill={color} />
+      <path
+        d="M15.2 16.2l1.6 1.4-1.6 1.4M18.6 19.6h2.4"
+        stroke="var(--bg-primary, #111)"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </svg>
+  );
+}
+
 const providerConfig: Record<
   string,
   { component: typeof AnthropicIcon; color: string; label?: string }
 > = {
   anthropic: { component: AnthropicIcon, color: "#d4a27f" }, // warm tan
+  "claude-cli": { component: ClaudeCliIcon, color: "#d4a27f", label: "Anthropic — via Claude CLI" },
   openai: { component: OpenAIIcon, color: "#10a37f" }, // green
   "openai-codex": { component: OpenAIIcon, color: "#10a37f", label: "OpenAI Codex" }, // green (same as openai)
   google: { component: GeminiIcon, color: "#4285f4" }, // blue

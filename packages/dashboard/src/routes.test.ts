@@ -3699,7 +3699,11 @@ describe("GET /auth/status", () => {
     const res = await GET(buildApp(), "/api/auth/status");
 
     expect(res.status).toBe(200);
-    expect(res.body.providers).toEqual([
+    // Filter out the synthetic claude-cli provider — it's unconditionally
+    // injected when a store is attached and has its own dedicated tests.
+    // Structural assertions here are about OAuth + API-key paths only.
+    const providers = res.body.providers.filter((p: any) => p.id !== "claude-cli");
+    expect(providers).toEqual([
       { id: "anthropic", name: "Anthropic", authenticated: true, type: "oauth" },
       { id: "openrouter", name: "OpenRouter", authenticated: false, type: "api_key" },
       { id: "kimi-coding", name: "Kimi", authenticated: false, type: "api_key" },
@@ -3723,7 +3727,8 @@ describe("GET /auth/status", () => {
     const res = await GET(buildApp(), "/api/auth/status");
 
     expect(res.status).toBe(200);
-    expect(res.body.providers).toEqual([
+    const providers = res.body.providers.filter((p: any) => p.id !== "claude-cli");
+    expect(providers).toEqual([
       { id: "anthropic", name: "Anthropic", authenticated: true, type: "oauth" },
       { id: "github-copilot", name: "GitHub Copilot", authenticated: false, type: "oauth" },
       { id: "openrouter", name: "OpenRouter", authenticated: false, type: "api_key" },

@@ -42,6 +42,11 @@ import {
   ensureClaudeSkillsForAllProjectsOnStartup,
   maybeInstallClaudeSkillForNewProject,
 } from "./claude-skills-runner.js";
+import {
+  getCachedClaudeCliResolution,
+  resolveClaudeCliExtensionPaths,
+  setCachedClaudeCliResolution,
+} from "./claude-cli-extension.js";
 import { createReadOnlyAuthFileStorage, mergeAuthStorageReads, wrapAuthStorageWithApiKeyProviders } from "./provider-auth.js";
 import { getFusionAuthPath, getLegacyAuthPaths, getModelRegistryModelsPath, getPackageManagerAgentDir } from "./auth-paths.js";
 import { resolveProject } from "../project-context.js";
@@ -387,8 +392,30 @@ export async function runDaemon(opts: DaemonOptions = {}) {
       .filter((r) => r.enabled)
       .map((r) => r.path);
 
+    const claudeCliPaths = await (async () => {
+      try {
+        const globalSettings = await store.getGlobalSettingsStore().getSettings();
+        const result = resolveClaudeCliExtensionPaths(globalSettings);
+        setCachedClaudeCliResolution(result.resolution);
+        if (result.warning) {
+          console.warn(`[extensions] pi-claude-cli: ${result.warning}`);
+        }
+        return result.paths;
+      } catch (err) {
+        console.warn(
+          `[extensions] Unable to evaluate useClaudeCli setting: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        setCachedClaudeCliResolution(null);
+        return [];
+      }
+    })();
+
     const extensionsResult = await discoverAndLoadExtensions(
-      [...getEnabledPiExtensionPaths(cwd), ...packageExtensionPaths],
+      [
+        ...getEnabledPiExtensionPaths(cwd),
+        ...packageExtensionPaths,
+        ...claudeCliPaths,
+      ],
       cwd,
       join(cwd, ".fusion", "disabled-auto-extension-discovery"),
     );
@@ -459,6 +486,17 @@ export async function runDaemon(opts: DaemonOptions = {}) {
     onProjectFirstAccessed: (projectId: string) => engineManager.onProjectAccessed(projectId),
     onProjectRegistered: ({ path }) => {
       maybeInstallClaudeSkillForNewProject(path);
+    },
+    getClaudeCliExtensionStatus: () => {
+      const r = getCachedClaudeCliResolution();
+      if (!r) return null;
+      if (r.status === "ok") {
+        return { status: "ok", path: r.path, packageVersion: r.packageVersion };
+      }
+      if (r.status === "not-installed") {
+        return { status: "not-installed" };
+      }
+      return { status: r.status, reason: r.reason };
     },
     onUseClaudeCliToggled: (_prev, next) => {
       if (!next) return;
