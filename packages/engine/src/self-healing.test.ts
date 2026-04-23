@@ -1229,6 +1229,75 @@ describe("SelfHealingManager", () => {
       managerWithRecovery.stop();
     });
 
+    it("finalizes stale merging tasks when baseCommitSha was advanced past the landed commit", async () => {
+      // Reproduces the case where the merger fast-forward-rebased the task branch
+      // and updated baseCommitSha to the new HEAD; the bounded `base..HEAD` range
+      // is empty even though the merge commit is in HEAD's history.
+      const managerWithRecovery = new SelfHealingManager(store, {
+        rootDir: "/tmp/test-project",
+      });
+      (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+        taskStuckTimeoutMs: 60_000,
+      });
+      const staleUpdatedAt = new Date(Date.now() - 61_000).toISOString();
+
+      (store.listTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
+        {
+          id: "FN-2221",
+          column: "in-review",
+          status: "merging",
+          error: null,
+          paused: false,
+          worktree: "/tmp/test-project/.worktrees/amber-lotus",
+          branch: "fusion/fn-2221",
+          baseCommitSha: "headsha0",
+          updatedAt: staleUpdatedAt,
+          steps: [{ name: "Ship it", status: "done" }],
+          workflowStepResults: [],
+          mergeDetails: undefined,
+          log: [],
+        },
+      ]);
+      mockedExistsSync.mockReturnValue(true);
+      mockedExecSync.mockImplementation((command) => {
+        const cmd = String(command);
+        if (cmd.includes("git log") && cmd.includes("headsha0..HEAD")) {
+          return "" as any; // bounded range is empty (baseCommitSha === HEAD)
+        }
+        if (cmd.includes("git log") && cmd.includes("HEAD")) {
+          return "3b212b928feat(FN-2221): constrain setup wizard modal shell\n" as any;
+        }
+        if (cmd.includes("git show --shortstat")) {
+          return " 2 files changed, 154 insertions(+), 0 deletions(-)\n" as any;
+        }
+        return "" as any;
+      });
+
+      const result = await managerWithRecovery.recoverInterruptedMergingTasks();
+
+      expect(result).toBe(1);
+      expect(store.updateTask).toHaveBeenCalledWith("FN-2221", {
+        status: null,
+        error: null,
+        mergeRetries: 0,
+        mergeDetails: expect.objectContaining({
+          commitSha: "3b212b928",
+          mergeCommitMessage: "feat(FN-2221): constrain setup wizard modal shell",
+          mergeConfirmed: true,
+          filesChanged: 2,
+          insertions: 154,
+          deletions: 0,
+        }),
+      });
+      expect(store.moveTask).toHaveBeenCalledWith("FN-2221", "done");
+      expect(store.logEntry).toHaveBeenCalledWith(
+        "FN-2221",
+        expect.stringContaining("stale merge status finalized from landed commit 3b212b9"),
+      );
+
+      managerWithRecovery.stop();
+    });
+
     it("clears stale merging status for retry when no landed commit is found", async () => {
       const managerWithRecovery = new SelfHealingManager(store, {
         rootDir: "/tmp/test-project",

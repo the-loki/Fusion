@@ -448,6 +448,15 @@ export class SelfHealingManager {
       stdout = result.stdout;
     }
 
+    // The bounded `baseCommitSha..HEAD` range excludes the landed commit when
+    // baseCommitSha was advanced past it (e.g. the merger fast-forward-rebased
+    // the task branch onto a newer main, or later commits moved HEAD up).
+    // Re-scan all of HEAD so recovery still finds the merge.
+    if (!stdout.trim() && task.baseCommitSha) {
+      const result = await readLog("HEAD");
+      stdout = result.stdout;
+    }
+
     const firstLine = stdout.trim().split("\n").find(Boolean);
     if (!firstLine) return null;
 
