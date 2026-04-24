@@ -263,7 +263,7 @@ export function NodeDetailModal({
               <label className="node-detail-modal__field">
                 <span>Name</span>
                 {editMode ? (
-                  <input value={name} onChange={(event) => setName(event.target.value)} disabled={isSaving} />
+                  <input className="input" value={name} onChange={(event) => setName(event.target.value)} disabled={isSaving} />
                 ) : (
                   <strong>{node.name}</strong>
                 )}
@@ -283,6 +283,7 @@ export function NodeDetailModal({
                 <span>Max Concurrent</span>
                 {editMode ? (
                   <input
+                    className="input"
                     type="number"
                     min={1}
                     max={10}
@@ -300,7 +301,7 @@ export function NodeDetailModal({
                   <label className="node-detail-modal__field node-detail-modal__field--full">
                     <span>URL</span>
                     {editMode ? (
-                      <input value={url} onChange={(event) => setUrl(event.target.value)} disabled={isSaving} />
+                      <input className="input" value={url} onChange={(event) => setUrl(event.target.value)} disabled={isSaving} />
                     ) : (
                       <strong>{node.url ?? "—"}</strong>
                     )}
@@ -310,6 +311,7 @@ export function NodeDetailModal({
                     <span>API Key</span>
                     {editMode ? (
                       <input
+                        className="input"
                         type="password"
                         value={apiKey}
                         onChange={(event) => setApiKey(event.target.value)}

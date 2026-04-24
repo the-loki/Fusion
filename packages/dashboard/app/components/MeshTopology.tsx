@@ -57,23 +57,6 @@ function MeshTopologyInner({ nodes, className }: MeshTopologyProps): ReactElemen
     });
   }, [remoteNodes, viewBoxSize, centerX, centerY]);
 
-  // Build peer awareness lines (lines between remote nodes that share knowledge)
-  const peerLines = useMemo(() => {
-    // Simple heuristic: show lines between remote nodes that share knowledge
-    const lines: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
-
-    // Only draw peer lines if we have more than 2 remote nodes
-    if (remotePositions.length > 2) {
-      remotePositions.forEach((rp, index) => {
-        // Draw a subtle line to one other node for visual interest
-        if (index % 2 === 0 && index + 1 < remotePositions.length) {
-          const other = remotePositions[index + 1];
-          lines.push({ x1: rp.x, y1: rp.y, x2: other.x, y2: other.y });
-        }
-      });
-    }
-    return lines;
-  }, [remotePositions]);
 
   if (nodes.length === 0) {
     return (
@@ -93,18 +76,6 @@ function MeshTopologyInner({ nodes, className }: MeshTopologyProps): ReactElemen
         preserveAspectRatio="xMidYMid meet"
         aria-label="Node mesh topology visualization"
       >
-        {/* Peer awareness lines between remote nodes */}
-        {peerLines.map((line, index) => (
-          <line
-            key={`peer-${index}`}
-            className="mesh-topology__peer-line"
-            x1={line.x1}
-            y1={line.y1}
-            x2={line.x2}
-            y2={line.y2}
-          />
-        ))}
-
         {/* Lines from local node to remote nodes */}
         {remotePositions.map((rp) => (
           <line
@@ -133,13 +104,16 @@ function MeshTopologyInner({ nodes, className }: MeshTopologyProps): ReactElemen
             >
               {localNode.name.length > 12 ? `${localNode.name.slice(0, 10)}…` : localNode.name}
             </text>
-            <text
-              className="mesh-topology__node-type"
-              y={-NODE_RADIUS - 4}
-              textAnchor="middle"
-            >
-              {localNode.type === "local" ? "🏠" : "🌐"}
-            </text>
+            <g className="mesh-topology__node-type" transform={`translate(0 ${-NODE_RADIUS - 10})`}>
+              <circle className="mesh-topology__node-type-badge" r="8" />
+              <text
+                className="mesh-topology__node-type-text"
+                textAnchor="middle"
+                dominantBaseline="middle"
+              >
+                {localNode.type === "local" ? "L" : "R"}
+              </text>
+            </g>
           </g>
         )}
 
@@ -159,13 +133,16 @@ function MeshTopologyInner({ nodes, className }: MeshTopologyProps): ReactElemen
             >
               {rp.node.name.length > 12 ? `${rp.node.name.slice(0, 10)}…` : rp.node.name}
             </text>
-            <text
-              className="mesh-topology__node-type"
-              y={-NODE_RADIUS - 4}
-              textAnchor="middle"
-            >
-              🌐
-            </text>
+            <g className="mesh-topology__node-type" transform={`translate(0 ${-NODE_RADIUS - 10})`}>
+              <circle className="mesh-topology__node-type-badge" r="8" />
+              <text
+                className="mesh-topology__node-type-text"
+                textAnchor="middle"
+                dominantBaseline="middle"
+              >
+                {rp.node.type === "local" ? "L" : "R"}
+              </text>
+            </g>
           </g>
         ))}
       </svg>
@@ -189,6 +166,7 @@ function MeshTopologyInner({ nodes, className }: MeshTopologyProps): ReactElemen
           <span>Error</span>
         </div>
       </div>
+      <p className="mesh-topology__notice">Peer-to-peer discovery data unavailable.</p>
     </div>
   );
 }

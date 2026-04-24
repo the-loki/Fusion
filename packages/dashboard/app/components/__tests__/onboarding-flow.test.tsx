@@ -770,7 +770,9 @@ describe("onboarding flow integration", () => {
 
       expect(mockMarkOnboardingCompleted).toHaveBeenCalled();
       expect(mockUpdateGlobalSettings).toHaveBeenCalledWith({ modelOnboardingComplete: true });
-      expect(screen.getByText("Your first task is ready!")).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText("Your first task is ready!")).toBeInTheDocument();
+      });
     });
 
     it("task creation flow: View Task button navigates and completes onboarding", async () => {

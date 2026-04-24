@@ -1063,11 +1063,11 @@ describe("SettingsModal", () => {
     await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
 
     // Click on "Models" (global models section)
-    fireEvent.click(screen.getByText("Models"));
+    fireEvent.click((await screen.findAllByText("Models"))[0]);
     await waitFor(() => expect(fetchModels).toHaveBeenCalled());
 
     // Select a model
-    const trigger = screen.getByLabelText("Default Model");
+    const trigger = await screen.findByLabelText("Default Model");
     await user.click(trigger);
     await user.click(screen.getByText("Claude Sonnet 4.5"));
 
@@ -1347,11 +1347,11 @@ describe("SettingsModal", () => {
     await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
 
     // Models section has default model dropdown
-    fireEvent.click(screen.getByText("Models"));
+    fireEvent.click((await screen.findAllByText("Models"))[0]);
     await waitFor(() => expect(fetchModels).toHaveBeenCalled());
 
     // Open dropdown and select "Use default"
-    const trigger = screen.getByLabelText("Default Model");
+    const trigger = await screen.findByLabelText("Default Model");
     await user.click(trigger);
 
     // Find and click the "Use default" option in the dropdown
@@ -2341,7 +2341,7 @@ describe("SettingsModal", () => {
     render(<SettingsModal onClose={onClose} addToast={addToast} />);
     await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByText("Notifications"));
+    fireEvent.click((await screen.findAllByText("Notifications"))[0]);
     const checkbox = screen.getByLabelText("Enable ntfy.sh notifications");
     expect(checkbox).toBeTruthy();
     expect(checkbox.getAttribute("type")).toBe("checkbox");
@@ -2606,7 +2606,7 @@ describe("SettingsModal", () => {
     render(<SettingsModal onClose={onClose} addToast={addToast} />);
     await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByText("Notifications"));
+    fireEvent.click((await screen.findAllByText("Notifications"))[0]);
     expect((screen.getByLabelText("Task completed (in-review)") as HTMLInputElement).checked).toBe(true);
     expect((screen.getByLabelText("Task merged") as HTMLInputElement).checked).toBe(true);
     expect((screen.getByLabelText("Task failed") as HTMLInputElement).checked).toBe(true);
@@ -2656,7 +2656,7 @@ describe("SettingsModal", () => {
     render(<SettingsModal onClose={onClose} addToast={addToast} />);
     await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByText("Notifications"));
+    fireEvent.click((await screen.findAllByText("Notifications"))[0]);
 
     // Uncheck all six
     fireEvent.click(screen.getByLabelText("Task completed (in-review)"));
@@ -2726,7 +2726,7 @@ describe("SettingsModal", () => {
       render(<SettingsModal onClose={onClose} addToast={addToast} />);
       await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
 
-      fireEvent.click(screen.getByText("Node Sync"));
+      fireEvent.click((await screen.findAllByText("Node Sync"))[0]);
       expect(screen.getByLabelText("Enable automatic settings sync")).toBeTruthy();
       expect(screen.getByLabelText("Sync model auth credentials")).toBeTruthy();
       expect(screen.getByLabelText("Sync interval")).toBeTruthy();
@@ -3582,7 +3582,7 @@ describe("Prompts section", () => {
     render(<SettingsModal onClose={onClose} addToast={addToast} />);
     await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
 
-    fireEvent.click(screen.getAllByText("Prompts")[0]);
+    fireEvent.click((await screen.findAllByText("Prompts"))[0]);
 
     // Templates tab should be active by default
     expect(screen.getByTestId("tab-templates")).toHaveClass(/active/);
@@ -3612,7 +3612,7 @@ describe("Prompts section", () => {
     render(<SettingsModal onClose={onClose} addToast={addToast} />);
     await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
 
-    fireEvent.click(screen.getAllByText("Prompts")[0]);
+    fireEvent.click((await screen.findAllByText("Prompts"))[0]);
 
     // Click Overrides tab
     fireEvent.click(screen.getByTestId("tab-overrides"));
@@ -3626,7 +3626,7 @@ describe("Prompts section", () => {
     render(<SettingsModal onClose={onClose} addToast={addToast} />);
     await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
 
-    fireEvent.click(screen.getAllByText("Prompts")[0]);
+    fireEvent.click((await screen.findAllByText("Prompts"))[0]);
 
     // Click Overrides tab
     fireEvent.click(screen.getByTestId("tab-overrides"));
@@ -3897,8 +3897,8 @@ describe("Prompts section", () => {
       await waitFor(() => expect(fetchModels).toHaveBeenCalled());
 
       // Verify default and fallback model dropdowns
-      expect(screen.getByLabelText("Default Model")).toBeTruthy();
-      expect(screen.getByLabelText("Fallback Model")).toBeTruthy();
+      expect(await screen.findByLabelText("Default Model")).toBeTruthy();
+      expect(await screen.findByLabelText("Fallback Model")).toBeTruthy();
     });
 
     it("renders global baseline lane dropdowns in Models section", async () => {
@@ -3922,7 +3922,7 @@ describe("Prompts section", () => {
       fireEvent.click(screen.getAllByText("Models")[0]);
       await waitFor(() => expect(fetchModels).toHaveBeenCalled());
 
-      const executionTrigger = screen.getByLabelText("Execution Model");
+      const executionTrigger = await screen.findByLabelText("Execution Model");
       await user.click(executionTrigger);
       await user.click(screen.getByText("GPT-4o"));
 
@@ -3948,7 +3948,7 @@ describe("Prompts section", () => {
       fireEvent.click(screen.getAllByText("Models")[0]);
       await waitFor(() => expect(fetchModels).toHaveBeenCalled());
 
-      const executionTrigger = screen.getByLabelText("Execution Model");
+      const executionTrigger = await screen.findByLabelText("Execution Model");
       await user.click(executionTrigger);
       const useDefaultOption = await screen.findByRole("option", { name: /use default/i });
       await user.click(useDefaultOption);
@@ -3965,7 +3965,7 @@ describe("Prompts section", () => {
       render(<SettingsModal onClose={onClose} addToast={addToast} />);
       await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
 
-      fireEvent.click(screen.getAllByText("Models")[0]);
+      fireEvent.click((await screen.findAllByText("Models"))[0]);
       await waitFor(() => expect(fetchModels).toHaveBeenCalled());
 
       expect(screen.getByLabelText("Execution Model").textContent).toContain("Use default");
@@ -3978,7 +3978,7 @@ describe("Prompts section", () => {
       render(<SettingsModal onClose={onClose} addToast={addToast} />);
       await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
 
-      fireEvent.click(screen.getAllByText("Models")[0]);
+      fireEvent.click((await screen.findAllByText("Models"))[0]);
       await waitFor(() => expect(fetchModels).toHaveBeenCalled());
 
       // Thinking Effort is a native select
@@ -4135,6 +4135,54 @@ describe("Prompts section", () => {
         expect(globalPayload.planningProvider).toBeUndefined();
         expect(globalPayload.planningModelId).toBeUndefined();
       }
+    }, FN1712_SCOPE_TEST_TIMEOUT_MS);
+
+    it("mixed global and project changes call both endpoints with correct subsets", async () => {
+      render(<SettingsModal onClose={onClose} addToast={addToast} />);
+      await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
+
+      // Change global model
+      fireEvent.click(screen.getAllByText("Models")[0]);
+      await waitFor(() => expect(fetchModels).toHaveBeenCalled());
+
+      let user = userEvent.setup();
+      let dropdownBtn = screen.getByRole("button", { name: /default model/i });
+      await user.click(dropdownBtn);
+      let option = await screen.findByRole("option", { name: /gpt-4o/i });
+      await user.click(option);
+
+      // Change project model
+      fireEvent.click(screen.getAllByText("Project Models")[0]);
+      await waitFor(() => expect(fetchModels).toHaveBeenCalled());
+
+      dropdownBtn = screen.getByRole("button", { name: /planning model/i });
+      await user.click(dropdownBtn);
+      option = await screen.findByRole("option", { name: /claude/i });
+      await user.click(option);
+
+      // Save
+      fireEvent.click(screen.getByText("Save"));
+      await waitFor(() => {
+        expect(updateSettings).toHaveBeenCalled();
+        expect(updateGlobalSettings).toHaveBeenCalled();
+      });
+
+      const globalCalls = (updateGlobalSettings as ReturnType<typeof vi.fn>).mock.calls;
+      const projectCalls = (updateSettings as ReturnType<typeof vi.fn>).mock.calls;
+      const globalPayload = globalCalls[globalCalls.length - 1][0];
+      const projectPayload = projectCalls[projectCalls.length - 1][0];
+
+      // Verify global payload contains only global keys
+      expect(globalPayload).toHaveProperty("defaultProvider");
+      expect(globalPayload).toHaveProperty("defaultModelId");
+      expect(globalPayload.planningProvider).toBeUndefined();
+      expect(globalPayload.planningModelId).toBeUndefined();
+
+      // Verify project payload contains only project keys
+      expect(projectPayload).toHaveProperty("planningProvider");
+      expect(projectPayload).toHaveProperty("planningModelId");
+      expect(projectPayload.defaultProvider).toBeUndefined();
+      expect(projectPayload.defaultModelId).toBeUndefined();
     }, FN1712_SCOPE_TEST_TIMEOUT_MS);
   });
 

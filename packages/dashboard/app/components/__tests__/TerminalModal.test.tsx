@@ -3189,7 +3189,9 @@ describe("TerminalModal — FN-872 real-device keyboard overlap refinement", () 
     });
 
     // resize should have been called with xterm dimensions
-    expect(mockResize).toHaveBeenCalledWith(80, 24);
+    await waitFor(() => {
+      expect(mockResize).toHaveBeenCalledWith(80, 24);
+    });
   });
 
   it("clears --vv-height when keyboard closes", async () => {

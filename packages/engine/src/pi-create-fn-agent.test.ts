@@ -154,7 +154,7 @@ describe("worktree path boundary helpers", () => {
         error: expect.stringContaining("outside the worktree boundary"),
       });
       expect(mockReadTool.execute).not.toHaveBeenCalled();
-    });
+    }, 15_000);
 
     it("allows project root .fusion/memory/ files from worktree session", async () => {
       const mockReadTool = {

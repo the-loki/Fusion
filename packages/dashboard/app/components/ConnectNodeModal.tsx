@@ -179,9 +179,11 @@ export function ConnectNodeModal({ open, onClose, onConnected, addToast, onSubmi
         </div>
 
         <div className="modal-body connect-node-form">
-          <label className="connect-node-field">
-            <span>Node Name</span>
+          <div className="form-group connect-node-field">
+            <label htmlFor="connect-node-name">Node Name</label>
             <input
+              id="connect-node-name"
+              className="input connect-node-field__input"
               type="text"
               value={name}
               onChange={(event) => setName(event.target.value)}
@@ -190,11 +192,13 @@ export function ConnectNodeModal({ open, onClose, onConnected, addToast, onSubmi
               aria-invalid={Boolean(errors.name)}
             />
             {errors.name && <span className="form-error">{errors.name}</span>}
-          </label>
+          </div>
 
-          <label className="connect-node-field">
-            <span>Host / IP Address</span>
+          <div className="form-group connect-node-field">
+            <label htmlFor="connect-node-host">Host / IP Address</label>
             <input
+              id="connect-node-host"
+              className="input connect-node-field__input"
               type="text"
               value={host}
               onChange={(event) => setHost(event.target.value)}
@@ -203,11 +207,13 @@ export function ConnectNodeModal({ open, onClose, onConnected, addToast, onSubmi
               aria-invalid={Boolean(errors.host)}
             />
             {errors.host && <span className="form-error">{errors.host}</span>}
-          </label>
+          </div>
 
-          <label className="connect-node-field">
-            <span>Port</span>
+          <div className="form-group connect-node-field">
+            <label htmlFor="connect-node-port">Port</label>
             <input
+              id="connect-node-port"
+              className="input connect-node-field__input"
               type="number"
               value={port}
               onChange={(event) => setPort(event.target.value)}
@@ -217,7 +223,7 @@ export function ConnectNodeModal({ open, onClose, onConnected, addToast, onSubmi
               aria-invalid={Boolean(errors.port)}
             />
             {errors.port && <span className="form-error">{errors.port}</span>}
-          </label>
+          </div>
 
           {constructedUrl && (
             <div className="connect-node-url-preview">
@@ -226,20 +232,24 @@ export function ConnectNodeModal({ open, onClose, onConnected, addToast, onSubmi
             </div>
           )}
 
-          <label className="connect-node-field">
-            <span>Auth Key</span>
+          <div className="form-group connect-node-field">
+            <label htmlFor="connect-node-auth-key">Auth Key</label>
             <input
+              id="connect-node-auth-key"
+              className="input connect-node-field__input"
               type="password"
               value={apiKey}
               onChange={(event) => setApiKey(event.target.value)}
               placeholder="Optional"
               disabled={isSubmitting}
             />
-          </label>
+          </div>
 
-          <label className="connect-node-field">
-            <span>Max Concurrent</span>
+          <div className="form-group connect-node-field">
+            <label htmlFor="connect-node-max-concurrent">Max Concurrent</label>
             <input
+              id="connect-node-max-concurrent"
+              className="input connect-node-field__input"
               type="number"
               value={maxConcurrent}
               onChange={(event) => setMaxConcurrent(Number(event.target.value))}
@@ -249,7 +259,7 @@ export function ConnectNodeModal({ open, onClose, onConnected, addToast, onSubmi
               aria-invalid={Boolean(errors.maxConcurrent)}
             />
             {errors.maxConcurrent && <span className="form-error">{errors.maxConcurrent}</span>}
-          </label>
+          </div>
         </div>
 
         <div className="modal-actions connect-node-actions">

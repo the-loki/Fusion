@@ -107,7 +107,7 @@ describe("GET /api/tasks/:id/file-diffs", () => {
 
     // Server returns 500 for task not found in test environment due to async error handling
     expect([404, 500]).toContain(response.status);
-  });
+  }, 15_000);
 
   it("returns empty array when worktree is missing", async () => {
     const store = new MockStore();

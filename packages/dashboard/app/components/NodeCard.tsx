@@ -20,15 +20,15 @@ export interface NodeCardProps {
 }
 
 const STATUS_CONFIG: Record<NodeInfo["status"], { label: string; color: string; className: string }> = {
-  online: { label: "Online", color: "var(--success)", className: "node-card__status--online" },
+  online: { label: "Online", color: "var(--color-success)", className: "node-card__status--online" },
   offline: { label: "Offline", color: "var(--color-error)", className: "node-card__status--offline" },
-  connecting: { label: "Connecting", color: "var(--warning)", className: "node-card__status--connecting" },
+  connecting: { label: "Connecting", color: "var(--color-warning)", className: "node-card__status--connecting" },
   error: { label: "Error", color: "var(--color-error)", className: "node-card__status--error" },
 };
 
 const AUTH_SYNC_COLORS: Record<string, string> = {
-  match: "var(--success)",
-  differs: "var(--warning)",
+  match: "var(--color-success)",
+  differs: "var(--color-warning)",
   "not-synced": "var(--text-muted)",
 };
 
@@ -233,7 +233,7 @@ function NodeCardInner({
 
       <footer className="node-card__actions">
         <button
-          className="node-card__action"
+          className="btn btn-sm node-card__action"
           type="button"
           onClick={handleHealthCheck}
           disabled={isLoading}
@@ -245,7 +245,7 @@ function NodeCardInner({
         </button>
 
         <button
-          className="node-card__action"
+          className="btn btn-sm node-card__action"
           type="button"
           onClick={handleEdit}
           disabled={isLoading}
@@ -257,7 +257,7 @@ function NodeCardInner({
         </button>
 
         <button
-          className={`node-card__action node-card__action--remove ${removeArmed ? "is-armed" : ""}`}
+          className={`btn btn-sm node-card__action node-card__action--remove ${removeArmed ? "btn-danger is-armed" : ""}`}
           type="button"
           onClick={handleRemove}
           disabled={isLoading}

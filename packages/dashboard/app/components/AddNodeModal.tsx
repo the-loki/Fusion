@@ -137,6 +137,7 @@ export function AddNodeModal({ isOpen, onClose, onSubmit, addToast }: AddNodeMod
           <label className="add-node-modal__field">
             <span>Name</span>
             <input
+              className="input"
               type="text"
               value={name}
               onChange={(event) => setName(event.target.value)}
@@ -145,7 +146,7 @@ export function AddNodeModal({ isOpen, onClose, onSubmit, addToast }: AddNodeMod
               aria-invalid={Boolean(errors.name)}
               autoFocus
             />
-            {errors.name && <span className="add-node-modal__error">{errors.name}</span>}
+            {errors.name && <span className="form-error add-node-modal__error">{errors.name}</span>}
           </label>
 
           <div className="add-node-modal__type-toggle">
@@ -175,6 +176,7 @@ export function AddNodeModal({ isOpen, onClose, onSubmit, addToast }: AddNodeMod
             <label className="add-node-modal__field">
               <span>URL</span>
               <input
+                className="input"
                 type="text"
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
@@ -182,12 +184,13 @@ export function AddNodeModal({ isOpen, onClose, onSubmit, addToast }: AddNodeMod
                 disabled={isSubmitting}
                 aria-invalid={Boolean(errors.url)}
               />
-              {errors.url && <span className="add-node-modal__error">{errors.url}</span>}
+              {errors.url && <span className="form-error add-node-modal__error">{errors.url}</span>}
             </label>
 
             <label className="add-node-modal__field">
               <span>API Key</span>
               <input
+                className="input"
                 type="password"
                 value={apiKey}
                 onChange={(event) => setApiKey(event.target.value)}
@@ -200,6 +203,7 @@ export function AddNodeModal({ isOpen, onClose, onSubmit, addToast }: AddNodeMod
           <label className="add-node-modal__field">
             <span>Max Concurrent</span>
             <input
+              className="input"
               type="number"
               min={MAX_CONCURRENT_MIN}
               max={MAX_CONCURRENT_MAX}
@@ -209,7 +213,7 @@ export function AddNodeModal({ isOpen, onClose, onSubmit, addToast }: AddNodeMod
               aria-invalid={Boolean(errors.maxConcurrent)}
             />
             <span className="add-node-modal__hint">Max simultaneous task agents (1–10)</span>
-            {errors.maxConcurrent && <span className="add-node-modal__error">{errors.maxConcurrent}</span>}
+            {errors.maxConcurrent && <span className="form-error add-node-modal__error">{errors.maxConcurrent}</span>}
           </label>
         </div>
 

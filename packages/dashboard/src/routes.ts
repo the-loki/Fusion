@@ -17231,13 +17231,13 @@ async function persistImportedSkills(
    */
   router.get("/discovery/status", async (_req, res) => {
     try {
-      const { CentralCore } = await import("@fusion/core");
-      const central = new CentralCore();
-      await central.init();
+      const central = options?.centralCore ?? new (await import("@fusion/core")).CentralCore();
+      const shouldClose = !options?.centralCore;
+      if (shouldClose) await central.init();
 
       const active = central.isDiscoveryActive();
       const config = central.getDiscoveryConfig();
-      await central.close();
+      if (shouldClose) await central.close();
 
       res.json({ active, config });
     } catch (err: unknown) {
@@ -17287,12 +17287,12 @@ async function persistImportedSkills(
         staleTimeoutMs: 300_000,
       };
 
-      const { CentralCore } = await import("@fusion/core");
-      const central = new CentralCore();
-      await central.init();
+      const central = options?.centralCore ?? new (await import("@fusion/core")).CentralCore();
+      const shouldClose = !options?.centralCore;
+      if (shouldClose) await central.init();
 
       await central.startDiscovery(config);
-      await central.close();
+      if (shouldClose) await central.close();
 
       res.json({ success: true, config });
     } catch (err: unknown) {
@@ -17309,12 +17309,12 @@ async function persistImportedSkills(
    */
   router.post("/discovery/stop", async (_req, res) => {
     try {
-      const { CentralCore } = await import("@fusion/core");
-      const central = new CentralCore();
-      await central.init();
+      const central = options?.centralCore ?? new (await import("@fusion/core")).CentralCore();
+      const shouldClose = !options?.centralCore;
+      if (shouldClose) await central.init();
 
       central.stopDiscovery();
-      await central.close();
+      if (shouldClose) await central.close();
 
       res.json({ success: true });
     } catch (err: unknown) {
@@ -17331,12 +17331,12 @@ async function persistImportedSkills(
    */
   router.get("/discovery/nodes", async (_req, res) => {
     try {
-      const { CentralCore } = await import("@fusion/core");
-      const central = new CentralCore();
-      await central.init();
+      const central = options?.centralCore ?? new (await import("@fusion/core")).CentralCore();
+      const shouldClose = !options?.centralCore;
+      if (shouldClose) await central.init();
 
       const nodes = central.getDiscoveredNodes();
-      await central.close();
+      if (shouldClose) await central.close();
 
       res.json(nodes);
     } catch (err: unknown) {

@@ -44,10 +44,10 @@ describe("nodes-view mobile CSS", () => {
     expect(block).toContain("flex-wrap: wrap");
   });
 
-  it("defines .nodes-view-title h2 with 16px font on mobile", () => {
+  it("defines .nodes-view-title h2 with tokenized font size on mobile", () => {
     expect(mobileMediaBlock).toContain(".nodes-view-title h2");
     const block = extractRuleBlock(mobileMediaBlock, ".nodes-view-title h2");
-    expect(block).toContain("font-size: 16px");
+    expect(block).toContain("font-size: calc(var(--space-md) + var(--space-xs));");
   });
 
   it("defines .nodes-view-title h2 svg with flex-shrink: 0 on mobile", () => {
@@ -56,17 +56,17 @@ describe("nodes-view mobile CSS", () => {
     expect(block).toContain("flex-shrink: 0");
   });
 
-  it("defines .nodes-view-count with smaller font on mobile", () => {
+  it("defines .nodes-view-count with tokenized smaller font on mobile", () => {
     expect(mobileMediaBlock).toContain(".nodes-view-count");
     const block = extractRuleBlock(mobileMediaBlock, ".nodes-view-count");
-    expect(block).toContain("font-size: 12px");
+    expect(block).toContain("font-size: calc(var(--space-sm) + var(--space-xs));");
   });
 
-  it("defines .nodes-view-close with 36px touch target on mobile", () => {
+  it("defines .nodes-view-close with tokenized touch target on mobile", () => {
     expect(mobileMediaBlock).toContain(".nodes-view-close");
     const block = extractRuleBlock(mobileMediaBlock, ".nodes-view-close");
-    expect(block).toContain("min-height: 36px");
-    expect(block).toContain("min-width: 36px");
+    expect(block).toContain("min-height: calc(var(--space-xl) + var(--space-md));");
+    expect(block).toContain("min-width: calc(var(--space-xl) + var(--space-md));");
   });
 
   it("defines .nodes-view-actions with full width on mobile", () => {
@@ -77,10 +77,10 @@ describe("nodes-view mobile CSS", () => {
     expect(block).toContain("justify-content: flex-end");
   });
 
-  it("defines .nodes-view-actions .btn with min-height on mobile", () => {
+  it("defines .nodes-view-actions .btn with tokenized min-height on mobile", () => {
     expect(mobileMediaBlock).toContain(".nodes-view-actions .btn");
     const block = extractRuleBlock(mobileMediaBlock, ".nodes-view-actions .btn");
-    expect(block).toContain("min-height: 36px");
+    expect(block).toContain("min-height: calc(var(--space-xl) + var(--space-md));");
   });
 
   it("defines .nodes-view-stats with 2-column grid on mobile", () => {
@@ -96,16 +96,16 @@ describe("nodes-view mobile CSS", () => {
     expect(block).toContain("padding: var(--space-xs) var(--space-sm)");
   });
 
-  it("defines .nodes-view-stat span with smaller font on mobile", () => {
+  it("defines .nodes-view-stat span with tokenized smaller font on mobile", () => {
     expect(mobileMediaBlock).toContain(".nodes-view-stat span");
     const block = extractRuleBlock(mobileMediaBlock, ".nodes-view-stat span");
-    expect(block).toContain("font-size: 11px");
+    expect(block).toContain("font-size: calc(var(--space-sm) + var(--space-xs) * 0.75);");
   });
 
-  it("defines .nodes-view-stat strong with smaller font on mobile", () => {
+  it("defines .nodes-view-stat strong with tokenized smaller font on mobile", () => {
     expect(mobileMediaBlock).toContain(".nodes-view-stat strong");
     const block = extractRuleBlock(mobileMediaBlock, ".nodes-view-stat strong");
-    expect(block).toContain("font-size: 14px");
+    expect(block).toContain("font-size: calc(var(--space-md) + var(--space-xs) / 2);");
   });
 
   it("defines .nodes-view-empty with compact padding on mobile", () => {
@@ -128,9 +128,9 @@ describe("nodes-view mobile CSS", () => {
     expect(block).toContain("padding: var(--space-sm) 0");
   });
 
-  it("defines .nodes-view-section-title with smaller font on mobile", () => {
+  it("defines .nodes-view-section-title with tokenized smaller font on mobile", () => {
     expect(mobileMediaBlock).toContain(".nodes-view-section-title");
     const block = extractRuleBlock(mobileMediaBlock, ".nodes-view-section-title");
-    expect(block).toContain("font-size: 13px");
+    expect(block).toContain("font-size: calc(var(--space-md) + var(--space-xs) / 4);");
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { EventEmitter } from "node:events";
-import type { Task } from "@fusion/core";
+import { CentralCore, type Task } from "@fusion/core";
 import { request } from "../test-request.js";
 import { createServer } from "../server.js";
 
@@ -67,6 +67,21 @@ class MockStore extends EventEmitter {
   async listTasks(): Promise<Task[]> {
     return [];
   }
+}
+
+function createSharedCentralCoreMock(overrides?: {
+  isDiscoveryActive?: boolean;
+  discoveryConfig?: Record<string, unknown> | null;
+  discoveredNodes?: unknown[];
+}) {
+  return {
+    isDiscoveryActive: vi.fn().mockReturnValue(overrides?.isDiscoveryActive ?? false),
+    getDiscoveryConfig: vi.fn().mockReturnValue(overrides?.discoveryConfig ?? null),
+    startDiscovery: vi.fn().mockResolvedValue(undefined),
+    stopDiscovery: vi.fn(),
+    getDiscoveredNodes: vi.fn().mockReturnValue(overrides?.discoveredNodes ?? []),
+    close: vi.fn().mockResolvedValue(undefined),
+  };
 }
 
 describe("Discovery routes", () => {
@@ -247,5 +262,107 @@ describe("Discovery routes", () => {
     );
 
     expect(res.status).toBe(409);
+  });
+
+  it("uses injected shared centralCore for discovery status without init/close", async () => {
+    const sharedCentralCore = createSharedCentralCoreMock({
+      isDiscoveryActive: true,
+      discoveryConfig: {
+        broadcast: true,
+        listen: true,
+        serviceType: "_fusion._tcp",
+        port: 4321,
+        staleTimeoutMs: 300_000,
+      },
+    });
+    const appWithSharedCore = createServer(new MockStore() as any, { centralCore: sharedCentralCore as any });
+
+    const res = await request(appWithSharedCore, "GET", "/api/discovery/status");
+
+    expect(res.status).toBe(200);
+    expect(sharedCentralCore.isDiscoveryActive).toHaveBeenCalledTimes(1);
+    expect(sharedCentralCore.getDiscoveryConfig).toHaveBeenCalledTimes(1);
+    expect(sharedCentralCore.close).not.toHaveBeenCalled();
+    expect(mockInit).not.toHaveBeenCalled();
+    expect(mockClose).not.toHaveBeenCalled();
+  });
+
+  it("uses injected shared centralCore for discovery start/stop without closing shared instance", async () => {
+    const sharedCentralCore = createSharedCentralCoreMock();
+    const appWithSharedCore = createServer(new MockStore() as any, { centralCore: sharedCentralCore as any });
+
+    const startRes = await request(
+      appWithSharedCore,
+      "POST",
+      "/api/discovery/start",
+      JSON.stringify({}),
+      { "Content-Type": "application/json" },
+    );
+
+    expect(startRes.status).toBe(200);
+    expect(sharedCentralCore.startDiscovery).toHaveBeenCalledWith({
+      broadcast: true,
+      listen: true,
+      serviceType: "_fusion._tcp",
+      port: 4040,
+      staleTimeoutMs: 300_000,
+    });
+
+    const stopRes = await request(
+      appWithSharedCore,
+      "POST",
+      "/api/discovery/stop",
+      JSON.stringify({}),
+      { "Content-Type": "application/json" },
+    );
+
+    expect(stopRes.status).toBe(200);
+    expect(sharedCentralCore.stopDiscovery).toHaveBeenCalledTimes(1);
+    expect(sharedCentralCore.close).not.toHaveBeenCalled();
+    expect(mockInit).not.toHaveBeenCalled();
+    expect(mockClose).not.toHaveBeenCalled();
+  });
+
+  it("uses injected shared centralCore discovered-node memory state", async () => {
+    const sharedCentralCore = createSharedCentralCoreMock({
+      discoveredNodes: [
+        {
+          name: "shared-remote",
+          host: "10.0.0.9",
+          port: 4040,
+          nodeType: "remote",
+          nodeId: "node_remote_shared",
+          discoveredAt: "2026-04-23T00:00:00.000Z",
+          lastSeenAt: "2026-04-23T00:00:30.000Z",
+        },
+      ],
+    });
+    const appWithSharedCore = createServer(new MockStore() as any, { centralCore: sharedCentralCore as any });
+
+    const res = await request(appWithSharedCore, "GET", "/api/discovery/nodes");
+
+    expect(res.status).toBe(200);
+    expect(sharedCentralCore.getDiscoveredNodes).toHaveBeenCalledTimes(1);
+    expect(sharedCentralCore.close).not.toHaveBeenCalled();
+    expect(res.body).toEqual([
+      {
+        name: "shared-remote",
+        host: "10.0.0.9",
+        port: 4040,
+        nodeType: "remote",
+        nodeId: "node_remote_shared",
+        discoveredAt: "2026-04-23T00:00:00.000Z",
+        lastSeenAt: "2026-04-23T00:00:30.000Z",
+      },
+    ]);
+  });
+
+  it("does not construct fallback CentralCore when shared centralCore is injected", async () => {
+    const sharedCentralCore = createSharedCentralCoreMock();
+    const appWithSharedCore = createServer(new MockStore() as any, { centralCore: sharedCentralCore as any });
+
+    await request(appWithSharedCore, "GET", "/api/discovery/status");
+
+    expect(vi.mocked(CentralCore)).not.toHaveBeenCalled();
   });
 });

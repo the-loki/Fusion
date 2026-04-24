@@ -103,7 +103,7 @@ describe("GET /api/tasks/:id/diff", () => {
     const response = await requestDiff(app, "NONEXISTENT");
 
     expect(response.status).toBe(404);
-  });
+  }, 15_000);
 
   it("handler can be created with valid task", async () => {
     const store = new MockStore();

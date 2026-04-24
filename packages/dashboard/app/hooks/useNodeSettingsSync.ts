@@ -87,9 +87,9 @@ export function getSyncStateColor(state: SyncState): string {
     case "synced":
       return "var(--color-success)";
     case "pending":
-      return "var(--warning)";
+      return "var(--color-warning)";
     case "diff":
-      return "var(--warning)";
+      return "var(--color-warning)";
     case "error":
       return "var(--color-error)";
     case "never-synced":

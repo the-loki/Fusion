@@ -64,6 +64,20 @@ describe("MeshTopology", () => {
     expect(links).toHaveLength(1); // One line from local to remote
   });
 
+  it("does not render fabricated peer links between remote nodes", () => {
+    const nodes = [
+      makeNode({ id: "local", name: "Local", type: "local" }),
+      makeNode({ id: "remote-1", name: "Remote 1", type: "remote" }),
+      makeNode({ id: "remote-2", name: "Remote 2", type: "remote" }),
+      makeNode({ id: "remote-3", name: "Remote 3", type: "remote" }),
+    ];
+
+    render(<MeshTopology nodes={nodes} />);
+
+    expect(document.querySelectorAll(".mesh-topology__peer-line")).toHaveLength(0);
+    expect(screen.getByText("Peer-to-peer discovery data unavailable.")).toBeInTheDocument();
+  });
+
   it("renders legend with status colors", () => {
     render(<MeshTopology nodes={[makeNode()]} />);
 
@@ -121,6 +135,19 @@ describe("MeshTopology", () => {
     const circles = document.querySelectorAll(".mesh-topology__node-circle");
     expect(circles).toHaveLength(1);
     expect(circles[0]).toHaveAttribute("fill", expect.stringContaining("var(--color-error"));
+  });
+
+  it("uses consistent node type badges instead of emoji glyphs", () => {
+    const nodes = [
+      makeNode({ id: "local", name: "Local", type: "local" }),
+      makeNode({ id: "remote", name: "Remote", type: "remote" }),
+    ];
+    render(<MeshTopology nodes={nodes} />);
+
+    const typeBadges = document.querySelectorAll(".mesh-topology__node-type-badge");
+    expect(typeBadges).toHaveLength(2);
+    expect(screen.queryByText("🏠")).not.toBeInTheDocument();
+    expect(screen.queryByText("🌐")).not.toBeInTheDocument();
   });
 
   it("renders correct status color for connecting nodes", () => {

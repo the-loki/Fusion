@@ -114,31 +114,21 @@ export function SettingsSyncLog({
 
   return (
     <div className="settings-sync-log">
-      <div
+      <button
         className="settings-sync-log__header"
+        type="button"
         onClick={handleToggle}
-        role="button"
-        tabIndex={0}
         aria-expanded={isExpanded}
         data-testid="settings-sync-log-header"
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            handleToggle();
-          }
-        }}
       >
         <ChevronDown
           size={16}
-          style={{
-            transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
-            transition: "transform 0.15s ease",
-          }}
+          className={`settings-sync-log__chevron ${isExpanded ? "settings-sync-log__chevron--expanded" : ""}`}
         />
         <span>
           {entries.length} {entries.length === 1 ? "entry" : "entries"}
         </span>
-      </div>
+      </button>
 
       {isExpanded && (
         <>
