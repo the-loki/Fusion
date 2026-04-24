@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { TaskStore } from "../store.js";
+import { sortTasksByPriorityThenAgeAndId } from "../task-priority.js";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { mkdtempSync } from "node:fs";
@@ -51,5 +52,17 @@ describe("TaskStore.listTasks() sort order", () => {
     for (let i = 1; i < nums.length; i++) {
       expect(nums[i]).toBeGreaterThan(nums[i - 1]);
     }
+  });
+
+  it("provides deterministic helper ordering by priority then age then id", () => {
+    const sorted = sortTasksByPriorityThenAgeAndId([
+      { id: "FN-010", createdAt: "2026-01-02T00:00:00Z", priority: "normal" },
+      { id: "FN-001", createdAt: "2026-01-01T00:00:00Z", priority: "high" },
+      { id: "FN-002", createdAt: "2026-01-01T00:00:00Z", priority: "high" },
+      { id: "FN-003", createdAt: "2026-01-01T00:00:00Z" },
+      { id: "FN-004", createdAt: "2026-01-01T00:00:00Z", priority: "urgent" },
+    ]);
+
+    expect(sorted.map((task) => task.id)).toEqual(["FN-004", "FN-001", "FN-002", "FN-003", "FN-010"]);
   });
 });

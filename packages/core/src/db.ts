@@ -86,7 +86,7 @@ export function probeFts5(db: DatabaseSync): boolean {
 
 // ── Schema Definition ────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 42;
+const SCHEMA_VERSION = 43;
 
 function normalizeTaskComments(
   steeringComments: SteeringComment[] | undefined,
@@ -152,6 +152,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
   title TEXT,
   description TEXT NOT NULL,
+  priority TEXT DEFAULT 'normal',
   "column" TEXT NOT NULL,
   status TEXT,
   size TEXT,
@@ -1696,6 +1697,19 @@ export class Database {
           UPDATE tasks
           SET executionMode = 'standard'
           WHERE executionMode IS NULL OR executionMode = '' OR executionMode NOT IN ('standard', 'fast')
+        `);
+      });
+    }
+
+    // Task priority contract (FN-2383)
+    // Adds priority column and normalizes legacy/missing values to 'normal'.
+    if (version < 43) {
+      this.applyMigration(43, () => {
+        this.addColumnIfMissing("tasks", "priority", "TEXT DEFAULT 'normal'");
+        this.db.exec(`
+          UPDATE tasks
+          SET priority = 'normal'
+          WHERE priority IS NULL OR priority = '' OR priority NOT IN ('low', 'normal', 'high', 'urgent')
         `);
       });
     }

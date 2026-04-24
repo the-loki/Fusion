@@ -167,7 +167,7 @@ Additional backend notes:
 
 | Table | Purpose |
 |---|---|
-| `tasks` | Core task metadata and JSON-backed nested fields (dependencies, steps, log, attachments, comments, model overrides, workflow results, merge details, assignment, mission linkage). |
+| `tasks` | Core task metadata and JSON-backed nested fields (priority, dependencies, steps, log, attachments, comments, model overrides, workflow results, merge details, assignment, mission linkage). |
 | `config` | Single-row project configuration (`nextId`, settings payload, workflow step counters). |
 | `workflow_steps` | Workflow step definitions (`prompt`/`script`) with phase, template metadata, and model overrides. |
 | `activityLog` | Per-project activity/event log with timestamp/type/task indexes. |

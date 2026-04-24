@@ -131,7 +131,7 @@ describe("Database", () => {
     });
 
     it("seeds schema version", () => {
-      expect(db.getSchemaVersion()).toBe(42);
+      expect(db.getSchemaVersion()).toBe(43);
     });
 
     it("seeds lastModified", () => {
@@ -154,7 +154,7 @@ describe("Database", () => {
 
     it("is idempotent - calling init() twice does not fail", () => {
       expect(() => db.init()).not.toThrow();
-      expect(db.getSchemaVersion()).toBe(42);
+      expect(db.getSchemaVersion()).toBe(43);
     });
 
     it("does not overwrite existing config on re-init", () => {
@@ -761,7 +761,7 @@ describe("schema migrations", () => {
     db.init();
 
     // Verify version bumped to 29 (includes v1→v2 through v26→v29)
-    expect(db.getSchemaVersion()).toBe(42);
+    expect(db.getSchemaVersion()).toBe(43);
 
     // Verify new columns exist and existing data is intact
     const cols = db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
@@ -786,11 +786,52 @@ describe("schema migrations", () => {
     const db = new Database(fusionDir);
     db.init();
 
-    expect(db.getSchemaVersion()).toBe(42);
+    expect(db.getSchemaVersion()).toBe(43);
 
     // Re-init should not fail
     db.init();
-    expect(db.getSchemaVersion()).toBe(42);
+    expect(db.getSchemaVersion()).toBe(43);
+
+    db.close();
+  });
+
+  it("migrates v42 databases by adding task priority with normal default", () => {
+    tmpDir = makeTmpDir();
+    const fusionDir = join(tmpDir, ".fusion");
+    const db = new Database(fusionDir);
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS __meta (key TEXT PRIMARY KEY, value TEXT);
+      CREATE TABLE IF NOT EXISTS tasks (
+        id TEXT PRIMARY KEY,
+        description TEXT NOT NULL,
+        "column" TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        executionMode TEXT DEFAULT 'standard'
+      );
+      CREATE TABLE IF NOT EXISTS config (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        nextId INTEGER DEFAULT 1,
+        nextWorkflowStepId INTEGER DEFAULT 1,
+        settings TEXT DEFAULT '{}',
+        workflowSteps TEXT DEFAULT '[]',
+        updatedAt TEXT
+      );
+    `);
+    db.exec("INSERT INTO __meta (key, value) VALUES ('schemaVersion', '42')");
+    db.exec("INSERT INTO __meta (key, value) VALUES ('lastModified', '1000')");
+    db.exec(`INSERT INTO tasks (id, description, "column", createdAt, updatedAt) VALUES ('FN-1', 'legacy', 'triage', '2026-01-01', '2026-01-01')`);
+
+    db.init();
+
+    expect(db.getSchemaVersion()).toBe(43);
+
+    const cols = db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
+    expect(cols.map((col) => col.name)).toContain("priority");
+
+    const task = db.prepare("SELECT priority FROM tasks WHERE id = 'FN-1'").get() as { priority: string };
+    expect(task.priority).toBe("normal");
 
     db.close();
   });
@@ -806,7 +847,7 @@ describe("schema migrations", () => {
 
     db.init();
 
-    expect(db.getSchemaVersion()).toBe(42);
+    expect(db.getSchemaVersion()).toBe(43);
 
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = 'agentRatings'").all() as Array<{ name: string }>;
     expect(tables).toEqual([{ name: "agentRatings" }]);
@@ -830,7 +871,7 @@ describe("schema migrations", () => {
 
     db.init();
 
-    expect(db.getSchemaVersion()).toBe(42);
+    expect(db.getSchemaVersion()).toBe(43);
 
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = 'mission_events'").all() as Array<{ name: string }>;
     expect(tables).toEqual([{ name: "mission_events" }]);
@@ -934,7 +975,7 @@ describe("schema migrations", () => {
     db.init();
 
     // Verify version bumped to 29
-    expect(db.getSchemaVersion()).toBe(42);
+    expect(db.getSchemaVersion()).toBe(43);
 
     // Verify new columns exist and existing data is intact
     const cols = db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
@@ -1303,7 +1344,7 @@ describe("createDatabase factory", () => {
     const db = createDatabase(fusionDir);
     db.init();
 
-    expect(db.getSchemaVersion()).toBe(42);
+    expect(db.getSchemaVersion()).toBe(43);
     expect(db.getLastModified()).toBeGreaterThan(0);
 
     db.close();

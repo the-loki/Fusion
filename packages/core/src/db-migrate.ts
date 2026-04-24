@@ -13,6 +13,7 @@ import { readFile, readdir, rename } from "node:fs/promises";
 import { join } from "node:path";
 import type { Database } from "./db.js";
 import { toJson, toJsonNullable, normalizeTaskComments } from "./db.js";
+import { normalizeTaskPriority } from "./task-priority.js";
 import type { Task, BoardConfig, ActivityLogEntry, ArchivedTaskEntry, WorkflowStep } from "./types.js";
 import type { ScheduledTask } from "./automation.js";
 
@@ -215,7 +216,7 @@ async function migrateTasks(fusionDir: string, db: Database): Promise<void> {
 
   const insertStmt = db.prepare(`
     INSERT OR REPLACE INTO tasks (
-      id, title, description, "column", status, size, reviewLevel, currentStep,
+      id, title, description, priority, "column", status, size, reviewLevel, currentStep,
       worktree, blockedBy, paused, baseBranch, baseCommitSha, modelPresetId,
       modelProvider, modelId, validatorModelProvider, validatorModelId,
       mergeRetries, recoveryRetryCount, nextRecoveryAt,
@@ -224,7 +225,7 @@ async function migrateTasks(fusionDir: string, db: Database): Promise<void> {
       comments, workflowStepResults, prInfo, issueInfo, mergeDetails,
       breakIntoSubtasks, enabledWorkflowSteps, modifiedFiles, sliceId
     ) VALUES (
-      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     )
   `);
@@ -248,6 +249,7 @@ async function migrateTasks(fusionDir: string, db: Database): Promise<void> {
         task.id,
         task.title ?? null,
         task.description,
+        normalizeTaskPriority(task.priority),
         task.column,
         task.status ?? null,
         task.size ?? null,

@@ -3,8 +3,9 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync, watch, type FSWatcher } from "node:fs";
-import type { Task, TaskDetail, TaskCreateInput, TaskAttachment, AgentLogEntry, BoardConfig, Column, MergeResult, Settings, GlobalSettings, ProjectSettings, ActivityLogEntry, ActivityEventType, TaskDocument, TaskDocumentRevision, TaskDocumentCreateInput, TaskDocumentWithTask, InboxTask, TaskLogEntry, RunMutationContext, RunAuditEvent, RunAuditEventInput, RunAuditEventFilter, ArchivedTaskEntry, ArchiveAgentLogMode } from "./types.js";
+import type { Task, TaskDetail, TaskCreateInput, TaskAttachment, AgentLogEntry, BoardConfig, Column, MergeResult, Settings, GlobalSettings, ProjectSettings, ActivityLogEntry, ActivityEventType, TaskDocument, TaskDocumentRevision, TaskDocumentCreateInput, TaskDocumentWithTask, InboxTask, TaskLogEntry, RunMutationContext, RunAuditEvent, RunAuditEventInput, RunAuditEventFilter, ArchivedTaskEntry, ArchiveAgentLogMode, TaskPriority } from "./types.js";
 import { VALID_TRANSITIONS, DEFAULT_SETTINGS, isGlobalSettingsKey, WORKFLOW_STEP_TEMPLATES, validateDocumentKey } from "./types.js";
+import { normalizeTaskPriority } from "./task-priority.js";
 import { GlobalSettingsStore } from "./global-settings.js";
 import { Database, toJson, toJsonNullable, fromJson } from "./db.js";
 import { ArchiveDatabase } from "./archive-db.js";
@@ -25,6 +26,7 @@ interface TaskRow {
   id: string;
   title: string | null;
   description: string;
+  priority: string | null;
   column: string;
   status: string | null;
   size: string | null;
@@ -445,6 +447,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       id: row.id,
       title: row.title || undefined,
       description: row.description,
+      priority: normalizeTaskPriority(row.priority),
       column: row.column as Column,
       status: row.status || undefined,
       size: (row.size || undefined) as Task["size"],
@@ -519,6 +522,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       id: entry.id,
       title: entry.title,
       description: entry.description,
+      priority: normalizeTaskPriority(entry.priority),
       column: "archived",
       dependencies: entry.dependencies ?? [],
       steps: entry.steps ?? [],
@@ -637,6 +641,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       id: task.id,
       title: task.title,
       description: task.description,
+      priority: normalizeTaskPriority(task.priority),
       column: "archived",
       dependencies: task.dependencies,
       steps: task.steps,
@@ -714,7 +719,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
 
     const prefix = tableAlias ? `${tableAlias}.` : "";
     return [
-      "id", "title", "description", "\"column\"", "status", "size", "reviewLevel", "currentStep",
+      "id", "title", "description", "priority", "\"column\"", "status", "size", "reviewLevel", "currentStep",
       "worktree", "blockedBy", "paused", "baseBranch", "branch", "baseCommitSha",
       "modelPresetId", "modelProvider", "modelId",
       "validatorModelProvider", "validatorModelId",
@@ -732,7 +737,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
 
   private getTaskSelectClauseWithActivityLogLimit(limit: number): string {
     const columns = [
-      "id", "title", "description", "\"column\"", "status", "size", "reviewLevel", "currentStep",
+      "id", "title", "description", "priority", "\"column\"", "status", "size", "reviewLevel", "currentStep",
       "worktree", "blockedBy", "paused", "baseBranch", "branch", "baseCommitSha",
       "modelPresetId", "modelProvider", "modelId",
       "validatorModelProvider", "validatorModelId",
@@ -775,7 +780,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   private upsertTask(task: Task): void {
     this.db.prepare(`
       INSERT INTO tasks (
-        id, title, description, "column", status, size, reviewLevel, currentStep,
+        id, title, description, priority, "column", status, size, reviewLevel, currentStep,
         worktree, blockedBy, paused, baseBranch, branch, baseCommitSha, modelPresetId, modelProvider,
         modelId, validatorModelProvider, validatorModelId, planningModelProvider, planningModelId, mergeRetries,
         workflowStepRetries, stuckKillCount, postReviewFixCount, recoveryRetryCount, taskDoneRetryCount, nextRecoveryAt, error,
@@ -784,12 +789,13 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         comments, workflowStepResults, prInfo, issueInfo, mergeDetails,
         breakIntoSubtasks, enabledWorkflowSteps, modifiedFiles, missionId, sliceId, assignedAgentId, assigneeUserId, checkedOutBy, checkedOutAt
       ) VALUES (
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         description = excluded.description,
+        priority = excluded.priority,
         "column" = excluded."column",
         status = excluded.status,
         size = excluded.size,
@@ -845,6 +851,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       task.id,
       task.title ?? null,
       task.description,
+      normalizeTaskPriority(task.priority),
       task.column,
       task.status ?? null,
       task.size ?? null,
@@ -1121,6 +1128,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       if (!Array.isArray(fileTask.log)) fileTask.log = [];
       if (!Array.isArray(fileTask.dependencies)) fileTask.dependencies = [];
       if (!Array.isArray(fileTask.steps)) fileTask.steps = [];
+      fileTask.priority = normalizeTaskPriority(fileTask.priority);
       return fileTask;
     } catch (err) {
       throw new Error(
@@ -1832,6 +1840,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       id,
       title,
       description: input.description,
+      priority: normalizeTaskPriority(input.priority),
       column: input.column || "triage",
       dependencies: input.dependencies || [],
       breakIntoSubtasks: input.breakIntoSubtasks === true ? true : undefined,
@@ -1894,6 +1903,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       id: newId,
       title: sourceTask.title,
       description: `${sourceTask.description}\n\n(Duplicated from ${id})`,
+      priority: normalizeTaskPriority(sourceTask.priority),
       column: "triage",
       modelPresetId: sourceTask.modelPresetId,
       dependencies: [], // Fresh task should have no dependencies
@@ -1970,6 +1980,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       id: newId,
       title: `Refinement: ${sourceLabel}`,
       description: `${feedback.trim()}\n\nRefines: ${id}`,
+      priority: normalizeTaskPriority(sourceTask.priority),
       column: "triage",
       dependencies: [id], // Refinement depends on the original being complete
       steps: [], // Reset execution state
@@ -2398,7 +2409,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
 
   async updateTask(
     id: string,
-    updates: { title?: string; description?: string; prompt?: string; worktree?: string | null; status?: string | null; dependencies?: string[]; steps?: import("./types.js").TaskStep[]; currentStep?: number; blockedBy?: string | null; assignedAgentId?: string | null; assigneeUserId?: string | null; checkedOutBy?: string | null; checkedOutAt?: string | null; paused?: boolean; baseBranch?: string | null; branch?: string | null; baseCommitSha?: string | null; size?: "S" | "M" | "L"; reviewLevel?: number; executionMode?: import("./types.js").ExecutionMode | null; mergeRetries?: number; workflowStepRetries?: number; stuckKillCount?: number | null; postReviewFixCount?: number | null; recoveryRetryCount?: number | null; taskDoneRetryCount?: number | null; nextRecoveryAt?: string | null; enabledWorkflowSteps?: string[]; modelProvider?: string | null; modelId?: string | null; validatorModelProvider?: string | null; validatorModelId?: string | null; planningModelProvider?: string | null; planningModelId?: string | null; thinkingLevel?: string | null; error?: string | null; summary?: string | null; sessionFile?: string | null; workflowStepResults?: import("./types.js").WorkflowStepResult[] | null; mergeDetails?: import("./types.js").MergeDetails | null; modifiedFiles?: string[] | null; missionId?: string | null; sliceId?: string | null },
+    updates: { title?: string; description?: string; priority?: TaskPriority | null; prompt?: string; worktree?: string | null; status?: string | null; dependencies?: string[]; steps?: import("./types.js").TaskStep[]; currentStep?: number; blockedBy?: string | null; assignedAgentId?: string | null; assigneeUserId?: string | null; checkedOutBy?: string | null; checkedOutAt?: string | null; paused?: boolean; baseBranch?: string | null; branch?: string | null; baseCommitSha?: string | null; size?: "S" | "M" | "L"; reviewLevel?: number; executionMode?: import("./types.js").ExecutionMode | null; mergeRetries?: number; workflowStepRetries?: number; stuckKillCount?: number | null; postReviewFixCount?: number | null; recoveryRetryCount?: number | null; taskDoneRetryCount?: number | null; nextRecoveryAt?: string | null; enabledWorkflowSteps?: string[]; modelProvider?: string | null; modelId?: string | null; validatorModelProvider?: string | null; validatorModelId?: string | null; planningModelProvider?: string | null; planningModelId?: string | null; thinkingLevel?: string | null; error?: string | null; summary?: string | null; sessionFile?: string | null; workflowStepResults?: import("./types.js").WorkflowStepResult[] | null; mergeDetails?: import("./types.js").MergeDetails | null; modifiedFiles?: string[] | null; missionId?: string | null; sliceId?: string | null },
     runContext?: RunMutationContext,
   ): Promise<Task> {
     return this.withTaskLock(id, async () => {
@@ -2417,6 +2428,11 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
 
       if (updates.title !== undefined) task.title = updates.title;
       if (updates.description !== undefined) task.description = updates.description;
+      if (updates.priority === null) {
+        task.priority = normalizeTaskPriority(undefined);
+      } else if (updates.priority !== undefined) {
+        task.priority = normalizeTaskPriority(updates.priority);
+      }
       if (updates.worktree === null) {
         task.worktree = undefined;
       } else if (updates.worktree !== undefined) {
@@ -4812,6 +4828,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       id: entry.id,
       title: entry.title,
       description: entry.description,
+      priority: normalizeTaskPriority(entry.priority),
       column: "archived", // Will be changed to "done" by unarchiveTask
       dependencies: entry.dependencies,
       steps: entry.steps,

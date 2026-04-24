@@ -155,6 +155,74 @@ describe("TaskStore", () => {
 
   });
 
+  describe("task priority", () => {
+    it("defaults to normal priority when omitted", async () => {
+      const task = await store.createTask({
+        description: "Priority default task",
+      });
+
+      expect(task.priority).toBe("normal");
+
+      const detail = await store.getTask(task.id);
+      expect(detail.priority).toBe("normal");
+    });
+
+    it("persists explicit priority on create and update, and normalizes null update to default", async () => {
+      const task = await store.createTask({
+        description: "Priority explicit task",
+        priority: "urgent",
+      });
+      expect(task.priority).toBe("urgent");
+
+      const lowered = await store.updateTask(task.id, { priority: "low" });
+      expect(lowered.priority).toBe("low");
+
+      const reset = await store.updateTask(task.id, { priority: null });
+      expect(reset.priority).toBe("normal");
+
+      const detail = await store.getTask(task.id);
+      expect(detail.priority).toBe("normal");
+    });
+
+    it("preserves explicit priority through archive and unarchive", async () => {
+      const task = await store.createTask({
+        description: "Archive priority task",
+        column: "done",
+        priority: "high",
+      });
+
+      await store.archiveTask(task.id, false);
+      const archived = await store.getTask(task.id);
+      expect(archived.priority).toBe("high");
+
+      const unarchived = await store.unarchiveTask(task.id);
+      expect(unarchived.priority).toBe("high");
+    });
+
+    it("restores legacy archive entries missing priority as normal", async () => {
+      const now = new Date().toISOString();
+      const legacyEntry = {
+        id: "FN-999",
+        title: "Legacy archive task",
+        description: "Legacy task without explicit priority",
+        column: "archived" as const,
+        dependencies: [],
+        steps: [],
+        currentStep: 0,
+        log: [],
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: now,
+      };
+
+      const restored = await (store as any).restoreFromArchive(legacyEntry);
+      expect(restored.priority).toBe("normal");
+
+      const unarchived = await store.unarchiveTask(legacyEntry.id);
+      expect(unarchived.priority).toBe("normal");
+    });
+  });
+
   describe("breakIntoSubtasks task creation flag", () => {
     it("persists breakIntoSubtasks=true when explicitly requested", async () => {
       const task = await store.createTask({

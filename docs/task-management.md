@@ -193,7 +193,7 @@ Behavior:
 
 Archive entries preserve key metadata needed for restoration, including:
 
-- `id`, `title`, `description`, `column`
+- `id`, `title`, `description`, `priority`, `column`
 - `dependencies`, `steps`, `currentStep`
 - `size`, `reviewLevel`, `prInfo`, `issueInfo`
 - `attachments` metadata

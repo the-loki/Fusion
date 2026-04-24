@@ -5,6 +5,16 @@ export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 export const COLUMNS = ["triage", "todo", "in-progress", "in-review", "done", "archived"] as const;
 export type Column = (typeof COLUMNS)[number];
 
+/** Ordered task-priority levels for the core task domain contract. */
+export const TASK_PRIORITIES = ["low", "normal", "high", "urgent"] as const;
+export type TaskPriority = (typeof TASK_PRIORITIES)[number];
+
+/**
+ * Default task priority used for legacy rows/entries and create flows when
+ * callers omit the priority field.
+ */
+export const DEFAULT_TASK_PRIORITY: TaskPriority = "normal";
+
 /**
  * Execution mode for task implementation.
  * Controls how the executor agent approaches the task:
@@ -651,6 +661,11 @@ export interface Task {
   id: string;
   title?: string;
   description: string;
+  /**
+   * Task importance level. Missing legacy values normalize to `normal` when
+   * tasks are hydrated from persistence.
+   */
+  priority?: TaskPriority;
   column: Column;
   dependencies: string[];
   /** User-requested hint for triage: prefer splitting into child tasks when appropriate. */
@@ -804,6 +819,10 @@ export interface InboxTask {
 export interface TaskCreateInput {
   title?: string;
   description: string;
+  /**
+   * Optional task importance level. Omitted values default to `normal`.
+   */
+  priority?: TaskPriority;
   column?: Column;
   dependencies?: string[];
   breakIntoSubtasks?: boolean;
@@ -1554,6 +1573,11 @@ export interface ArchivedTaskEntry {
   id: string;
   title?: string;
   description: string;
+  /**
+   * Task importance level at archive time. Missing legacy values should be
+   * interpreted as `normal` during restore/read flows.
+   */
+  priority?: TaskPriority;
   column: "archived"; // Always archived when in the log
   dependencies: string[];
   steps: TaskStep[];

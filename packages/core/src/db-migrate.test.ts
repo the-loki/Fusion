@@ -184,6 +184,7 @@ describe("migrateFromLegacy", () => {
         id: "FN-001",
         title: "Test task",
         description: "A test task",
+        priority: "urgent",
         column: "todo",
         dependencies: ["FN-000"],
         steps: [{ name: "Step 1", status: "done" }],
@@ -205,11 +206,38 @@ describe("migrateFromLegacy", () => {
       expect(row).toBeDefined();
       expect(row.title).toBe("Test task");
       expect(row.column).toBe("todo");
+      expect(row.priority).toBe("urgent");
       expect(row.size).toBe("M");
       expect(row.reviewLevel).toBe(2);
       expect(JSON.parse(row.dependencies)).toEqual(["FN-000"]);
       expect(JSON.parse(row.steps)).toHaveLength(1);
       expect(JSON.parse(row.prInfo).number).toBe(1);
+    });
+
+    it("defaults migrated tasks to normal priority when legacy task.json omits priority", async () => {
+      const tasksDir = join(fusionDir, "tasks");
+      const taskDir = join(tasksDir, "FN-001");
+      await mkdir(taskDir, { recursive: true });
+
+      await writeFile(
+        join(taskDir, "task.json"),
+        JSON.stringify({
+          id: "FN-001",
+          description: "Legacy priorityless task",
+          column: "triage",
+          dependencies: [],
+          steps: [],
+          currentStep: 0,
+          log: [],
+          createdAt: "2025-01-01T00:00:00.000Z",
+          updatedAt: "2025-01-01T00:00:00.000Z",
+        }),
+      );
+
+      await migrateFromLegacy(fusionDir, db);
+
+      const row = db.prepare("SELECT priority FROM tasks WHERE id = 'FN-001'").get() as { priority: string };
+      expect(row.priority).toBe("normal");
     });
 
     it("skips invalid task.json files", async () => {
