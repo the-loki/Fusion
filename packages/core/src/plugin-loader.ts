@@ -269,9 +269,10 @@ export class PluginLoader extends EventEmitter<{
     // Dynamic import - use cache-busting for reload scenarios
     let mod: unknown;
     if (bypassCache) {
-      // Use a hash fragment for cache differentiation without affecting path resolution
-      // Node treats each distinct URL as a fresh import while resolving the same file path
-      const bustedPath = `${path}#${Date.now()}`;
+      // Use a query parameter for cache differentiation.
+      // Vite/Vitest's module resolver treats hash fragments as part of the
+      // filesystem path in some environments (causing ERR_MODULE_NOT_FOUND).
+      const bustedPath = `${path}?t=${Date.now()}`;
       mod = await import(bustedPath);
     } else {
       mod = await import(path);
