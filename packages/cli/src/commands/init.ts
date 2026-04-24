@@ -15,6 +15,10 @@ import { promisify } from "node:util";
 const execAsync = promisify(exec);
 import { CentralCore, QMD_INSTALL_COMMAND, isQmdAvailable } from "@fusion/core";
 import { maybeInstallClaudeSkillForNewProject } from "./claude-skills-runner.js";
+import {
+  installBundledFusionSkill,
+  type SkillInstallResult,
+} from "./skill-installation.js";
 
 /** Options for the init command */
 export interface InitOptions {
@@ -88,6 +92,9 @@ export async function runInit(options: InitOptions = {}): Promise<void> {
     writeFileSync(dbPath, sqliteHeader);
     console.log(`  ✓ Created fusion.db`);
   }
+
+  const bundledSkillInstall = installBundledFusionSkill();
+  logBundledSkillInstallResults(bundledSkillInstall.results);
 
   // Register in central database
   const central = new CentralCore();
@@ -209,4 +216,23 @@ async function warnIfQmdMissing(): Promise<void> {
 
   console.log(`  ⚠ qmd not found; memory search will use local file fallback`);
   console.log(`    Install qmd for indexed retrieval: ${QMD_INSTALL_COMMAND}`);
+}
+
+function logBundledSkillInstallResults(results: SkillInstallResult[]): void {
+  for (const result of results) {
+    const clientLabel = result.client[0].toUpperCase() + result.client.slice(1);
+    if (result.outcome === "installed") {
+      console.log(`  ✓ Installed bundled Fusion skill for ${clientLabel}: ${result.targetDir}`);
+      continue;
+    }
+
+    if (result.outcome === "skipped") {
+      console.log(`  ✓ Existing ${clientLabel} Fusion skill preserved: ${result.targetDir}`);
+      continue;
+    }
+
+    console.warn(
+      `  ⚠ Could not install bundled Fusion skill for ${clientLabel}: ${result.reason ?? "unknown error"}`,
+    );
+  }
 }

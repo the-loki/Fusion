@@ -36,6 +36,16 @@ fn init
 fn init --name my-project --path /absolute/path/to/project
 ```
 
+During fresh initialization, Fusion also installs the bundled `fusion` skill into supported local agent homes when the target skill does not already exist:
+
+- `~/.claude/skills/fusion`
+- `~/.codex/skills/fusion`
+- `~/.gemini/skills/fusion`
+
+`fn init` is non-destructive for these installs:
+- Existing `fusion` skill directories are preserved (not overwritten).
+- Per-target filesystem/permission failures are reported as warnings and do not fail project initialization.
+
 ---
 
 ## `fn dashboard`

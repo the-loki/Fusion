@@ -110,6 +110,16 @@ Then verify install:
 fn --help
 ```
 
+## Initialize a Project
+
+In each repository you want Fusion to manage, run:
+
+```bash
+fn init
+```
+
+On fresh init, Fusion also installs its bundled `fusion` skill into supported agent homes (`~/.claude/skills/fusion`, `~/.codex/skills/fusion`, `~/.gemini/skills/fusion`) when those targets are missing. Existing installs are left untouched.
+
 ## First Run and Onboarding
 
 Start the dashboard:

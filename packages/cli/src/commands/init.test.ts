@@ -33,9 +33,17 @@ function tempDir(prefix: string): string {
 
 describe("init command", () => {
   let tempProjectDir: string;
+  let tempHomeDir: string;
+  let originalHome: string | undefined;
+  let originalUserProfile: string | undefined;
 
   beforeEach(() => {
     tempProjectDir = tempDir("fn-init-test-");
+    tempHomeDir = tempDir("fn-init-home-");
+    originalHome = process.env.HOME;
+    originalUserProfile = process.env.USERPROFILE;
+    process.env.HOME = tempHomeDir;
+    process.env.USERPROFILE = tempHomeDir;
     mockCentralInit.mockResolvedValue(undefined);
     mockCentralClose.mockResolvedValue(undefined);
     mockGetProjectByPath.mockResolvedValue(undefined);
@@ -48,8 +56,22 @@ describe("init command", () => {
   });
 
   afterEach(() => {
+    if (originalHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = originalHome;
+    }
+    if (originalUserProfile === undefined) {
+      delete process.env.USERPROFILE;
+    } else {
+      process.env.USERPROFILE = originalUserProfile;
+    }
+
     if (existsSync(tempProjectDir)) {
       rmSync(tempProjectDir, { recursive: true, force: true });
+    }
+    if (existsSync(tempHomeDir)) {
+      rmSync(tempHomeDir, { recursive: true, force: true });
     }
   });
 
@@ -162,6 +184,55 @@ describe("init command", () => {
     const piMatches = content.match(/\.pi/g);
     expect(fusionMatches).toHaveLength(1);
     expect(piMatches).toHaveLength(1);
+  });
+
+  it("installs the bundled Fusion skill into Claude, Codex, and Gemini homes", async () => {
+    await runInit({ path: tempProjectDir });
+
+    const skillTargets = [
+      join(tempHomeDir, ".claude", "skills", "fusion"),
+      join(tempHomeDir, ".codex", "skills", "fusion"),
+      join(tempHomeDir, ".gemini", "skills", "fusion"),
+    ];
+
+    for (const target of skillTargets) {
+      expect(existsSync(join(target, "SKILL.md"))).toBe(true);
+      expect(existsSync(join(target, "references", "extension-tools.md"))).toBe(true);
+      expect(existsSync(join(target, "workflows", "task-management.md"))).toBe(true);
+    }
+  });
+
+  it("preserves existing Fusion skill directories instead of overwriting", async () => {
+    const existingSkillDir = join(tempHomeDir, ".claude", "skills", "fusion");
+    mkdirSync(existingSkillDir, { recursive: true });
+    writeFileSync(join(existingSkillDir, "SKILL.md"), "custom skill content\n");
+
+    await runInit({ path: tempProjectDir });
+
+    expect(readFileSync(join(existingSkillDir, "SKILL.md"), "utf-8")).toBe("custom skill content\n");
+    expect(existsSync(join(existingSkillDir, "references", "extension-tools.md"))).toBe(false);
+  });
+
+  it("logs skill install warnings without aborting init", async () => {
+    const blockedClaudePath = join(tempHomeDir, ".claude");
+    writeFileSync(blockedClaudePath, "blocked");
+
+    const originalWarn = console.warn;
+    const warnings: string[] = [];
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.join(" "));
+    };
+
+    try {
+      await runInit({ path: tempProjectDir });
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    expect(existsSync(join(tempProjectDir, ".fusion", "fusion.db"))).toBe(true);
+    expect(warnings.some((warning) => warning.includes("Could not install bundled Fusion skill for Claude"))).toBe(true);
+    expect(existsSync(join(tempHomeDir, ".codex", "skills", "fusion", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(tempHomeDir, ".gemini", "skills", "fusion", "SKILL.md"))).toBe(true);
   });
 
   it("should add .pi when .fusion is already ignored", async () => {
