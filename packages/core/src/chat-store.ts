@@ -204,6 +204,74 @@ export class ChatStore extends EventEmitter<ChatStoreEvents> {
   }
 
   /**
+   * Find the newest active session for a specific quick-chat target.
+   *
+   * Matching semantics:
+   * - model target (`modelProvider` + `modelId`): exact agent+model match
+   * - agent target (no model): prefer model-less sessions, then newest agent session fallback
+   */
+  findLatestActiveSessionForTarget(options: {
+    agentId: string;
+    projectId?: string;
+    modelProvider?: string;
+    modelId?: string;
+  }): ChatSession | undefined {
+    const normalizedAgentId = options.agentId.trim();
+    if (!normalizedAgentId) {
+      return undefined;
+    }
+
+    const normalizedProvider = options.modelProvider?.trim();
+    const normalizedModelId = options.modelId?.trim();
+
+    if ((normalizedProvider && !normalizedModelId) || (!normalizedProvider && normalizedModelId)) {
+      throw new Error("modelProvider and modelId must both be provided together, or neither");
+    }
+
+    const whereClauses: string[] = ["status = ?", "agentId = ?"];
+    const baseParams: string[] = ["active", normalizedAgentId];
+
+    if (options.projectId && options.projectId.trim()) {
+      whereClauses.push("projectId = ?");
+      baseParams.push(options.projectId.trim());
+    }
+
+    const baseWhereSql = whereClauses.join(" AND ");
+
+    if (normalizedProvider && normalizedModelId) {
+      const row = this.db.prepare(`
+        SELECT * FROM chat_sessions
+        WHERE ${baseWhereSql} AND modelProvider = ? AND modelId = ?
+        ORDER BY updatedAt DESC
+        LIMIT 1
+      `).get(...baseParams, normalizedProvider, normalizedModelId) as ChatSessionRow | undefined;
+      return row ? this.rowToSession(row) : undefined;
+    }
+
+    const modelLessRow = this.db.prepare(`
+      SELECT * FROM chat_sessions
+      WHERE ${baseWhereSql}
+        AND COALESCE(TRIM(modelProvider), '') = ''
+        AND COALESCE(TRIM(modelId), '') = ''
+      ORDER BY updatedAt DESC
+      LIMIT 1
+    `).get(...baseParams) as ChatSessionRow | undefined;
+
+    if (modelLessRow) {
+      return this.rowToSession(modelLessRow);
+    }
+
+    const fallbackRow = this.db.prepare(`
+      SELECT * FROM chat_sessions
+      WHERE ${baseWhereSql}
+      ORDER BY updatedAt DESC
+      LIMIT 1
+    `).get(...baseParams) as ChatSessionRow | undefined;
+
+    return fallbackRow ? this.rowToSession(fallbackRow) : undefined;
+  }
+
+  /**
    * Update a chat session.
    *
    * @param id - Session ID

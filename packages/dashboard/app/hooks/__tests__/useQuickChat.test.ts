@@ -5,6 +5,7 @@ import * as apiModule from "../../api";
 import { FN_AGENT_ID, useQuickChat } from "../useQuickChat";
 
 vi.mock("../../api", () => ({
+  fetchResumeChatSession: vi.fn(),
   fetchChatSessions: vi.fn(),
   createChatSession: vi.fn(),
   fetchChatMessages: vi.fn(),
@@ -12,6 +13,7 @@ vi.mock("../../api", () => ({
   cancelChatResponse: vi.fn(),
 }));
 
+const mockFetchResumeChatSession = vi.mocked(apiModule.fetchResumeChatSession);
 const mockFetchChatSessions = vi.mocked(apiModule.fetchChatSessions);
 const mockCreateChatSession = vi.mocked(apiModule.createChatSession);
 const mockFetchChatMessages = vi.mocked(apiModule.fetchChatMessages);
@@ -35,6 +37,7 @@ function makeSession(overrides: Partial<ChatSession> & Pick<ChatSession, "id" | 
 describe("useQuickChat", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFetchResumeChatSession.mockResolvedValue({ session: null });
     mockFetchChatSessions.mockResolvedValue({ sessions: [] });
     mockCreateChatSession.mockResolvedValue({
       session: makeSession({ id: "session-001", agentId: "agent-001" }),
@@ -46,7 +49,7 @@ describe("useQuickChat", () => {
 
   it("sendMessage is synchronous and returns void", async () => {
     const session = makeSession({ id: "session-001", agentId: "agent-001" });
-    mockFetchChatSessions.mockResolvedValue({ sessions: [session] });
+    mockFetchResumeChatSession.mockResolvedValue({ session });
     mockFetchChatMessages.mockResolvedValue({ messages: [] });
 
     const { result } = renderHook(() => useQuickChat("proj-123"));
@@ -140,9 +143,9 @@ describe("useQuickChat", () => {
         }),
       });
 
-    mockFetchChatSessions
-      .mockResolvedValueOnce({ sessions: [] })
-      .mockResolvedValueOnce({ sessions: [modelASession] });
+    mockFetchResumeChatSession
+      .mockResolvedValueOnce({ session: null })
+      .mockResolvedValueOnce({ session: null });
 
     const { result } = renderHook(() => useQuickChat("proj-123"));
 
@@ -185,7 +188,7 @@ describe("useQuickChat", () => {
       modelId: "gpt-4o",
     });
 
-    mockFetchChatSessions.mockResolvedValueOnce({ sessions: [existingSession] });
+    mockFetchResumeChatSession.mockResolvedValueOnce({ session: existingSession });
 
     const { result } = renderHook(() => useQuickChat("proj-123"));
 
@@ -203,6 +206,37 @@ describe("useQuickChat", () => {
     });
   });
 
+  it("resumes via targeted lookup without loading the full active-session list", async () => {
+    const existingSession = makeSession({
+      id: "session-targeted",
+      agentId: "agent-001",
+      modelProvider: "openai",
+      modelId: "gpt-4o",
+    });
+
+    mockFetchResumeChatSession.mockResolvedValueOnce({ session: existingSession });
+    mockFetchChatSessions.mockRejectedValue(new Error("should not enumerate active sessions"));
+
+    const { result } = renderHook(() => useQuickChat("proj-123"));
+
+    await act(async () => {
+      await result.current.switchSession("agent-001", "openai", "gpt-4o");
+    });
+
+    await waitFor(() => {
+      expect(result.current.activeSession?.id).toBe("session-targeted");
+      expect(mockFetchResumeChatSession).toHaveBeenCalledWith(
+        {
+          agentId: "agent-001",
+          modelProvider: "openai",
+          modelId: "gpt-4o",
+        },
+        "proj-123",
+      );
+      expect(mockFetchChatSessions).not.toHaveBeenCalled();
+    });
+  });
+
   it("startFreshSession creates a second session for the same model target", async () => {
     const existingSession = makeSession({
       id: "session-existing",
@@ -217,7 +251,7 @@ describe("useQuickChat", () => {
       modelId: "gpt-4o",
     });
 
-    mockFetchChatSessions.mockResolvedValueOnce({ sessions: [existingSession] });
+    mockFetchResumeChatSession.mockResolvedValueOnce({ session: existingSession });
     mockCreateChatSession.mockResolvedValueOnce({ session: freshSession });
 
     const { result } = renderHook(() => useQuickChat("proj-123"));
@@ -252,7 +286,7 @@ describe("useQuickChat", () => {
     const existingSession = makeSession({ id: "session-existing", agentId: "agent-001" });
     const closeFn = vi.fn();
 
-    mockFetchChatSessions.mockResolvedValueOnce({ sessions: [existingSession] });
+    mockFetchResumeChatSession.mockResolvedValueOnce({ session: existingSession });
     mockFetchChatMessages.mockResolvedValue({ messages: [] });
     mockStreamChatResponse.mockReturnValue({ close: closeFn, isConnected: () => true });
 
@@ -286,7 +320,7 @@ describe("useQuickChat", () => {
   it("sending during streaming queues message", async () => {
     const existingSession = makeSession({ id: "session-existing", agentId: "agent-001" });
 
-    mockFetchChatSessions.mockResolvedValueOnce({ sessions: [existingSession] });
+    mockFetchResumeChatSession.mockResolvedValueOnce({ session: existingSession });
     mockFetchChatMessages.mockResolvedValue({ messages: [] });
     mockStreamChatResponse.mockReturnValue({ close: vi.fn(), isConnected: () => true });
 
@@ -316,7 +350,7 @@ describe("useQuickChat", () => {
     const existingSession = makeSession({ id: "session-existing", agentId: "agent-001" });
     const handlers: Array<Parameters<typeof mockStreamChatResponse>[2]> = [];
 
-    mockFetchChatSessions.mockResolvedValueOnce({ sessions: [existingSession] });
+    mockFetchResumeChatSession.mockResolvedValueOnce({ session: existingSession });
     mockFetchChatMessages.mockResolvedValue({ messages: [] });
     mockStreamChatResponse.mockImplementation((_sessionId, _content, nextHandlers) => {
       handlers.push(nextHandlers);
@@ -356,7 +390,7 @@ describe("useQuickChat", () => {
     const existingSession = makeSession({ id: "session-existing", agentId: "agent-001" });
     let onErrorHandler: ((data: string) => void) | undefined;
 
-    mockFetchChatSessions.mockResolvedValueOnce({ sessions: [existingSession] });
+    mockFetchResumeChatSession.mockResolvedValueOnce({ session: existingSession });
     mockFetchChatMessages
       .mockResolvedValueOnce({ messages: [] })
       .mockResolvedValueOnce({
@@ -401,7 +435,7 @@ describe("useQuickChat", () => {
     const existingSession = makeSession({ id: "session-existing", agentId: "agent-001" });
     let onErrorHandler: ((data: string) => void) | undefined;
 
-    mockFetchChatSessions.mockResolvedValueOnce({ sessions: [existingSession] });
+    mockFetchResumeChatSession.mockResolvedValueOnce({ session: existingSession });
     mockFetchChatMessages.mockResolvedValue({ messages: [] });
 
     mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
@@ -435,7 +469,7 @@ describe("useQuickChat", () => {
     let onTextHandler: ((data: string) => void) | undefined;
     let onThinkingHandler: ((data: string) => void) | undefined;
 
-    mockFetchChatSessions.mockResolvedValueOnce({ sessions: [existingSession] });
+    mockFetchResumeChatSession.mockResolvedValueOnce({ session: existingSession });
     mockFetchChatMessages.mockResolvedValue({ messages: [] });
 
     mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
@@ -479,7 +513,7 @@ describe("useQuickChat", () => {
     const addToast = vi.fn();
     let onErrorHandler: ((data: string) => void) | undefined;
 
-    mockFetchChatSessions.mockResolvedValueOnce({ sessions: [existingSession] });
+    mockFetchResumeChatSession.mockResolvedValueOnce({ session: existingSession });
     mockFetchChatMessages.mockResolvedValue({ messages: [] });
 
     mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {

@@ -9608,17 +9608,46 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         throw internalError("Chat store not available");
       }
 
-      const { projectId, status, agentId } = req.query as {
+      const { projectId, status, agentId, lookup, modelProvider, modelId } = req.query as {
         projectId?: string;
         status?: string;
         agentId?: string;
+        lookup?: string;
+        modelProvider?: string;
+        modelId?: string;
       };
 
-      const sessions = chatStore.listSessions({
-        ...(projectId && { projectId }),
-        ...(status && { status: status as "active" | "archived" }),
-        ...(agentId && { agentId }),
-      });
+      const isResumeLookup = lookup === "resume";
+      const hasModelProvider = typeof modelProvider === "string" && modelProvider.trim().length > 0;
+      const hasModelId = typeof modelId === "string" && modelId.trim().length > 0;
+      if (hasModelProvider !== hasModelId) {
+        throw badRequest("Both modelProvider and modelId must be provided together, or neither should be provided");
+      }
+
+      if (isResumeLookup && (!agentId || !agentId.trim())) {
+        throw badRequest("agentId is required when lookup=resume");
+      }
+
+      const sessions = isResumeLookup
+        ? (() => {
+            const matched = chatStore.findLatestActiveSessionForTarget({
+              agentId: agentId!.trim(),
+              ...(projectId && { projectId }),
+              ...(hasModelProvider && hasModelId
+                ? {
+                    modelProvider: modelProvider!.trim(),
+                    modelId: modelId!.trim(),
+                  }
+                : {}),
+            });
+
+            return matched ? [matched] : [];
+          })()
+        : chatStore.listSessions({
+            ...(projectId && { projectId }),
+            ...(status && { status: status as "active" | "archived" }),
+            ...(agentId && { agentId }),
+          });
 
       // Enrich sessions with last message preview
       if (sessions.length > 0) {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatMessage, ChatSession } from "@fusion/core";
 import {
-  fetchChatSessions,
+  fetchResumeChatSession,
   createChatSession,
   fetchChatMessages,
   streamChatResponse,
@@ -95,24 +95,6 @@ function buildSessionKey(agentId: string, modelProvider?: string, modelId?: stri
   const provider = normalizedModel.modelProvider ?? "";
   const id = normalizedModel.modelId ?? "";
   return `${agentId}::${provider}/${id}`;
-}
-
-function findMatchingSession(sessions: ChatSession[], target: SessionTarget): ChatSession | undefined {
-  const candidateSessions = sessions.filter((session) => session.agentId === target.agentId);
-  if (candidateSessions.length === 0) {
-    return undefined;
-  }
-
-  if (target.modelProvider && target.modelId) {
-    return candidateSessions.find(
-      (session) => session.modelProvider === target.modelProvider && session.modelId === target.modelId,
-    );
-  }
-
-  // Prefer sessions without explicit model data when available,
-  // then fall back to the first session for this agent to preserve
-  // existing behavior.
-  return candidateSessions.find((session) => !session.modelProvider && !session.modelId) ?? candidateSessions[0];
 }
 
 function extractCompletedToolCalls(metadata: Record<string, unknown> | null | undefined): ToolCallInfo[] | undefined {
@@ -221,8 +203,14 @@ export function useQuickChat(
 
       setSessionsLoading(true);
       try {
-        const data = await fetchChatSessions(projectId, "active");
-        const existingSession = findMatchingSession(data.sessions, target);
+        const { session: existingSession } = await fetchResumeChatSession(
+          {
+            agentId: target.agentId,
+            modelProvider: target.modelProvider,
+            modelId: target.modelId,
+          },
+          projectId,
+        );
 
         if (existingSession) {
           setActiveSession(existingSession);

@@ -6,6 +6,7 @@ import { useAgents } from "../../hooks/useAgents";
 import { QuickChatFAB } from "../QuickChatFAB";
 
 vi.mock("../../api", () => ({
+  fetchResumeChatSession: vi.fn(),
   fetchChatSessions: vi.fn(),
   createChatSession: vi.fn(),
   fetchChatMessages: vi.fn(),
@@ -19,6 +20,7 @@ vi.mock("../../hooks/useAgents", () => ({
   useAgents: vi.fn(),
 }));
 
+const mockFetchResumeChatSession = vi.mocked(apiModule.fetchResumeChatSession);
 const mockFetchChatSessions = vi.mocked(apiModule.fetchChatSessions);
 const mockCreateChatSession = vi.mocked(apiModule.createChatSession);
 const mockFetchChatMessages = vi.mocked(apiModule.fetchChatMessages);
@@ -148,6 +150,7 @@ describe("QuickChatFAB", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAgentsHook(mockAgents);
+    mockFetchResumeChatSession.mockResolvedValue({ session: null });
     mockFetchChatSessions.mockResolvedValue({ sessions: [] });
     mockCreateChatSession.mockResolvedValue({ session: mockSession });
     mockFetchChatMessages.mockResolvedValue({ messages: [] });
@@ -385,7 +388,7 @@ describe("QuickChatFAB", () => {
     };
 
     mockAgentsHook([]);
-    mockFetchChatSessions.mockResolvedValueOnce({ sessions: [existingModelSession] });
+    mockFetchResumeChatSession.mockResolvedValueOnce({ session: existingModelSession });
     mockCreateChatSession.mockResolvedValueOnce({ session: freshModelSession });
 
     render(<QuickChatFAB addToast={addToast} projectId="proj-123" />);
@@ -504,7 +507,7 @@ describe("QuickChatFAB", () => {
 
     // Wait for session initialization
     await waitFor(() => {
-      expect(mockFetchChatSessions).toHaveBeenCalled();
+      expect(mockFetchResumeChatSession).toHaveBeenCalled();
     });
 
     const input = await screen.findByTestId("quick-chat-input");
@@ -549,7 +552,7 @@ describe("QuickChatFAB", () => {
     fireEvent.click(screen.getByTestId("quick-chat-fab"));
 
     await waitFor(() => {
-      expect(mockFetchChatSessions).toHaveBeenCalled();
+      expect(mockFetchResumeChatSession).toHaveBeenCalled();
     });
 
     const input = await screen.findByTestId("quick-chat-input");
@@ -577,7 +580,7 @@ describe("QuickChatFAB", () => {
 
     fireEvent.click(screen.getByTestId("quick-chat-fab"));
     await waitFor(() => {
-      expect(mockFetchChatSessions).toHaveBeenCalled();
+      expect(mockFetchResumeChatSession).toHaveBeenCalled();
     });
 
     const input = await screen.findByTestId("quick-chat-input");
@@ -610,7 +613,7 @@ describe("QuickChatFAB", () => {
 
     fireEvent.click(screen.getByTestId("quick-chat-fab"));
     await waitFor(() => {
-      expect(mockFetchChatSessions).toHaveBeenCalled();
+      expect(mockFetchResumeChatSession).toHaveBeenCalled();
     });
 
     const input = await screen.findByTestId("quick-chat-input");
@@ -636,7 +639,7 @@ describe("QuickChatFAB", () => {
 
     // Wait for session initialization
     await waitFor(() => {
-      expect(mockFetchChatSessions).toHaveBeenCalled();
+      expect(mockFetchResumeChatSession).toHaveBeenCalled();
     });
 
     const input = await screen.findByTestId("quick-chat-input");
@@ -660,7 +663,7 @@ describe("QuickChatFAB", () => {
 
     // Wait for session initialization
     await waitFor(() => {
-      expect(mockFetchChatSessions).toHaveBeenCalled();
+      expect(mockFetchResumeChatSession).toHaveBeenCalled();
     });
 
     const input = await screen.findByTestId("quick-chat-input");
@@ -697,7 +700,7 @@ describe("QuickChatFAB", () => {
 
     fireEvent.click(screen.getByTestId("quick-chat-fab"));
     await waitFor(() => {
-      expect(mockFetchChatSessions).toHaveBeenCalled();
+      expect(mockFetchResumeChatSession).toHaveBeenCalled();
     });
 
     const input = await screen.findByTestId("quick-chat-input");
@@ -728,7 +731,7 @@ describe("QuickChatFAB", () => {
 
     fireEvent.click(screen.getByTestId("quick-chat-fab"));
     await waitFor(() => {
-      expect(mockFetchChatSessions).toHaveBeenCalled();
+      expect(mockFetchResumeChatSession).toHaveBeenCalled();
     });
 
     const input = await screen.findByTestId("quick-chat-input");
@@ -750,7 +753,7 @@ describe("QuickChatFAB", () => {
 
     // Wait for session initialization
     await waitFor(() => {
-      expect(mockFetchChatSessions).toHaveBeenCalled();
+      expect(mockFetchResumeChatSession).toHaveBeenCalled();
     });
 
     const input = await screen.findByTestId("quick-chat-input");
@@ -777,7 +780,7 @@ describe("QuickChatFAB", () => {
 
   it("switching agents creates a new session for the selected agent", async () => {
     // First session exists
-    mockFetchChatSessions.mockResolvedValueOnce({ sessions: [mockSession] });
+    mockFetchResumeChatSession.mockResolvedValueOnce({ session: mockSession });
 
     render(<QuickChatFAB addToast={addToast} projectId="proj-123" />);
 
@@ -785,7 +788,7 @@ describe("QuickChatFAB", () => {
 
     // Wait for initial session to be created
     await waitFor(() => {
-      expect(mockFetchChatSessions).toHaveBeenCalled();
+      expect(mockFetchResumeChatSession).toHaveBeenCalled();
     });
 
     // Switch to agent-002
@@ -852,13 +855,13 @@ describe("QuickChatFAB", () => {
     // Override beforeEach's createChatSession mock (which returns session-001)
     // so that creating agent-002's session returns the correct ID
     mockCreateChatSession.mockResolvedValueOnce({ session: sessionForAgent2 });
-    mockFetchChatSessions
+    mockFetchResumeChatSession
       // Initial load: agent-001's existing session found
-      .mockResolvedValueOnce({ sessions: [sessionForAgent1] })
+      .mockResolvedValueOnce({ session: sessionForAgent1 })
       // Switch to agent-002: no session found → will create new
-      .mockResolvedValueOnce({ sessions: [] })
+      .mockResolvedValueOnce({ session: null })
       // Switch back to agent-001: should find the existing session
-      .mockResolvedValueOnce({ sessions: [sessionForAgent1] });
+      .mockResolvedValueOnce({ session: sessionForAgent1 });
 
     // Per-call message mocks
     mockFetchChatMessages
@@ -871,7 +874,14 @@ describe("QuickChatFAB", () => {
 
     // Step 1: Open chat with agent-001 (existing session found)
     await waitFor(() => {
-      expect(mockFetchChatSessions).toHaveBeenCalledWith("proj-123", "active");
+      expect(mockFetchResumeChatSession).toHaveBeenCalledWith(
+        {
+          agentId: "agent-001",
+          modelProvider: undefined,
+          modelId: undefined,
+        },
+        "proj-123",
+      );
     });
 
     // Verify agent-001's messages are shown
@@ -903,11 +913,11 @@ describe("QuickChatFAB", () => {
 
     // Should find existing session (not create new)
     await waitFor(() => {
-      // Verify fetchChatSessions was called with correct projectId on each switch
-      expect(mockFetchChatSessions.mock.calls).toEqual([
-        ["proj-123", "active"],
-        ["proj-123", "active"],
-        ["proj-123", "active"],
+      // Verify targeted resume lookup was called with the selected agent on each switch
+      expect(mockFetchResumeChatSession.mock.calls).toEqual([
+        [{ agentId: "agent-001", modelProvider: undefined, modelId: undefined }, "proj-123"],
+        [{ agentId: "agent-002", modelProvider: undefined, modelId: undefined }, "proj-123"],
+        [{ agentId: "agent-001", modelProvider: undefined, modelId: undefined }, "proj-123"],
       ]);
       // Verify no new session was created for agent-001 (already had one)
       expect(mockCreateChatSession).not.toHaveBeenLastCalledWith(
@@ -1204,7 +1214,7 @@ describe("QuickChatFAB", () => {
 
     // Wait for session initialization
     await waitFor(() => {
-      expect(mockFetchChatSessions).toHaveBeenCalled();
+      expect(mockFetchResumeChatSession).toHaveBeenCalled();
     });
 
     const input = await screen.findByTestId("quick-chat-input");

@@ -12,7 +12,7 @@ import { createHmac } from "node:crypto";
 import { createApiRoutes } from "./routes.js";
 import { GitHubClient } from "./github.js";
 import { githubRateLimiter } from "./github-poll.js";
-import type { TaskStore, TaskAttachment, Routine, RoutineCreateInput, RoutineUpdateInput, RoutineExecutionResult } from "@fusion/core";
+import type { TaskStore, TaskAttachment, Routine, RoutineCreateInput, RoutineUpdateInput, RoutineExecutionResult, ChatSession, ChatMessage } from "@fusion/core";
 import type { TaskDetail } from "@fusion/core";
 import type { AuthStorageLike, ModelRegistryLike } from "./routes.js";
 import { __resetBatchImportRateLimiter, __setCreateFnAgentForRefine } from "./routes.js";
@@ -17156,5 +17156,132 @@ describe("Agent stale task-link sanitization", () => {
     expect(testAgent).toBeDefined();
     // On lookup failure, taskId should be preserved (treated as non-terminal)
     expect(testAgent.taskId).toBe(taskId);
+  });
+});
+
+describe("GET /api/chat/sessions lookup=resume", () => {
+  function makeSession(overrides: Partial<ChatSession> & Pick<ChatSession, "id" | "agentId">): ChatSession {
+    const now = new Date().toISOString();
+    return {
+      id: overrides.id,
+      agentId: overrides.agentId,
+      title: overrides.title ?? null,
+      status: overrides.status ?? "active",
+      projectId: overrides.projectId ?? null,
+      modelProvider: overrides.modelProvider ?? null,
+      modelId: overrides.modelId ?? null,
+      createdAt: overrides.createdAt ?? now,
+      updatedAt: overrides.updatedAt ?? now,
+    };
+  }
+
+  function buildChatApp(overrides?: {
+    matchedSession?: ChatSession;
+    lastMessage?: Pick<ChatMessage, "sessionId" | "content" | "createdAt">;
+  }) {
+    const store = createMockStore();
+    const matchedSession = overrides?.matchedSession;
+    const chatStore = {
+      listSessions: vi.fn().mockReturnValue([]),
+      findLatestActiveSessionForTarget: vi.fn().mockReturnValue(matchedSession),
+      getLastMessageForSessions: vi.fn().mockImplementation((sessionIds: string[]) => {
+        const map = new Map<string, ChatMessage>();
+        if (overrides?.lastMessage && sessionIds.includes(overrides.lastMessage.sessionId)) {
+          const now = new Date().toISOString();
+          map.set(overrides.lastMessage.sessionId, {
+            id: "msg-1",
+            sessionId: overrides.lastMessage.sessionId,
+            role: "assistant",
+            content: overrides.lastMessage.content,
+            thinkingOutput: null,
+            metadata: null,
+            createdAt: overrides.lastMessage.createdAt ?? now,
+          });
+        }
+        return map;
+      }),
+    };
+
+    const app = express();
+    app.use(express.json());
+    app.use("/api", createApiRoutes(store, { chatStore } as any));
+
+    return { app, chatStore };
+  }
+
+  it("returns only the targeted matched session when lookup=resume", async () => {
+    const matchedSession = makeSession({
+      id: "chat-match",
+      agentId: "agent-1",
+      projectId: "proj-1",
+      modelProvider: "openai",
+      modelId: "gpt-4o",
+    });
+
+    const { app, chatStore } = buildChatApp({
+      matchedSession,
+      lastMessage: {
+        sessionId: matchedSession.id,
+        content: "Most recent assistant reply",
+        createdAt: new Date().toISOString(),
+      },
+    });
+
+    const res = await GET(
+      app,
+      "/api/chat/sessions?lookup=resume&projectId=proj-1&agentId=agent-1&modelProvider=openai&modelId=gpt-4o",
+    );
+
+    expect(res.status).toBe(200);
+    expect(chatStore.findLatestActiveSessionForTarget).toHaveBeenCalledWith({
+      projectId: "proj-1",
+      agentId: "agent-1",
+      modelProvider: "openai",
+      modelId: "gpt-4o",
+    });
+    expect(chatStore.listSessions).not.toHaveBeenCalled();
+    expect(res.body.sessions).toHaveLength(1);
+    expect(res.body.sessions[0].id).toBe("chat-match");
+    expect(res.body.sessions[0].lastMessagePreview).toBe("Most recent assistant reply");
+  });
+
+  it("returns 400 when modelProvider/modelId are not both provided", async () => {
+    const { app } = buildChatApp();
+
+    const res = await GET(app, "/api/chat/sessions?lookup=resume&projectId=proj-1&agentId=agent-1&modelProvider=openai");
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("Both modelProvider and modelId must be provided together");
+  });
+
+  it("returns 400 when lookup=resume is missing agentId", async () => {
+    const { app } = buildChatApp();
+
+    const res = await GET(app, "/api/chat/sessions?lookup=resume&projectId=proj-1");
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("agentId is required when lookup=resume");
+  });
+
+  it("preserves list behavior when lookup parameter is absent", async () => {
+    const store = createMockStore();
+    const listedSession = makeSession({ id: "chat-listed", agentId: "agent-1" });
+    const chatStore = {
+      listSessions: vi.fn().mockReturnValue([listedSession]),
+      findLatestActiveSessionForTarget: vi.fn(),
+      getLastMessageForSessions: vi.fn().mockReturnValue(new Map()),
+    };
+
+    const app = express();
+    app.use(express.json());
+    app.use("/api", createApiRoutes(store, { chatStore } as any));
+
+    const res = await GET(app, "/api/chat/sessions?status=active&agentId=agent-1");
+
+    expect(res.status).toBe(200);
+    expect(chatStore.listSessions).toHaveBeenCalledWith({ status: "active", agentId: "agent-1" });
+    expect(chatStore.findLatestActiveSessionForTarget).not.toHaveBeenCalled();
+    expect(res.body.sessions).toHaveLength(1);
+    expect(res.body.sessions[0].id).toBe("chat-listed");
   });
 });

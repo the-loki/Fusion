@@ -181,6 +181,110 @@ describe("ChatStore", () => {
       });
     });
 
+    describe("findLatestActiveSessionForTarget", () => {
+      it("returns newest exact model match for model-specific targets", async () => {
+        const olderModelMatch = createTestSession(store, {
+          agentId: "agent-lookup",
+          projectId: "proj-1",
+          modelProvider: "openai",
+          modelId: "gpt-4o",
+        });
+        await new Promise((r) => setTimeout(r, 5));
+        const newestModelMatch = createTestSession(store, {
+          agentId: "agent-lookup",
+          projectId: "proj-1",
+          modelProvider: "openai",
+          modelId: "gpt-4o",
+        });
+
+        createTestSession(store, {
+          agentId: "agent-lookup",
+          projectId: "proj-1",
+          modelProvider: "anthropic",
+          modelId: "claude-sonnet-4-5",
+        });
+
+        const found = store.findLatestActiveSessionForTarget({
+          projectId: "proj-1",
+          agentId: "agent-lookup",
+          modelProvider: "openai",
+          modelId: "gpt-4o",
+        });
+
+        expect(found?.id).toBe(newestModelMatch.id);
+        expect(found?.id).not.toBe(olderModelMatch.id);
+      });
+
+      it("prefers model-less session for agent-only targets", async () => {
+        const modelSpecific = createTestSession(store, {
+          agentId: "agent-lookup",
+          projectId: "proj-1",
+          modelProvider: "openai",
+          modelId: "gpt-4o",
+        });
+        await new Promise((r) => setTimeout(r, 5));
+        const modelLess = createTestSession(store, {
+          agentId: "agent-lookup",
+          projectId: "proj-1",
+        });
+
+        const found = store.findLatestActiveSessionForTarget({
+          projectId: "proj-1",
+          agentId: "agent-lookup",
+        });
+
+        expect(found?.id).toBe(modelLess.id);
+        expect(found?.id).not.toBe(modelSpecific.id);
+      });
+
+      it("falls back to newest agent session when no model-less session exists", async () => {
+        createTestSession(store, {
+          agentId: "agent-lookup",
+          projectId: "proj-1",
+          modelProvider: "openai",
+          modelId: "gpt-4o-mini",
+        });
+        await new Promise((r) => setTimeout(r, 5));
+        const newestModelSpecific = createTestSession(store, {
+          agentId: "agent-lookup",
+          projectId: "proj-1",
+          modelProvider: "openai",
+          modelId: "gpt-4o",
+        });
+
+        const found = store.findLatestActiveSessionForTarget({
+          projectId: "proj-1",
+          agentId: "agent-lookup",
+        });
+
+        expect(found?.id).toBe(newestModelSpecific.id);
+      });
+
+      it("returns undefined when there is no matching active session", () => {
+        createTestSession(store, {
+          agentId: "agent-lookup",
+          projectId: "proj-1",
+        });
+
+        const found = store.findLatestActiveSessionForTarget({
+          projectId: "proj-2",
+          agentId: "agent-lookup",
+        });
+
+        expect(found).toBeUndefined();
+      });
+
+      it("throws for inconsistent model-provider query pairs", () => {
+        expect(() =>
+          store.findLatestActiveSessionForTarget({
+            projectId: "proj-1",
+            agentId: "agent-lookup",
+            modelProvider: "openai",
+          }),
+        ).toThrow("modelProvider and modelId must both be provided together, or neither");
+      });
+    });
+
     describe("updateSession", () => {
       it("updates title and bumps updatedAt", async () => {
         const session = createTestSession(store);

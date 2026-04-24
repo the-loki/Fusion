@@ -401,6 +401,11 @@ Key server capabilities:
   - Project-scoped: resolves project context from query param or engine manager
 - **Chat streaming**: `/api/chat/sessions/:id/messages` (`routes.ts` + `chat.ts`)
   - Streams assistant responses as SSE events for chat sessions
+- **Chat session queries**: `/api/chat/sessions` (`routes.ts`)
+  - Existing list behavior is unchanged (`status=active|archived|all` returns an array)
+  - Quick Chat resume uses targeted lookup params: `agentId`, optional `modelProvider` + `modelId`, plus `resume=1`
+  - Validation requires `modelProvider` and `modelId` together; partial model pairs return `400`
+  - Targeted lookup returns only the newest matching active session (or `null`) to avoid scanning every active session client-side
 - **Task log stream**: `/api/tasks/:id/logs/stream` (`server.ts`)
   - SSE endpoint for live task log streaming with project scope resolution
 - **Dev-server stream**: `/api/dev-server/logs/stream` (`dev-server-routes.ts`)

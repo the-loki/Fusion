@@ -6557,6 +6557,45 @@ export function fetchChatSessions(projectId?: string, status?: string): Promise<
   return api<ChatSessionListResponse>(`/chat/sessions${qs ? `?${qs}` : ""}`);
 }
 
+export interface ChatSessionResumeLookupInput {
+  agentId: string;
+  modelProvider?: string;
+  modelId?: string;
+}
+
+/**
+ * Fetch the most relevant active session for quick-chat resume semantics.
+ * Returns at most one session for the provided target.
+ */
+export async function fetchResumeChatSession(
+  input: ChatSessionResumeLookupInput,
+  projectId?: string,
+): Promise<{ session: EnrichedChatSession | null }> {
+  const normalizedAgentId = input.agentId.trim();
+  if (!normalizedAgentId) {
+    throw new Error("agentId is required");
+  }
+
+  const normalizedProvider = input.modelProvider?.trim();
+  const normalizedModelId = input.modelId?.trim();
+
+  if ((normalizedProvider && !normalizedModelId) || (!normalizedProvider && normalizedModelId)) {
+    throw new Error("Both modelProvider and modelId must be provided together, or neither should be provided");
+  }
+
+  const search = new URLSearchParams();
+  search.set("lookup", "resume");
+  search.set("agentId", normalizedAgentId);
+  if (projectId) search.set("projectId", projectId);
+  if (normalizedProvider && normalizedModelId) {
+    search.set("modelProvider", normalizedProvider);
+    search.set("modelId", normalizedModelId);
+  }
+
+  const data = await api<ChatSessionListResponse>(`/chat/sessions?${search.toString()}`);
+  return { session: data.sessions[0] ?? null };
+}
+
 /** Create a new chat session */
 export function createChatSession(
   input: { agentId: string; title?: string; modelProvider?: string; modelId?: string },
