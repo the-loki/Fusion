@@ -34,6 +34,24 @@ function isCompleted(status: UnifiedTaskProgressStatus): boolean {
   return status === "done" || status === "skipped";
 }
 
+function resolveWorkflowStepName(
+  workflowStepId: string,
+  result: WorkflowStepResult | undefined,
+  workflowStepNameLookup?: ReadonlyMap<string, string>,
+): string {
+  const lookupName = workflowStepNameLookup?.get(workflowStepId)?.trim();
+  if (lookupName) {
+    return lookupName;
+  }
+
+  const resultName = result?.workflowStepName?.trim();
+  if (resultName) {
+    return resultName;
+  }
+
+  return workflowStepId;
+}
+
 export function getUnifiedTaskProgress(
   task: Pick<Task, "steps" | "enabledWorkflowSteps" | "workflowStepResults">,
   workflowStepNameLookup?: ReadonlyMap<string, string>,
@@ -52,10 +70,9 @@ export function getUnifiedTaskProgress(
 
   const workflowItems: UnifiedTaskProgressItem[] = (task.enabledWorkflowSteps ?? []).map((workflowStepId) => {
     const result = workflowResultsById.get(workflowStepId);
-    const lookupName = workflowStepNameLookup?.get(workflowStepId);
     return {
       id: `workflow-${workflowStepId}`,
-      name: lookupName ?? result?.workflowStepName ?? workflowStepId,
+      name: resolveWorkflowStepName(workflowStepId, result, workflowStepNameLookup),
       status: result ? mapWorkflowStatus(result.status) : "pending",
       source: "workflow",
       phase: result?.phase ?? "pre-merge",

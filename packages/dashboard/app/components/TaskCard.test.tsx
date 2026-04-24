@@ -128,7 +128,7 @@ describe("TaskCard", () => {
     expect(screen.queryByText("1 steps")).toBeNull();
   });
 
-  it("renders workflow checks after normal steps with mapped statuses", () => {
+  it("renders workflow checks after normal steps with mapped statuses and phase badges", () => {
     const { container } = render(
       <TaskCard
         task={makeTask({
@@ -147,6 +147,7 @@ describe("TaskCard", () => {
               workflowStepId: "WS-002",
               workflowStepName: "Frontend UX Design",
               status: "failed",
+              phase: "post-merge",
             },
           ],
         })}
@@ -172,27 +173,33 @@ describe("TaskCard", () => {
 
     const workflowBadges = Array.from(container.querySelectorAll(".card-step-workflow-badge")).map((el) => el.textContent);
     expect(workflowBadges).toEqual([
-      "Workflow · Pre-merge",
-      "Workflow · Pre-merge",
-      "Workflow · Pre-merge",
+      "Pre-merge",
+      "Post-merge",
+      "Pre-merge",
     ]);
   });
 
-  it("falls back to raw workflow step ID when lookup is unavailable", () => {
+  it("falls back to workflow result name, then raw ID when lookup names are unavailable", () => {
     const { container } = render(
       <TaskCard
         task={makeTask({
-          enabledWorkflowSteps: ["WS-003"],
-          workflowStepResults: [],
+          enabledWorkflowSteps: ["WS-002", "WS-003"],
+          workflowStepResults: [
+            {
+              workflowStepId: "WS-002",
+              workflowStepName: "Fallback from result",
+              status: "passed",
+            },
+          ],
         })}
-        workflowStepNameLookup={new Map()}
+        workflowStepNameLookup={new Map([["WS-002", "   "]])}
         onOpenDetail={noop}
         addToast={noop}
       />,
     );
 
     const stepNames = Array.from(container.querySelectorAll(".card-step-name")).map((el) => el.textContent);
-    expect(stepNames).toEqual(["WS-003"]);
+    expect(stepNames).toEqual(["Fallback from result", "WS-003"]);
   });
 
   it("shows drop indicator on file dragover and removes on dragleave", () => {

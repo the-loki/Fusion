@@ -1060,7 +1060,7 @@ function TaskCardComponent({
                         className={`card-step-workflow-badge card-step-workflow-badge--${step.phase}`}
                         title={step.phase === "post-merge" ? "Post-merge workflow check" : "Pre-merge workflow check"}
                       >
-                        {step.phase === "post-merge" ? "Workflow · Post-merge" : "Workflow · Pre-merge"}
+                        {step.phase === "post-merge" ? "Post-merge" : "Pre-merge"}
                       </span>
                     )}
                   </div>
