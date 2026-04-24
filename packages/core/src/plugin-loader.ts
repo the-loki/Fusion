@@ -9,7 +9,9 @@
  * - Error isolation (plugin crashes don't crash the loader)
  */
 
-import { isAbsolute, resolve } from "node:path";
+import { copyFile, unlink } from "node:fs/promises";
+import { isAbsolute, parse, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { EventEmitter } from "node:events";
 import type { TaskStore } from "./store.js";
 import { PluginStore } from "./plugin-store.js";
@@ -84,6 +86,9 @@ export class PluginLoader extends EventEmitter<{
 
   /** Cache of dynamically imported modules */
   private loadedModules: Map<string, unknown> = new Map();
+
+  /** Monotonic counter for deterministic cache-busting import URLs */
+  private importNonce = 0;
 
   constructor(private options: PluginLoaderOptions) {
     super();
@@ -266,19 +271,39 @@ export class PluginLoader extends EventEmitter<{
       return this.loadedModules.get(path)!;
     }
 
-    // Dynamic import - use cache-busting for reload scenarios
-    let mod: unknown;
+    let importPath = path;
+    let tempPath: string | null = null;
+
     if (bypassCache) {
-      // Use a query parameter for cache differentiation.
-      // Vite/Vitest's module resolver treats hash fragments as part of the
-      // filesystem path in some environments (causing ERR_MODULE_NOT_FOUND).
-      const bustedPath = `${path}?t=${Date.now()}`;
-      mod = await import(bustedPath);
-    } else {
-      mod = await import(path);
+      const parsed = parse(path);
+      tempPath = resolve(
+        parsed.dir,
+        `${parsed.name}.fusion-import-${process.pid}-${++this.importNonce}${parsed.ext || ".js"}`,
+      );
+      await copyFile(path, tempPath);
+      importPath = tempPath;
     }
-    this.loadedModules.set(path, mod);
-    return mod;
+
+    const fileUrl = pathToFileURL(importPath);
+
+    // Dynamic import - use a unique search param for reload scenarios.
+    // Using file: URLs avoids Vite/Vitest resolver edge cases with bare
+    // absolute filesystem paths plus query params.
+    if (bypassCache) {
+      fileUrl.searchParams.set("t", `${Date.now()}-${this.importNonce}`);
+    }
+
+    try {
+      const mod = await import(fileUrl.href);
+      this.loadedModules.set(path, mod);
+      return mod;
+    } finally {
+      if (tempPath) {
+        void unlink(tempPath).catch(() => {
+          // Best-effort cleanup; a stale temp import file is non-fatal.
+        });
+      }
+    }
   }
 
   /**
@@ -389,7 +414,6 @@ export class PluginLoader extends EventEmitter<{
         await this.options.pluginStore.updatePluginState(pluginId, "started");
 
         log.warn(`Rollback successful for ${pluginId}`);
-        throw err; // Still throw the original error
       } catch (rollbackErr) {
         // Rollback also failed - remove plugin and set error state
         log.error(
@@ -416,6 +440,8 @@ export class PluginLoader extends EventEmitter<{
 
         throw err; // Throw original error
       }
+
+      throw err;
     }
   }
 
@@ -589,7 +615,11 @@ export class PluginLoader extends EventEmitter<{
 
     try {
       // Call onUnload hook
-      await this.safeCallHook(plugin, "onUnload", []);
+      await this.withTimeout(
+        this.safeCallHook(plugin, "onUnload", []),
+        5000,
+        `onUnload timeout for ${pluginId}`,
+      );
     } catch (err) {
       log.error(`Error in onUnload for ${pluginId}:`, err);
     }

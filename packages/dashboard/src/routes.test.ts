@@ -14976,7 +14976,7 @@ describe("POST /workflow-step-templates/:id/create", () => {
     const created = {
       id: "WS-002",
       name: "QA Check",
-      description: "Run tests and verify they pass, check for obvious bugs",
+      description: "Run lint, tests, and typecheck; verify they pass and check for obvious bugs",
       prompt: expect.stringContaining("QA tester"),
       enabled: true,
       createdAt: "2026-01-01",
@@ -14994,7 +14994,7 @@ describe("POST /workflow-step-templates/:id/create", () => {
     expect(store.createWorkflowStep).toHaveBeenCalledWith({
       templateId: "qa-check",
       name: "QA Check",
-      description: "Run tests and verify they pass, check for obvious bugs",
+      description: "Run lint, tests, and typecheck; verify they pass and check for obvious bugs",
       prompt: expect.stringContaining("QA tester"),
       toolMode: "coding",
       enabled: true,

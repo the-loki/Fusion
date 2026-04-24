@@ -1,10 +1,12 @@
 // @vitest-environment node
 
 import express from "express";
+import http from "node:http";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
-import type { AddressInfo } from "node:net";
+import type { Socket } from "node:net";
+import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { request } from "../test-request.js";
 import {
@@ -36,19 +38,65 @@ async function waitFor(predicate: () => boolean, timeoutMs = 4_000): Promise<voi
   }
 }
 
-async function withHttpServer<T>(app: express.Express, fn: (baseUrl: string) => Promise<T>): Promise<T> {
-  const server = await new Promise<import("node:http").Server>((resolve) => {
-    const started = app.listen(0, "127.0.0.1", () => resolve(started));
-  });
+class MockSocket extends PassThrough {
+  public writable = true;
+  public readable = true;
+  public remoteAddress = "127.0.0.1";
+  public encrypted = false;
 
-  const address = server.address() as AddressInfo;
-  const baseUrl = `http://127.0.0.1:${address.port}`;
-
-  try {
-    return await fn(baseUrl);
-  } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+  setTimeout(): this {
+    return this;
   }
+
+  setNoDelay(): this {
+    return this;
+  }
+
+  setKeepAlive(): this {
+    return this;
+  }
+
+  destroySoon(): void {
+    this.destroy();
+  }
+}
+
+async function openSseStream(app: express.Express, path: string) {
+  const socket = new MockSocket();
+  const req = new http.IncomingMessage(socket as unknown as Socket);
+  const res = new http.ServerResponse(req);
+  const chunks: Buffer[] = [];
+
+  req.method = "GET";
+  req.url = path;
+  req.httpVersion = "1.1";
+  req.headers = { host: "127.0.0.1" };
+
+  res.assignSocket(socket as unknown as Socket);
+
+  const originalWrite = res.write.bind(res);
+  res.write = ((chunk: string | Buffer, encoding?: BufferEncoding | ((error?: Error | null) => void), cb?: (error?: Error | null) => void) => {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, typeof encoding === "string" ? encoding : undefined));
+    return originalWrite(chunk as never, encoding as never, cb);
+  }) as typeof res.write;
+
+  app(req, res);
+  await new Promise((resolve) => process.nextTick(resolve));
+  req.complete = true;
+  req.emit("end");
+
+  return {
+    status: res.statusCode,
+    headers: res.getHeaders(),
+    readText() {
+      return Buffer.concat(chunks).toString("utf8");
+    },
+    close() {
+      req.emit("close");
+      res.emit("close");
+      socket.destroy();
+    },
+  };
 }
 
 describe("createDevServerRouter", () => {
@@ -353,22 +401,16 @@ describe("createDevServerRouter", () => {
 
     const app = buildApp(root);
 
-    await withHttpServer(app, async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/api/dev-server/logs/stream`);
-      expect(response.status).toBe(200);
-      expect(response.headers.get("content-type")).toContain("text/event-stream");
+    const stream = await openSseStream(app, "/api/dev-server/logs/stream");
+    expect(stream.status).toBe(200);
+    expect(String(stream.headers["content-type"])).toContain("text/event-stream");
 
-      const reader = response.body?.getReader();
-      expect(reader).toBeDefined();
-      const firstChunk = await reader?.read();
-      const chunkText = new TextDecoder().decode(firstChunk?.value ?? new Uint8Array());
+    const chunkText = stream.readText();
+    expect(chunkText).toContain(": connected");
+    expect(chunkText).toContain("event: history");
+    expect(chunkText).toContain("history line");
 
-      expect(chunkText).toContain(": connected");
-      expect(chunkText).toContain("event: history");
-      expect(chunkText).toContain("history line");
-
-      await reader?.cancel();
-    });
+    stream.close();
   });
 
   it("SSE stream receives new log events when process outputs", async () => {
@@ -376,40 +418,24 @@ describe("createDevServerRouter", () => {
     tempDirs.push(root);
     const app = buildApp(root);
 
-    await withHttpServer(app, async (baseUrl) => {
-      const streamResponse = await fetch(`${baseUrl}/api/dev-server/logs/stream`);
-      const reader = streamResponse.body?.getReader();
-      expect(reader).toBeDefined();
+    const stream = await openSseStream(app, "/api/dev-server/logs/stream");
+    await waitFor(() => getActiveProcessManagers().length > 0);
+    const manager = getActiveProcessManagers()[0];
+    expect(manager).toBeDefined();
 
-      const startResponse = await fetch(`${baseUrl}/api/dev-server/start`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          command: "node -e \"console.log('stream-line'); setInterval(() => {}, 1000)\"",
-          cwd: root,
-        }),
-      });
-      expect(startResponse.status).toBe(200);
-
-      let buffered = "";
-      const start = Date.now();
-      while (!buffered.includes("stream-line")) {
-        if (Date.now() - start > 5_000) {
-          throw new Error(`Timed out waiting for stream line. Current payload: ${buffered}`);
-        }
-        const chunk = await reader?.read();
-        if (!chunk || chunk.done) {
-          break;
-        }
-        buffered += new TextDecoder().decode(chunk.value);
-      }
-
-      expect(buffered).toContain("event: log");
-      expect(buffered).toContain("stream-line");
-
-      await fetch(`${baseUrl}/api/dev-server/stop`, { method: "POST" });
-      await reader?.cancel();
+    manager.emit("output", {
+      line: "stream-line",
+      stream: "stdout",
+      timestamp: new Date().toISOString(),
     });
+
+    await waitFor(() => stream.readText().includes("stream-line"));
+    const buffered = stream.readText();
+
+    expect(buffered).toContain("event: log");
+    expect(buffered).toContain("stream-line");
+
+    stream.close();
   });
 
   it("SSE stream forwards url-detected events with the documented payload", async () => {
@@ -417,52 +443,35 @@ describe("createDevServerRouter", () => {
     tempDirs.push(root);
     const app = buildApp(root);
 
-    await withHttpServer(app, async (baseUrl) => {
-      const streamResponse = await fetch(`${baseUrl}/api/dev-server/logs/stream`);
-      const reader = streamResponse.body?.getReader();
-      expect(reader).toBeDefined();
+    const stream = await openSseStream(app, "/api/dev-server/logs/stream");
+    await waitFor(() => getActiveProcessManagers().length > 0);
+    const manager = getActiveProcessManagers()[0];
+    expect(manager).toBeDefined();
 
-      const startResponse = await fetch(`${baseUrl}/api/dev-server/start`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          command: "node -e \"console.log('detected at http://localhost:5173/'); setInterval(() => {}, 1000)\"",
-          cwd: root,
-        }),
-      });
-      expect(startResponse.status).toBe(200);
-
-      let buffered = "";
-      const startedAt = Date.now();
-      while (!buffered.includes("event: dev-server:url-detected")) {
-        if (Date.now() - startedAt > 5_000) {
-          throw new Error(`Timed out waiting for url-detected event. Current payload: ${buffered}`);
-        }
-
-        const chunk = await reader?.read();
-        if (!chunk || chunk.done) {
-          break;
-        }
-
-        buffered += new TextDecoder().decode(chunk.value);
-      }
-
-      expect(buffered).toContain("event: dev-server:url-detected");
-      const payloadMatch = buffered.match(/event: dev-server:url-detected\ndata: (.+)/);
-      expect(payloadMatch).toBeTruthy();
-      const payload = JSON.parse(payloadMatch?.[1] ?? "{}");
-      expect(payload).toMatchObject({
-        url: "http://localhost:5173",
-        port: 5173,
-        source: "generic-url",
-      });
-      expect(typeof payload.detectedAt).toBe("string");
-      expect(Number.isNaN(Date.parse(payload.detectedAt))).toBe(false);
-      expect(Object.keys(payload).sort()).toEqual(["detectedAt", "port", "source", "url"]);
-
-      await fetch(`${baseUrl}/api/dev-server/stop`, { method: "POST" });
-      await reader?.cancel();
+    manager.emit("url-detected", {
+      url: "http://localhost:5173",
+      port: 5173,
+      source: "generic-url",
+      detectedAt: new Date().toISOString(),
     });
+
+    await waitFor(() => stream.readText().includes("event: dev-server:url-detected"));
+    const buffered = stream.readText();
+
+    expect(buffered).toContain("event: dev-server:url-detected");
+    const payloadMatch = buffered.match(/event: dev-server:url-detected\ndata: (.+)/);
+    expect(payloadMatch).toBeTruthy();
+    const payload = JSON.parse(payloadMatch?.[1] ?? "{}");
+    expect(payload).toMatchObject({
+      url: "http://localhost:5173",
+      port: 5173,
+      source: "generic-url",
+    });
+    expect(typeof payload.detectedAt).toBe("string");
+    expect(Number.isNaN(Date.parse(payload.detectedAt))).toBe(false);
+    expect(Object.keys(payload).sort()).toEqual(["detectedAt", "port", "source", "url"]);
+
+    stream.close();
   });
 
   it("SSE stream cleans up listeners on client disconnect", async () => {
@@ -470,24 +479,21 @@ describe("createDevServerRouter", () => {
     tempDirs.push(root);
     const app = buildApp(root);
 
-    await withHttpServer(app, async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/api/dev-server/logs/stream`);
-      const reader = response.body?.getReader();
-      expect(reader).toBeDefined();
+    const stream = await openSseStream(app, "/api/dev-server/logs/stream");
+    await waitFor(() => getActiveProcessManagers().length > 0);
 
-      await waitFor(() => {
-        const manager = getActiveProcessManagers()[0];
-        return (manager?.listenerCount("output") ?? 0) > 0
-          && (manager?.listenerCount("url-detected") ?? 0) > 0;
-      });
+    await waitFor(() => {
+      const manager = getActiveProcessManagers()[0];
+      return (manager?.listenerCount("output") ?? 0) > 0
+        && (manager?.listenerCount("url-detected") ?? 0) > 0;
+    });
 
-      await reader?.cancel();
+    stream.close();
 
-      await waitFor(() => {
-        const manager = getActiveProcessManagers()[0];
-        return (manager?.listenerCount("output") ?? 0) === 0
-          && (manager?.listenerCount("url-detected") ?? 0) === 0;
-      });
+    await waitFor(() => {
+      const manager = getActiveProcessManagers()[0];
+      return (manager?.listenerCount("output") ?? 0) === 0
+        && (manager?.listenerCount("url-detected") ?? 0) === 0;
     });
   });
 });

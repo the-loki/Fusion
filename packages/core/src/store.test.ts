@@ -8049,9 +8049,10 @@ Task with acceptance criteria
       expect(mockOnSummarize).toHaveBeenCalledWith(longDescription);
 
       // 3. Wait for async summarization and verify title was set
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      const updatedTask = await store.getTask(task.id);
-      expect(updatedTask.title).toBe("AI Title From Saturation Test");
+      await vi.waitFor(async () => {
+        const updatedTask = await store.getTask(task.id);
+        expect(updatedTask.title).toBe("AI Title From Saturation Test");
+      });
 
       // Reset maxConcurrent to normal value
       await store.updateSettings({ maxConcurrent: 2 });
@@ -8061,11 +8062,9 @@ Task with acceptance criteria
       // Simulate a slow/stalled onSummarize callback to prove there's no
       // semaphore that would block task creation. The core store has no
       // dependency on any concurrency limiter.
-      const slowOnSummarize = vi.fn().mockImplementation(async () => {
-        // Simulate a very slow AI response
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        return "Slow AI Title";
-      });
+      const slowOnSummarize = vi.fn().mockImplementation(
+        async () => new Promise<string>(() => {}),
+      );
 
       const taskPromise = store.createTask(
         { description: "a".repeat(201) },
@@ -8280,9 +8279,6 @@ Task with acceptance criteria
       try {
         // Create a task to trigger the poll cycle
         await store.createTask({ description: "fast poll test" });
-
-        // Wait for poll interval
-        await new Promise((resolve) => setTimeout(resolve, 1100));
 
         // Manually call checkForChanges - should be fast
         await storeAny.checkForChanges();

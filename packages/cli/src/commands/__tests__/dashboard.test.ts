@@ -486,7 +486,7 @@ describe("runDashboard — AuthStorage & ModelRegistry wiring", () => {
     await runDashboard(0, {});
 
     expect(mockDiscoverAndLoadExtensions).toHaveBeenCalledWith(
-      [],
+      [expect.stringContaining("packages/pi-claude-cli/index.ts")],
       expect.any(String),
       expect.stringContaining(".fusion/disabled-auto-extension-discovery"),
     );

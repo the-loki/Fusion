@@ -390,16 +390,14 @@ describe("PluginLoader Hot-Reload", () => {
     });
 
     it("should remove plugin on total failure (reload + rollback both fail)", async () => {
-      await pluginLoader.loadPlugin("hot-reload-test");
-
-      // Create plugin with hanging onLoad
       const manifest = makeManifest({ id: "hot-reload-test", name: "Hot Reload Test", version: "1.0.0" });
       await writePluginModule(tmpDir, "plugin.js", manifest, {
-        onUnload: `async () => { throw new Error("unload error"); }`,
-        onLoad: `async () => { throw new Error("load error"); }`,
+        onLoad: `((() => { let count = 0; return async () => { count += 1; if (count > 1) throw new Error("rollback load error"); }; })())`,
       });
 
-      // Modify for reload
+      await pluginLoader.loadPlugin("hot-reload-test");
+
+      // Modify for reload with a new failing implementation.
       const newManifest = makeManifest({ id: "hot-reload-test", name: "Hot Reload Test", version: "2.0.0" });
       await writePluginModule(tmpDir, "plugin.js", newManifest, {
         onLoad: `async () => { throw new Error("new load error"); }`,

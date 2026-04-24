@@ -2146,11 +2146,7 @@ describe("App search query propagation to remote mode", () => {
 
     await waitFor(() => {
       expect(fetchSettings).toHaveBeenCalled();
-    });
-
-    // Wait for initial load to complete
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(screen.getByTestId("desktop-header-search-btn")).toBeInTheDocument();
     });
 
     // At this point, searchQuery should be passed to useRemoteNodeData
@@ -2204,11 +2200,7 @@ describe("App search query propagation to remote mode", () => {
 
     await waitFor(() => {
       expect(fetchSettings).toHaveBeenCalled();
-    });
-
-    // Wait for initial load to complete
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(screen.getByTestId("desktop-header-search-btn")).toBeInTheDocument();
     });
 
     // Click the search toggle button to open search
@@ -2246,14 +2238,7 @@ describe("App onboarding reopen", () => {
 
     render(<App />);
 
-    await waitFor(() => {
-      expect(fetchSettings).toHaveBeenCalled();
-    });
-
-    // Wait for initial load
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    });
+    await waitForAppShell();
 
     // Onboarding modal should NOT be open
     expect(screen.queryByText("Set Up AI")).toBeNull();
@@ -2294,14 +2279,7 @@ describe("App onboarding reopen", () => {
 
     render(<App />);
 
-    await waitFor(() => {
-      expect(fetchSettings).toHaveBeenCalled();
-    });
-
-    // Wait for initial load
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    });
+    await waitForAppShell();
 
     // Onboarding should NOT be open initially
     expect(screen.queryByText("Set Up AI")).toBeNull();
@@ -2361,14 +2339,7 @@ describe("App onboarding reopen", () => {
 
     render(<App />);
 
-    await waitFor(() => {
-      expect(fetchSettings).toHaveBeenCalled();
-    });
-
-    // Wait for initial load
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    });
+    await waitForAppShell();
 
     // Open Settings via header
     const settingsBtn = screen.getByRole("button", { name: /settings/i });
