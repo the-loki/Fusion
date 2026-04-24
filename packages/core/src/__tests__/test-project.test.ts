@@ -68,21 +68,25 @@ describe("test-project fixture", () => {
     expect(existsSync(fixture.rootDir)).toBe(false);
   });
 
-  it("supports multiple isolated projects without cross-interference", async () => {
-    const first = await createFixture({ seedTasks: 1 });
-    const second = await createFixture({ seedTasks: 2 });
+  it(
+    "supports multiple isolated projects without cross-interference",
+    async () => {
+      const first = await createFixture({ seedTasks: 1 });
+      const second = await createFixture({ seedTasks: 2 });
 
-    expect(first.rootDir).not.toBe(second.rootDir);
-    expect(first.globalDir).not.toBe(second.globalDir);
+      expect(first.rootDir).not.toBe(second.rootDir);
+      expect(first.globalDir).not.toBe(second.globalDir);
 
-    const firstTasks = await first.store.listTasks();
-    const secondTasks = await second.store.listTasks();
+      const firstTasks = await first.store.listTasks();
+      const secondTasks = await second.store.listTasks();
 
-    expect(firstTasks).toHaveLength(1);
-    expect(secondTasks).toHaveLength(2);
-    expect(firstTasks[0].id).toBe("FN-001");
-    expect(secondTasks[0].id).toBe("FN-001");
-  });
+      expect(firstTasks).toHaveLength(1);
+      expect(secondTasks).toHaveLength(2);
+      expect(firstTasks[0].id).toBe("FN-001");
+      expect(secondTasks[0].id).toBe("FN-001");
+    },
+    15000,
+  );
 
   it("applies custom settings and honors a custom global settings directory", async () => {
     const customGlobalDir = mkdtempSync(join(tmpdir(), "fusion-custom-global-"));

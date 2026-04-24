@@ -28,6 +28,7 @@ import { appendFile, readFile, writeFile, mkdir, rm, readdir, unlink } from "nod
 import { join } from "node:path";
 import { mkdtempSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
+import * as projectMemory from "./project-memory.js";
 import type { Task } from "./types.js";
 
 function makeTmpDir(): string {
@@ -8294,6 +8295,220 @@ Task with acceptance criteria
             call[0].includes("ms")
         );
         expect(timingWarningEmitted).toBe(false);
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+  });
+
+  describe("task-store diagnostics for best-effort catch paths", () => {
+    it("logs init config sync failures without blocking startup", async () => {
+      const localRoot = makeTmpDir();
+      const localGlobal = makeTmpDir();
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      let localStore: TaskStore | undefined;
+
+      try {
+        localStore = new TaskStore(localRoot, localGlobal);
+        (localStore as any).configPath = join(localRoot, ".fusion", "missing-dir", "config.json");
+
+        await expect(localStore.init()).resolves.toBeUndefined();
+        await expect(localStore.createTask({ description: "still boots" })).resolves.toMatchObject({
+          id: "FN-001",
+        });
+
+        const warningCall = warnSpy.mock.calls.find(
+          (call) => typeof call[0] === "string" && call[0].includes("[task-store] Backward-compat config.json sync failed during init"),
+        );
+        expect(warningCall).toBeDefined();
+
+        const [, context] = warningCall as [string, Record<string, unknown>];
+        expect(context).toMatchObject({
+          phase: "init:config-sync",
+          configPath: join(localRoot, ".fusion", "missing-dir", "config.json"),
+        });
+        expect(typeof context.error).toBe("string");
+      } finally {
+        localStore?.close();
+        warnSpy.mockRestore();
+        await rm(localRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+        await rm(localGlobal, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      }
+    });
+
+    it("logs writeConfig disk sync failures while preserving project settings updates", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const storeAny = store as any;
+      const originalConfigPath = storeAny.configPath;
+      storeAny.configPath = join(rootDir, ".fusion", "missing-sync", "config.json");
+
+      try {
+        const updated = await store.updateSettings({ mergeStrategy: "pull-request" });
+        expect(updated.mergeStrategy).toBe("pull-request");
+
+        const warningCall = warnSpy.mock.calls.find(
+          (call) => typeof call[0] === "string" && call[0].includes("[task-store] Backward-compat config.json sync failed after config write"),
+        );
+        expect(warningCall).toBeDefined();
+
+        const [, context] = warningCall as [string, Record<string, unknown>];
+        expect(context).toMatchObject({
+          phase: "writeConfig:disk-sync",
+          configPath: join(rootDir, ".fusion", "missing-sync", "config.json"),
+        });
+        expect(typeof context.error).toBe("string");
+
+        const settings = await store.getSettings();
+        expect(settings.mergeStrategy).toBe("pull-request");
+      } finally {
+        storeAny.configPath = originalConfigPath;
+        warnSpy.mockRestore();
+      }
+    });
+
+    it("logs allocateId disk sync failures while preserving task creation", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const storeAny = store as any;
+      const originalConfigPath = storeAny.configPath;
+      storeAny.configPath = join(rootDir, ".fusion", "missing-sync", "config.json");
+
+      try {
+        const task = await store.createTask({ description: "allocate despite sync failure" });
+        expect(task.id).toBe("FN-001");
+
+        const warningCall = warnSpy.mock.calls.find(
+          (call) => typeof call[0] === "string" && call[0].includes("[task-store] Backward-compat config.json sync failed after ID allocation"),
+        );
+        expect(warningCall).toBeDefined();
+
+        const [, context] = warningCall as [string, Record<string, unknown>];
+        expect(context).toMatchObject({
+          phase: "allocateId:disk-sync",
+          configPath: join(rootDir, ".fusion", "missing-sync", "config.json"),
+          taskId: task.id,
+        });
+        expect(typeof context.error).toBe("string");
+      } finally {
+        storeAny.configPath = originalConfigPath;
+        warnSpy.mockRestore();
+      }
+    });
+
+    it("logs init memory bootstrap failures without blocking startup", async () => {
+      const localRoot = makeTmpDir();
+      const localGlobal = makeTmpDir();
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const ensureSpy = vi
+        .spyOn(projectMemory, "ensureMemoryFileWithBackend")
+        .mockRejectedValueOnce(new Error("memory backend unavailable"));
+      let localStore: TaskStore | undefined;
+
+      try {
+        localStore = new TaskStore(localRoot, localGlobal);
+        await expect(localStore.init()).resolves.toBeUndefined();
+
+        const warningCall = warnSpy.mock.calls.find(
+          (call) => typeof call[0] === "string" && call[0].includes("[task-store] Project-memory bootstrap failed during init"),
+        );
+        expect(warningCall).toBeDefined();
+
+        const [, context] = warningCall as [string, Record<string, unknown>];
+        expect(context).toMatchObject({
+          phase: "init:memory-bootstrap",
+          rootDir: localRoot,
+          error: "memory backend unavailable",
+        });
+        expect(ensureSpy).toHaveBeenCalled();
+      } finally {
+        localStore?.close();
+        ensureSpy.mockRestore();
+        warnSpy.mockRestore();
+        await rm(localRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+        await rm(localGlobal, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      }
+    });
+
+    it("logs memory toggle-on bootstrap failures without blocking settings updates", async () => {
+      await store.updateSettings({ memoryEnabled: false } as any);
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const ensureSpy = vi
+        .spyOn(projectMemory, "ensureMemoryFileWithBackend")
+        .mockRejectedValueOnce(new Error("memory toggle write failed"));
+
+      try {
+        const updated = await store.updateSettings({ memoryEnabled: true } as any);
+        expect(updated.memoryEnabled).toBe(true);
+
+        const warningCall = warnSpy.mock.calls.find(
+          (call) => typeof call[0] === "string" && call[0].includes("[task-store] Project-memory bootstrap failed after memory toggle-on"),
+        );
+        expect(warningCall).toBeDefined();
+
+        const [, context] = warningCall as [string, Record<string, unknown>];
+        expect(context).toMatchObject({
+          phase: "updateSettings:memory-toggle-on",
+          rootDir,
+          error: "memory toggle write failed",
+        });
+        expect(ensureSpy).toHaveBeenCalled();
+      } finally {
+        ensureSpy.mockRestore();
+        warnSpy.mockRestore();
+      }
+    });
+
+    it("logs fs.watch setup failures and keeps polling active", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const storeAny = store as any;
+      const originalTasksDir = storeAny.tasksDir;
+      storeAny.tasksDir = join(rootDir, ".fusion", "missing-tasks-dir");
+
+      try {
+        await store.watch();
+
+        const warningCall = warnSpy.mock.calls.find(
+          (call) => typeof call[0] === "string" && call[0].includes("[task-store] fs.watch unavailable; falling back to polling-only updates"),
+        );
+        expect(warningCall).toBeDefined();
+
+        const [, context] = warningCall as [string, Record<string, unknown>];
+        expect(context).toMatchObject({
+          phase: "watch:fs-watch-setup",
+          tasksDir: join(rootDir, ".fusion", "missing-tasks-dir"),
+        });
+        expect(typeof context.error).toBe("string");
+        expect(storeAny.pollInterval).not.toBeNull();
+        await expect(storeAny.checkForChanges()).resolves.toBeUndefined();
+      } finally {
+        store.stopWatching();
+        storeAny.tasksDir = originalTasksDir;
+        warnSpy.mockRestore();
+      }
+    });
+
+    it("logs unreadable legacy agent.log files while keeping import non-fatal", async () => {
+      const task = await createTestTask();
+      const taskDir = join(rootDir, ".fusion", "tasks", task.id);
+      const logPath = join(taskDir, "agent.log");
+      await mkdir(logPath);
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        await expect(store.importLegacyAgentLogs()).resolves.toBe(0);
+
+        const warningCall = warnSpy.mock.calls.find(
+          (call) => typeof call[0] === "string" && call[0].includes("[task-store] Skipping unreadable legacy agent.log file during import"),
+        );
+        expect(warningCall).toBeDefined();
+
+        const [, context] = warningCall as [string, Record<string, unknown>];
+        expect(context).toMatchObject({
+          phase: "importLegacyAgentLogs:read-file",
+          taskId: task.id,
+          logPath,
+        });
+        expect(typeof context.error).toBe("string");
       } finally {
         warnSpy.mockRestore();
       }

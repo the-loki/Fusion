@@ -406,8 +406,12 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       const config = await this.readConfig();
       try {
         await writeFile(this.configPath, JSON.stringify(config, null, 2));
-      } catch {
-        // Non-fatal
+      } catch (err) {
+        storeLog.warn("Backward-compat config.json sync failed during init", {
+          phase: "init:config-sync",
+          configPath: this.configPath,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
     
@@ -421,8 +425,13 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         // Use backend-aware bootstrap to honor memoryBackendType setting
         await ensureMemoryFileWithBackend(this.rootDir, mergedSettings);
       }
-    } catch {
+    } catch (err) {
       // Non-fatal — memory bootstrap failure should not block startup
+      storeLog.warn("Project-memory bootstrap failed during init", {
+        phase: "init:memory-bootstrap",
+        rootDir: this.rootDir,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -1401,8 +1410,13 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         try {
           // Use backend-aware bootstrap to honor memoryBackendType setting
           await ensureMemoryFileWithBackend(this.rootDir, updatedMerged);
-        } catch {
+        } catch (err) {
           // Non-fatal — memory bootstrap failure should not block settings update
+          storeLog.warn("Project-memory bootstrap failed after memory toggle-on", {
+            phase: "updateSettings:memory-toggle-on",
+            rootDir: this.rootDir,
+            error: err instanceof Error ? err.message : String(err),
+          });
         }
       }
 
@@ -1513,8 +1527,13 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       const tmpPath = this.configPath + ".tmp";
       await writeFile(tmpPath, JSON.stringify(config, null, 2));
       await rename(tmpPath, this.configPath);
-    } catch {
+    } catch (err) {
       // Best-effort: SQLite is the primary store
+      storeLog.warn("Backward-compat config.json sync failed after config write", {
+        phase: "writeConfig:disk-sync",
+        configPath: this.configPath,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -1539,8 +1558,14 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         const tmpPath = this.configPath + ".tmp";
         await writeFile(tmpPath, JSON.stringify(config, null, 2));
         await rename(tmpPath, this.configPath);
-      } catch {
+      } catch (err) {
         // Non-fatal: SQLite is the primary store
+        storeLog.warn("Backward-compat config.json sync failed after ID allocation", {
+          phase: "allocateId:disk-sync",
+          configPath: this.configPath,
+          taskId: id,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
 
       return id;
@@ -1736,7 +1761,9 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         }
       } catch (err) {
         // Non-fatal: default-on resolution is best-effort
-        storeLog.warn("Failed to auto-apply default workflow steps during task creation", {
+        storeLog.warn("Failed to auto-apply default workflow steps during task creation; auto-defaulting skipped", {
+          phase: "createTask:workflow-auto-default",
+          skippedAutoDefaulting: true,
           error: err instanceof Error ? err.message : String(err),
           descriptionLength: input.description.length,
         });
@@ -3621,6 +3648,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       });
       this.watcher.on("error", (err) => {
         storeLog.warn("fs.watch emitted an error; polling will continue", {
+          phase: "watch:fs-watch-error",
           error: err instanceof Error ? err.message : String(err),
           tasksDir: this.tasksDir,
         });
@@ -3628,6 +3656,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
     } catch (err) {
       // fs.watch may not be available - that's fine
       storeLog.warn("fs.watch unavailable; falling back to polling-only updates", {
+        phase: "watch:fs-watch-setup",
         error: err instanceof Error ? err.message : String(err),
         tasksDir: this.tasksDir,
       });
@@ -4591,8 +4620,13 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
             // Skip malformed JSONL lines.
           }
         }
-      } catch {
-        // Skip unreadable files.
+      } catch (err) {
+        storeLog.warn("Skipping unreadable legacy agent.log file during import", {
+          phase: "importLegacyAgentLogs:read-file",
+          taskId: entry.name,
+          logPath,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
 
