@@ -1,5 +1,11 @@
 # @runfusion/fusion
 
+## 0.2.7
+
+### Patch Changes
+
+- adbad8a: Add `fn plugin add` as a backward-compatible alias for `fn plugin install`, and update plugin command help text to advertise the alias while keeping `install` as the canonical command.
+
 ## 0.2.6
 
 ### Patch Changes

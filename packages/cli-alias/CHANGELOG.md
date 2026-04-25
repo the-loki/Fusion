@@ -1,5 +1,12 @@
 # runfusion.ai
 
+## 0.2.7
+
+### Patch Changes
+
+- Updated dependencies [adbad8a]
+  - @runfusion/fusion@0.2.7
+
 ## 0.2.6
 
 ### Patch Changes

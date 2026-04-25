@@ -2,6 +2,40 @@
 
 User-facing release notes aggregated across all packages. This file is auto-synced from each `packages/*/CHANGELOG.md` by `scripts/release.mjs` — do not edit by hand.
 
+## 0.2.7
+
+### @fusion/dashboard
+
+#### Patch Changes
+
+- @fusion/core@0.2.7
+- @fusion/engine@0.2.7
+
+### @fusion/engine
+
+#### Patch Changes
+
+- @fusion/core@0.2.7
+
+### @fusion/plugin-sdk
+
+#### Patch Changes
+
+- @fusion/core@0.2.7
+
+### @runfusion/fusion
+
+#### Patch Changes
+
+- adbad8a: Add `fn plugin add` as a backward-compatible alias for `fn plugin install`, and update plugin command help text to advertise the alias while keeping `install` as the canonical command.
+
+### runfusion.ai
+
+#### Patch Changes
+
+- Updated dependencies [adbad8a]
+  - @runfusion/fusion@0.2.7
+
 ## 0.2.6
 
 ### @fusion/dashboard
