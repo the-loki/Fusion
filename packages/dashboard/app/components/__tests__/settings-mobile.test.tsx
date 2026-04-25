@@ -255,6 +255,10 @@ describe("SettingsModal mobile adaptations", () => {
     expectMobileRule(css, ".settings-preset-item", "flex-direction: column;");
     expectMobileRule(css, ".settings-preset-item-actions", "justify-content: flex-start;");
     expectMobileRule(css, ".settings-preset-size-grid", "grid-template-columns: 1fr;");
+    expectMobileRule(css, ".auth-provider-header > div:not(.auth-provider-info):not(.auth-apikey-section)", "margin-left: auto;");
+    expectMobileRule(css, ".auth-apikey-section", "align-items: flex-end;");
+    expectMobileRule(css, ".auth-apikey-input-row", "justify-content: flex-end;");
+    expectMobileRule(css, ".auth-apikey-input-row .btn", "margin-left: auto;");
   });
 
   it("styles settings scrollbar rules for sidebar and content", () => {

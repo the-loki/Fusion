@@ -7,6 +7,7 @@ import type { AuthProvider, ModelInfo, BackupListResponse, SettingsExportData, M
 import { useMemoryBackendStatus } from "../hooks/useMemoryBackendStatus";
 import type { ToastType } from "../hooks/useToast";
 import { ThemeSelector } from "./ThemeSelector";
+import "./SettingsModal.css";
 import { CustomModelDropdown } from "./CustomModelDropdown";
 import { FileEditor } from "./FileEditor";
 const PluginManager = lazy(() => import("./PluginManager").then((m) => ({ default: m.PluginManager })));
