@@ -54,6 +54,15 @@ pnpm build         # build all packages
 
 Tests are required. Typechecks and manual verification are not substitutes for real tests with assertions.
 
+### Test File Organization
+
+All test files have been moved into `__tests__/` subdirectories alongside the code they test:
+
+- Test for `src/foo.ts` → `src/__tests__/foo.test.ts`
+- Test for `app/components/Bar.tsx` → `app/components/__tests__/Bar.test.tsx`
+
+When writing new tests, follow this convention. A few legacy co-located test files may remain, but `__tests__/` is the standard.
+
 ### What NOT to write
 
 New tests should cover behavior a user could notice break, not implementation shape. Don't write:
@@ -320,6 +329,19 @@ When debugging agent execution issues (agents stuck on "starting"), check these 
 - `limit` getter returns minimum 1 (prevents indefinite blocking)
 - `availableCount` returns 0 for invalid limits (NaN, Infinity, ≤0)
 
+## Terminal UI (TUI) — Now Part of `fn` CLI
+
+The `@fusion/tui` package has been merged into the `fn` CLI. The Ink-based TUI (status panel, logs, tail-follow, cursor visibility) is now invoked as part of the `fn` command.
+
+**Invocation:**
+- Running `fn` with no arguments defaults to the dashboard (web UI by default)
+- The TUI surfaces inside the dashboard command when configured
+- Implementation lives in `packages/cli/src/commands/dashboard-tui/`
+
+There is no separate `@fusion/tui` package or `pnpm tui` command anymore. Refer to `packages/cli/src/commands/dashboard-tui/` for current TUI implementation details.
+
+---
+
 ## Headless Node Mode (`fn serve`)
 
 The `fn serve` command starts Fusion as a headless node (API server + AI engine, no frontend). It binds to `0.0.0.0` by default for remote accessibility.
@@ -419,7 +441,55 @@ See [docs/task-management.md](./docs/task-management.md) for the archive and res
 
 ## Dashboard UI Styling Guide
 
-This guide documents the dashboard's design system so that any AI agent or developer building new UI components follows established conventions automatically. All CSS lives in `packages/dashboard/app/styles.css` (≈60K lines). For deeper context on the theme system and known pitfalls, see `.fusion/memory/MEMORY.md`.
+This guide documents the dashboard's design system so that any AI agent or developer building new UI components follows established conventions automatically.
+
+### CSS Architecture
+
+The dashboard's CSS has been split into modular per-component files alongside a consolidated global stylesheet:
+
+- **Global stylesheet**: `packages/dashboard/app/styles.css` (~4,500 lines)
+  - Design tokens (spacing, colors, shadows, transitions, fonts)
+  - Primitives (`.btn`, `.card`, `.modal`, `.form-input`)
+  - Cross-component `@media` overrides and base breakpoints
+- **Per-component stylesheets**: `packages/dashboard/app/components/ComponentName.css` (56 files)
+  - Each component that needs CSS has a co-located `ComponentName.css`
+  - Each `ComponentName.tsx` must import its stylesheet at the top: `import "./ComponentName.css";`
+
+**Rule:** New CSS for a component goes in `app/components/ComponentName.css`, NOT in `styles.css`. Only genuinely global rules (design tokens, primitives, cross-component `@media` blocks) belong in `styles.css`.
+
+### CSS Testing and Lazy-Loaded Views
+
+For CSS regression tests, use the helper at `packages/dashboard/app/test/cssFixture.ts`:
+
+```ts
+import { loadAllAppCss, loadAllAppCssBaseOnly } from "../test/cssFixture";
+
+// Concatenates styles.css + all component .css
+const allCss = await loadAllAppCss();
+
+// Strips @media/@supports blocks for base-rule assertions
+const baseOnly = await loadAllAppCssBaseOnly();
+```
+
+**Never** directly `readFileSync('../styles.css')` — an ESLint rule (`no-restricted-syntax` in `eslint.config.mjs`) bans this in `packages/dashboard/**/*.test.{ts,tsx}` and points devs at `cssFixture.ts`.
+
+The test config (`vitest.config.ts`) includes `test.css: { include: [/.+/] }` so component CSS imports actually inject into jsdom (needed for `getComputedStyle` assertions).
+
+### Lazy-Loaded Heavy Views
+
+These 13 views are lazy-loaded via `React.lazy()` to manage bundle size:
+
+- `AgentsView`, `RoadmapsView`, `NodesView`, `ChatView`, `MemoryView`
+- `DevServerView`, `InsightsView`, `DocumentsView`, `SkillsView`
+- `SetupWizardModal`, `PluginManager`, `PiExtensionsManager`, `AgentDetailView`
+
+They are loaded in `App.tsx` / `AppModals.tsx` / `SettingsModal.tsx` / `AgentsView.tsx` with `<Suspense fallback={null}>`. 
+
+A `prefetchLazyViews()` function runs once on mount via `requestIdleCallback` to warm chunks. **Do not make these eager again** — bundle size matters.
+
+### Design Tokens
+
+All new CSS **must** use these token variables instead of hardcoded values. Tokens are defined at `:root` and adapted for light mode via `[data-theme="light"]`.
 
 ---
 
@@ -636,12 +706,13 @@ Cards have `--focus-ring-strong` focus style and `--card-hover` background on ho
 ### Adding New CSS
 
 1. **Always use tokens** — `var(--space-md)`, `var(--text-muted)`, `var(--radius-md)`, `var(--transition-fast)`, etc. Never write `padding: 8px` or `color: #e6edf3` directly.
-2. **Section headers** — Mark new component sections with `/* === ComponentName === */` in `styles.css` so they are discoverable.
-3. **Reuse existing classes** — Don't create parallel button or form styles. Add states (`:hover`, `:focus-visible`, `:active`) to the existing `.btn`, `.card`, `.input` chains.
-4. **Theme-aware backgrounds** — Use `color-mix(in srgb, var(--color) X%, transparent)` instead of `rgba(...)`. For example, error backgrounds: `color-mix(in srgb, var(--color-error) 10%, transparent)`.
-5. **Accessibility** — Add `:focus-visible` styles using `var(--focus-ring-strong)` on every interactive component. Never suppress focus entirely.
-6. **Test both themes** — Verify new styles look correct in both dark and light modes before committing.
-7. **Mobile overrides** — Add mobile variants below the base styles, inside a `@media (max-width: 768px)` block.
+2. **Place new rules correctly** — Component CSS goes in `app/components/ComponentName.css`. Only genuinely global rules go in `styles.css`.
+3. **Import stylesheet in component** — Add `import "./ComponentName.css";` at the top of `ComponentName.tsx`.
+4. **Reuse existing classes** — Don't create parallel button or form styles. Add states (`:hover`, `:focus-visible`, `:active`) to the existing `.btn`, `.card`, `.input` chains.
+5. **Theme-aware backgrounds** — Use `color-mix(in srgb, var(--color) X%, transparent)` instead of `rgba(...)`. For example, error backgrounds: `color-mix(in srgb, var(--color-error) 10%, transparent)`.
+6. **Accessibility** — Add `:focus-visible` styles using `var(--focus-ring-strong)` on every interactive component. Never suppress focus entirely.
+7. **Test both themes** — Verify new styles look correct in both dark and light modes before committing.
+8. **Mobile overrides** — Add mobile variants below the base styles, inside a `@media (max-width: 768px)` block.
 
 ---
 

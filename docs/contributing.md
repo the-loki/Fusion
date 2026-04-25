@@ -30,12 +30,12 @@ pnpm build
 | Package | Purpose |
 |---|---|
 | `@fusion/core` | Shared domain types, stores, persistence, and core utilities |
-| `@fusion/dashboard` | Express API + React UI |
+| `@fusion/dashboard` | Express API + React UI (including dashboard TUI in CLI) |
 | `@fusion/engine` | Scheduling, triage, execution, merge orchestration |
 | `@fusion/desktop` | Electron shell around Fusion dashboard/client |
 | `@fusion/mobile` | Capacitor + PWA mobile packaging |
 | `@fusion/plugin-sdk` | Plugin SDK for building Fusion extensions |
-| `@runfusion/fusion` | Published CLI + pi extension |
+| `@runfusion/fusion` | Published CLI + pi extension (includes merged TUI) |
 
 ## Development Workflow
 
@@ -82,6 +82,15 @@ pnpm test:coverage:engine
 pnpm test:coverage:cli
 pnpm test:coverage:dashboard
 ```
+
+### Test File Organization
+
+All test files live in `__tests__/` subdirectories alongside the code they test:
+
+- Test for `src/foo.ts` → `src/__tests__/foo.test.ts`
+- Test for `app/components/Bar.tsx` → `app/components/__tests__/Bar.test.tsx`
+
+When adding new tests, follow this convention. The monorepo has been standardized on `__tests__/` organization.
 
 ## Build Standalone Executables
 
@@ -134,6 +143,34 @@ Fusion can automatically extract insights from memory and prune transient conten
 - `.fusion/memory-audit.md` — Audit report after each extraction (includes pruning outcome)
 
 See [Settings Reference](./settings-reference.md#background-memory-summarization--audit) for configuration details.
+
+## Dashboard CSS Organization
+
+The dashboard's CSS has been modularized:
+
+- **Global stylesheet** (`packages/dashboard/app/styles.css`, ~4,500 lines)
+  - Design tokens, primitives (`.btn`, `.card`, `.modal`, `.form-input`), global cross-component rules
+- **Per-component stylesheets** (56+ files in `packages/dashboard/app/components/`)
+  - Each component needing CSS has a co-located `ComponentName.css`
+  - Each `ComponentName.tsx` must import: `import "./ComponentName.css";`
+
+**Rule:** New component CSS goes in the component's `.css` file, not in `styles.css`. Only truly global rules belong in the root stylesheet.
+
+### CSS Testing
+
+For CSS regression tests, use the helper at `packages/dashboard/app/test/cssFixture.ts`:
+
+```ts
+import { loadAllAppCss, loadAllAppCssBaseOnly } from "../test/cssFixture";
+
+// Load all CSS (styles.css + all component .css)
+const allCss = await loadAllAppCss();
+
+// Load base rules only (strips @media/@supports)
+const baseOnly = await loadAllAppCssBaseOnly();
+```
+
+Never directly `readFileSync('../styles.css')` — the ESLint rule `no-restricted-syntax` in `eslint.config.mjs` blocks this in test files and directs you to `cssFixture.ts`.
 
 ## SQLite Test Runner Pitfall
 

@@ -23,14 +23,15 @@ At a high level, Fusion is split into:
 ```text
                         ┌──────────────────────────────┐
                         │   Human + AI Interactions    │
-                        │  (Dashboard, CLI, Pi tools)  │
+                        │ (Dashboard SPA, CLI, Pi)     │
                         └──────────────┬───────────────┘
                                        │
                 ┌──────────────────────┼──────────────────────┐
                 │                      │                      │
       ┌─────────▼─────────┐  ┌─────────▼─────────┐  ┌─────────▼─────────┐
       │  Dashboard (API)  │  │ CLI `fn` router   │  │ Pi extension tools │
-      │ + React SPA       │  │ (commands/*)      │  │ (extension.ts)     │
+      │ + React SPA       │  │ + TUI component   │  │ (extension.ts)     │
+      │ (lazy-loaded)     │  │ (commands/*)      │  │                    │
       └─────────┬─────────┘  └─────────┬─────────┘  └─────────┬─────────┘
                 └──────────────┬────────┴──────────────┬───────┘
                                │                       │
@@ -422,6 +423,27 @@ Key server capabilities:
 - Planning/roadmap/insight UI: `MissionManager.tsx`, `RoadmapsView.tsx`, `InsightsView.tsx`, `DocumentsView.tsx`
 - Dev server UI: `DevServerView.tsx` (controls + status/log panel + embedded preview with iframe fallback messaging)
 
+### CSS Architecture
+
+The dashboard's CSS is split between a consolidated global stylesheet and modular per-component files:
+
+- **Global stylesheet** (`packages/dashboard/app/styles.css`, ~4,500 lines)
+  - Design tokens (spacing, colors, shadows, transitions, fonts)
+  - Primitive component classes (`.btn`, `.card`, `.modal`, `.form-input`)
+  - Cross-component `@media` overrides and breakpoint definitions
+- **Per-component stylesheets** (56+ files in `packages/dashboard/app/components/`)
+  - Each component has a co-located `ComponentName.css` file
+  - Each `ComponentName.tsx` imports its stylesheet: `import "./ComponentName.css";`
+  - Component-specific CSS rules live in the component's `.css` file, not in the root stylesheet
+
+**Lazy-loaded views** (bundle size optimization):
+The following 13 views are lazy-loaded via `React.lazy()` with `<Suspense fallback={null}>`:
+- `AgentsView`, `RoadmapsView`, `NodesView`, `ChatView`, `MemoryView`
+- `DevServerView`, `InsightsView`, `DocumentsView`, `SkillsView`
+- `SetupWizardModal`, `PluginManager`, `PiExtensionsManager`, `AgentDetailView`
+
+A `prefetchLazyViews()` function runs once on mount via `requestIdleCallback` to warm chunks. Do not make these views eager — bundle size is carefully managed.
+
 ### Key hooks
 - Task + realtime: `useTasks.ts`, `useBadgeWebSocket.ts`, `useAiSessionSync.ts`
 - Chat: `useChat.ts`, `useQuickChat.ts`
@@ -468,6 +490,10 @@ Events are tied to specific run IDs for end-to-end traceability.
 ### Command modules
 - `packages/cli/src/commands/*`
   - Task operations, settings, git wrappers, backup operations, project/node management
+  - **TUI component** (`packages/cli/src/commands/dashboard-tui/`)
+    - Ink-based terminal UI (status panel, logs, cursor visibility, tail-follow)
+    - Merged from former `@fusion/tui` package
+    - Invoked as part of the `fn` command (no separate package or `pnpm tui` command)
 
 ### Project selection
 - `packages/cli/src/project-resolver.ts`
@@ -481,6 +507,7 @@ Events are tied to specific run IDs for end-to-end traceability.
 
 ### Binary identity
 - Published package defines `fn` binary (`packages/cli/package.json`)
+- Running `fn` with no arguments defaults to dashboard (web UI by default)
 
 ---
 
