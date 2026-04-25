@@ -5404,7 +5404,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
   router.patch("/tasks/:id", async (req, res) => {
     try {
       const { store: scopedStore } = await getProjectContext(req);
-      const { title, description, prompt, dependencies, enabledWorkflowSteps, modelProvider, modelId, validatorModelProvider, validatorModelId, planningModelProvider, planningModelId, thinkingLevel, assigneeUserId, reviewLevel, executionMode } = req.body;
+      const { title, description, prompt, dependencies, enabledWorkflowSteps, modelProvider, modelId, validatorModelProvider, validatorModelId, planningModelProvider, planningModelId, thinkingLevel, assigneeUserId, reviewLevel, executionMode, sourceIssue } = req.body;
       const hasBodyField = (field: string) => Object.prototype.hasOwnProperty.call(req.body, field);
 
       // Validate model fields are strings or undefined/null
@@ -5450,6 +5450,49 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
         }
       }
 
+      let validatedSourceIssue: import("@fusion/core").TaskSourceIssue | null | undefined;
+      if (hasBodyField("sourceIssue")) {
+        if (sourceIssue === null) {
+          validatedSourceIssue = null;
+        } else if (sourceIssue === undefined) {
+          validatedSourceIssue = undefined;
+        } else if (typeof sourceIssue === "object") {
+          const candidate = sourceIssue as {
+            provider?: unknown;
+            repository?: unknown;
+            externalIssueId?: unknown;
+            issueNumber?: unknown;
+            url?: unknown;
+          };
+
+          if (typeof candidate.provider !== "string" || candidate.provider.trim().length === 0) {
+            throw new Error("sourceIssue.provider must be a non-empty string");
+          }
+          if (typeof candidate.repository !== "string" || candidate.repository.trim().length === 0) {
+            throw new Error("sourceIssue.repository must be a non-empty string");
+          }
+          if (typeof candidate.externalIssueId !== "string" || candidate.externalIssueId.trim().length === 0) {
+            throw new Error("sourceIssue.externalIssueId must be a non-empty string");
+          }
+          if (typeof candidate.issueNumber !== "number" || !Number.isFinite(candidate.issueNumber) || !Number.isInteger(candidate.issueNumber) || candidate.issueNumber <= 0) {
+            throw new Error("sourceIssue.issueNumber must be a positive integer");
+          }
+          if (candidate.url !== undefined && candidate.url !== null && typeof candidate.url !== "string") {
+            throw new Error("sourceIssue.url must be a string when provided");
+          }
+
+          validatedSourceIssue = {
+            provider: candidate.provider.trim(),
+            repository: candidate.repository.trim(),
+            externalIssueId: candidate.externalIssueId.trim(),
+            issueNumber: candidate.issueNumber,
+            ...(typeof candidate.url === "string" && candidate.url.trim().length > 0 ? { url: candidate.url.trim() } : {}),
+          };
+        } else {
+          throw new Error("sourceIssue must be an object or null");
+        }
+      }
+
       const updates: Parameters<typeof scopedStore.updateTask>[1] = {};
       if (title !== undefined) updates.title = title;
       if (description !== undefined) updates.description = description;
@@ -5466,6 +5509,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       if (hasBodyField("assigneeUserId")) updates.assigneeUserId = validatedAssigneeUserId;
       if (hasBodyField("reviewLevel")) updates.reviewLevel = reviewLevel;
       if (hasBodyField("executionMode")) updates.executionMode = executionMode === null ? null : executionMode;
+      if (hasBodyField("sourceIssue")) updates.sourceIssue = validatedSourceIssue === undefined ? undefined : validatedSourceIssue;
 
       const task = await scopedStore.updateTask(req.params.id, updates);
       res.json(task);
@@ -5473,7 +5517,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       if (err instanceof ApiError) {
         throw err;
       }
-      const status = (err instanceof Error ? err.message : String(err)).includes("must be a string") || (err instanceof Error ? err.message : String(err)).includes("must be an array of strings") || (err instanceof Error ? err.message : String(err)).includes("thinkingLevel must be one of") || (err instanceof Error ? err.message : String(err)).includes("reviewLevel must be an integer") || (err instanceof Error ? err.message : String(err)).includes("executionMode must be one of") ? 400 : 500;
+      const status = (err instanceof Error ? err.message : String(err)).includes("must be a string") || (err instanceof Error ? err.message : String(err)).includes("must be an array of strings") || (err instanceof Error ? err.message : String(err)).includes("thinkingLevel must be one of") || (err instanceof Error ? err.message : String(err)).includes("reviewLevel must be an integer") || (err instanceof Error ? err.message : String(err)).includes("executionMode must be one of") || (err instanceof Error ? err.message : String(err)).includes("sourceIssue") ? 400 : 500;
       throw new ApiError(status, err instanceof Error ? err.message : String(err));
     }
   });

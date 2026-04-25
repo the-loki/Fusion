@@ -2664,6 +2664,56 @@ describe("PATCH /tasks/:id", () => {
     expect(res.body.dependencies).toEqual(["FN-002"]);
   });
 
+  it("forwards sourceIssue object updates to store.updateTask", async () => {
+    const sourceIssue = {
+      provider: "github",
+      repository: "runfusion/fusion",
+      externalIssueId: "I_kgDOExample",
+      issueNumber: 2473,
+      url: "https://github.com/runfusion/fusion/issues/2473",
+    };
+    const updatedTask = { ...FAKE_TASK_DETAIL, sourceIssue };
+    (store.updateTask as ReturnType<typeof vi.fn>).mockResolvedValue(updatedTask);
+
+    const res = await REQUEST(buildApp(), "PATCH", "/api/tasks/KB-001", JSON.stringify({ sourceIssue }), {
+      "Content-Type": "application/json",
+    });
+
+    expect(res.status).toBe(200);
+    expect(store.updateTask).toHaveBeenCalledWith("KB-001", {
+      sourceIssue,
+    });
+    expect(res.body.sourceIssue).toEqual(sourceIssue);
+  });
+
+  it("forwards sourceIssue: null to clear existing source metadata", async () => {
+    const updatedTask = { ...FAKE_TASK_DETAIL, sourceIssue: undefined };
+    (store.updateTask as ReturnType<typeof vi.fn>).mockResolvedValue(updatedTask);
+
+    const res = await REQUEST(buildApp(), "PATCH", "/api/tasks/KB-001", JSON.stringify({ sourceIssue: null }), {
+      "Content-Type": "application/json",
+    });
+
+    expect(res.status).toBe(200);
+    expect(store.updateTask).toHaveBeenCalledWith("KB-001", {
+      sourceIssue: null,
+    });
+  });
+
+  it("returns 400 when sourceIssue payload is incomplete", async () => {
+    const res = await REQUEST(buildApp(), "PATCH", "/api/tasks/KB-001", JSON.stringify({
+      sourceIssue: {
+        provider: "github",
+        repository: "runfusion/fusion",
+      },
+    }), {
+      "Content-Type": "application/json",
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("sourceIssue.externalIssueId");
+  });
+
   it("does not clear model or assignee fields when they are omitted", async () => {
     (store.updateTask as ReturnType<typeof vi.fn>).mockResolvedValue({ ...FAKE_TASK_DETAIL, title: "New" });
 

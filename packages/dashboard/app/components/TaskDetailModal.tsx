@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Pencil, Bot, X, ChevronDown } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { Task, TaskDetail, TaskAttachment, Column, MergeResult, Settings, AgentLogEntry, Agent, TaskPriority } from "@fusion/core";
+import type { Task, TaskDetail, TaskAttachment, Column, MergeResult, Settings, AgentLogEntry, Agent, TaskPriority, TaskSourceIssue } from "@fusion/core";
 import { COLUMN_LABELS, DEFAULT_TASK_PRIORITY, TASK_PRIORITIES, VALID_TRANSITIONS, getErrorMessage } from "@fusion/core";
 import { uploadAttachment, deleteAttachment, updateTask, pauseTask, unpauseTask, fetchTaskDetail, fetchSettings, requestSpecRevision, rebuildTaskSpec, approvePlan, rejectPlan, refineTask, fetchWorkflowResults, assignTask, fetchAgents, fetchAgent } from "../api";
 import type { WorkflowStepResult } from "@fusion/core";
@@ -212,6 +212,15 @@ function splitModelSelection(value: string): { provider: string; modelId: string
   };
 }
 
+function normalizeSourceIssueText(value: string): string {
+  return value.trim();
+}
+
+function normalizeSourceIssueUrl(value: string): string | undefined {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 function normalizeTaskPriorityValue(priority: Task["priority"]): TaskPriority {
   return typeof priority === "string" && (TASK_PRIORITIES as readonly string[]).includes(priority)
     ? (priority as TaskPriority)
@@ -335,6 +344,10 @@ export function TaskDetailModal({
   const [editPriority, setEditPriority] = useState<TaskPriority>(DEFAULT_TASK_PRIORITY);
   const [editSelectedPresetId, setEditSelectedPresetId] = useState("");
   const [editSelectedWorkflowSteps, setEditSelectedWorkflowSteps] = useState<string[]>(task.enabledWorkflowSteps || []);
+  const [editSourceIssueProvider, setEditSourceIssueProvider] = useState(task.sourceIssue?.provider ?? "");
+  const [editSourceIssueRepository, setEditSourceIssueRepository] = useState(task.sourceIssue?.repository ?? "");
+  const [editSourceIssueExternalId, setEditSourceIssueExternalId] = useState(task.sourceIssue?.externalIssueId ?? "");
+  const [editSourceIssueUrl, setEditSourceIssueUrl] = useState(task.sourceIssue?.url ?? "");
   const [editPendingImages, setEditPendingImages] = useState<PendingImage[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const mountedRef = useRef(false);
@@ -369,8 +382,12 @@ export function TaskDetailModal({
   useEffect(() => {
     setEditTitle(task.title || "");
     setEditDescription(task.description || "");
+    setEditSourceIssueProvider(task.sourceIssue?.provider ?? "");
+    setEditSourceIssueRepository(task.sourceIssue?.repository ?? "");
+    setEditSourceIssueExternalId(task.sourceIssue?.externalIssueId ?? "");
+    setEditSourceIssueUrl(task.sourceIssue?.url ?? "");
     setIsEditing(false);
-  }, [task.id, task.title, task.description]);
+  }, [task.id, task.title, task.description, task.sourceIssue]);
 
   useEffect(() => {
     setWorkflowEnabledSteps(task.enabledWorkflowSteps || []);
@@ -537,6 +554,10 @@ export function TaskDetailModal({
     setEditPresetMode(execModel || valModel || planModel ? "custom" : "default");
     setEditSelectedPresetId("");
     setEditSelectedWorkflowSteps(task.enabledWorkflowSteps || []);
+    setEditSourceIssueProvider(task.sourceIssue?.provider ?? "");
+    setEditSourceIssueRepository(task.sourceIssue?.repository ?? "");
+    setEditSourceIssueExternalId(task.sourceIssue?.externalIssueId ?? "");
+    setEditSourceIssueUrl(task.sourceIssue?.url ?? "");
     setEditPendingImages([]);
     setEditReviewLevel(task.reviewLevel);
     setEditPriority(normalizeTaskPriorityValue(task.priority));
@@ -547,6 +568,10 @@ export function TaskDetailModal({
     setEditTitle(task.title || "");
     setEditDescription(task.description || "");
     setEditDependencies(task.dependencies || []);
+    setEditSourceIssueProvider(task.sourceIssue?.provider ?? "");
+    setEditSourceIssueRepository(task.sourceIssue?.repository ?? "");
+    setEditSourceIssueExternalId(task.sourceIssue?.externalIssueId ?? "");
+    setEditSourceIssueUrl(task.sourceIssue?.url ?? "");
     setEditPriority(normalizeTaskPriorityValue(task.priority));
     editPendingImages.forEach((img) => URL.revokeObjectURL(img.previewUrl));
     setEditPendingImages([]);
@@ -608,6 +633,57 @@ export function TaskDetailModal({
         updates.priority = editPriority;
       }
 
+      const normalizedProvider = normalizeSourceIssueText(editSourceIssueProvider);
+      const normalizedRepository = normalizeSourceIssueText(editSourceIssueRepository);
+      const normalizedExternalId = normalizeSourceIssueText(editSourceIssueExternalId);
+      const normalizedUrl = normalizeSourceIssueUrl(editSourceIssueUrl);
+      const allSourceFieldsEmpty =
+        normalizedProvider.length === 0
+        && normalizedRepository.length === 0
+        && normalizedExternalId.length === 0
+        && !normalizedUrl;
+
+      if (allSourceFieldsEmpty) {
+        if (task.sourceIssue) {
+          updates.sourceIssue = null;
+        }
+      } else {
+        if (!normalizedProvider || !normalizedRepository || !normalizedExternalId) {
+          addToast("Source issue provider, repository, and issue identifier are required", "error");
+          setIsSaving(false);
+          return;
+        }
+
+        const fallbackIssueNumber = Number.parseInt(normalizedExternalId, 10);
+        const issueNumber = task.sourceIssue?.issueNumber ?? fallbackIssueNumber;
+        if (!Number.isFinite(issueNumber) || issueNumber <= 0) {
+          addToast("Source issue identifier must be numeric for new metadata", "error");
+          setIsSaving(false);
+          return;
+        }
+
+        const nextSourceIssue: TaskSourceIssue = {
+          provider: normalizedProvider,
+          repository: normalizedRepository,
+          externalIssueId: normalizedExternalId,
+          issueNumber,
+          ...(normalizedUrl ? { url: normalizedUrl } : {}),
+        };
+
+        const previousSourceIssue = task.sourceIssue;
+        const sourceIssueChanged =
+          !previousSourceIssue
+          || previousSourceIssue.provider !== nextSourceIssue.provider
+          || previousSourceIssue.repository !== nextSourceIssue.repository
+          || previousSourceIssue.externalIssueId !== nextSourceIssue.externalIssueId
+          || previousSourceIssue.issueNumber !== nextSourceIssue.issueNumber
+          || (previousSourceIssue.url ?? undefined) !== nextSourceIssue.url;
+
+        if (sourceIssueChanged) {
+          updates.sourceIssue = nextSourceIssue;
+        }
+      }
+
       const hasTaskUpdates = Object.keys(updates).length > 0;
       if (hasTaskUpdates) {
         const updatedTask = await updateTask(task.id, updates, projectId);
@@ -642,7 +718,7 @@ export function TaskDetailModal({
         setIsSaving(false);
       }
     }
-  }, [task, editTitle, editDescription, editDependencies, editExecutorModel, editValidatorModel, editPlanningModel, editThinkingLevel, editReviewLevel, editPriority, editSelectedWorkflowSteps, editPendingImages, addToast, projectId, onTaskUpdated]);
+  }, [task, editTitle, editDescription, editDependencies, editExecutorModel, editValidatorModel, editPlanningModel, editThinkingLevel, editReviewLevel, editPriority, editSelectedWorkflowSteps, editSourceIssueProvider, editSourceIssueRepository, editSourceIssueExternalId, editSourceIssueUrl, editPendingImages, addToast, projectId, onTaskUpdated]);
 
   const handleAutoSaveDescription = useCallback(async (description: string) => {
     try {
@@ -1198,6 +1274,50 @@ export function TaskDetailModal({
                 onReviewLevelChange={setEditReviewLevel}
                 priority={editPriority}
                 onPriorityChange={setEditPriority}
+                renderBelowPrimary={(
+                  <div className="form-group detail-source-edit-group">
+                    <label>Source Issue</label>
+                    <div className="detail-source-edit-grid">
+                      <input
+                        type="text"
+                        className="modal-edit-input"
+                        placeholder="Provider (e.g. github)"
+                        value={editSourceIssueProvider}
+                        onChange={(e) => setEditSourceIssueProvider(e.target.value)}
+                        disabled={isSaving}
+                        data-testid="task-source-provider-input"
+                      />
+                      <input
+                        type="text"
+                        className="modal-edit-input"
+                        placeholder="Repository (e.g. owner/repo)"
+                        value={editSourceIssueRepository}
+                        onChange={(e) => setEditSourceIssueRepository(e.target.value)}
+                        disabled={isSaving}
+                        data-testid="task-source-repository-input"
+                      />
+                      <input
+                        type="text"
+                        className="modal-edit-input"
+                        placeholder="Issue identifier"
+                        value={editSourceIssueExternalId}
+                        onChange={(e) => setEditSourceIssueExternalId(e.target.value)}
+                        disabled={isSaving}
+                        data-testid="task-source-external-id-input"
+                      />
+                      <input
+                        type="url"
+                        className="modal-edit-input"
+                        placeholder="Issue URL"
+                        value={editSourceIssueUrl}
+                        onChange={(e) => setEditSourceIssueUrl(e.target.value)}
+                        disabled={isSaving}
+                        data-testid="task-source-url-input"
+                      />
+                    </div>
+                    <small>Leave all fields empty to clear source issue metadata.</small>
+                  </div>
+                )}
               />
             </div>
           ) : (
@@ -1418,6 +1538,44 @@ export function TaskDetailModal({
             </div>
           )}
           <MergeDetails task={task} />
+          <div className="detail-section detail-source-section">
+            <h4>Source Issue</h4>
+            {task.sourceIssue ? (
+              <dl className="detail-source-grid">
+                <div>
+                  <dt>Provider</dt>
+                  <dd>{task.sourceIssue.provider}</dd>
+                </div>
+                <div>
+                  <dt>Repository</dt>
+                  <dd>{task.sourceIssue.repository}</dd>
+                </div>
+                <div>
+                  <dt>Issue Identifier</dt>
+                  <dd>{task.sourceIssue.externalIssueId}</dd>
+                </div>
+                <div>
+                  <dt>URL</dt>
+                  <dd>
+                    {task.sourceIssue.url ? (
+                      <a
+                        className="detail-source-link"
+                        href={task.sourceIssue.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {task.sourceIssue.url}
+                      </a>
+                    ) : (
+                      <span className="detail-source-empty">(none)</span>
+                    )}
+                  </dd>
+                </div>
+              </dl>
+            ) : (
+              <div className="detail-empty-inline">No source issue metadata recorded.</div>
+            )}
+          </div>
           <div className="detail-section detail-agent-section">
             <div className="detail-meta-row">
               <span className="detail-meta-label">

@@ -435,6 +435,38 @@ describe("updateTask", () => {
     const body = JSON.parse((call[1] as RequestInit).body as string);
     expect(body).not.toHaveProperty("executionMode");
   });
+
+  it("sends sourceIssue object when source metadata is provided", async () => {
+    const sourceIssue = {
+      provider: "github",
+      repository: "runfusion/fusion",
+      externalIssueId: "I_kgDOExample",
+      issueNumber: 2473,
+      url: "https://github.com/runfusion/fusion/issues/2473",
+    };
+    globalThis.fetch = vi.fn().mockReturnValue(mockFetchResponse(true, { ...FAKE_TASK, sourceIssue }));
+
+    const result = await updateTask("FN-001", { sourceIssue });
+
+    expect(result.sourceIssue).toEqual(sourceIssue);
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/tasks/FN-001", {
+      headers: { "Content-Type": "application/json" },
+      method: "PATCH",
+      body: JSON.stringify({ sourceIssue }),
+    });
+  });
+
+  it("sends sourceIssue: null when clearing source metadata", async () => {
+    globalThis.fetch = vi.fn().mockReturnValue(mockFetchResponse(true, { ...FAKE_TASK, sourceIssue: undefined }));
+
+    await updateTask("FN-001", { sourceIssue: null });
+
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/tasks/FN-001", {
+      headers: { "Content-Type": "application/json" },
+      method: "PATCH",
+      body: JSON.stringify({ sourceIssue: null }),
+    });
+  });
 });
 
 describe("createTask", () => {

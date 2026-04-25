@@ -4122,6 +4122,216 @@ describe("TaskDetailModal", () => {
     });
   });
 
+  describe("source issue metadata", () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it("renders source issue fields and link in read mode", () => {
+      render(
+        <TaskDetailModal
+          task={makeTask({
+            sourceIssue: {
+              provider: "github",
+              repository: "runfusion/fusion",
+              externalIssueId: "I_kgDOExample",
+              issueNumber: 2473,
+              url: "https://github.com/runfusion/fusion/issues/2473",
+            },
+          })}
+          onClose={noop}
+          onMoveTask={noopMove}
+          onDeleteTask={noopDelete}
+          onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
+          addToast={noop}
+        />,
+      );
+
+      expect(screen.getByText("Source Issue")).toBeTruthy();
+      expect(screen.getByText("github")).toBeTruthy();
+      expect(screen.getByText("runfusion/fusion")).toBeTruthy();
+      expect(screen.getByText("I_kgDOExample")).toBeTruthy();
+      const sourceLink = screen.getByRole("link", { name: "https://github.com/runfusion/fusion/issues/2473" });
+      expect(sourceLink).toHaveAttribute("href", "https://github.com/runfusion/fusion/issues/2473");
+      expect(sourceLink).toHaveAttribute("target", "_blank");
+    });
+
+    it("renders empty source metadata state when no sourceIssue exists", () => {
+      render(
+        <TaskDetailModal
+          task={makeTask({ sourceIssue: undefined })}
+          onClose={noop}
+          onMoveTask={noopMove}
+          onDeleteTask={noopDelete}
+          onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
+          addToast={noop}
+        />,
+      );
+
+      expect(screen.getByText("No source issue metadata recorded.")).toBeTruthy();
+    });
+
+    it("prefills source issue inputs in edit mode", async () => {
+      const { container } = render(
+        <TaskDetailModal
+          task={makeTask({
+            id: "FN-001",
+            column: "todo",
+            sourceIssue: {
+              provider: "github",
+              repository: "runfusion/fusion",
+              externalIssueId: "I_kgDOExample",
+              issueNumber: 2473,
+              url: "https://github.com/runfusion/fusion/issues/2473",
+            },
+          })}
+          onClose={noop}
+          onMoveTask={noopMove}
+          onDeleteTask={noopDelete}
+          onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
+          addToast={noop}
+        />,
+      );
+
+      fireEvent.click(container.querySelector(".modal-edit-btn")!);
+
+      await waitFor(() => {
+        expect((screen.getByTestId("task-source-provider-input") as HTMLInputElement).value).toBe("github");
+      });
+      expect((screen.getByTestId("task-source-repository-input") as HTMLInputElement).value).toBe("runfusion/fusion");
+      expect((screen.getByTestId("task-source-external-id-input") as HTMLInputElement).value).toBe("I_kgDOExample");
+      expect((screen.getByTestId("task-source-url-input") as HTMLInputElement).value).toBe("https://github.com/runfusion/fusion/issues/2473");
+    });
+
+    it("sends sourceIssue payload when source metadata is edited", async () => {
+      const { updateTask } = await import("../../api");
+      const mockUpdate = vi.mocked(updateTask);
+      mockUpdate.mockResolvedValueOnce({ id: "FN-001" } as Task);
+
+      const { container } = render(
+        <TaskDetailModal
+          task={makeTask({
+            id: "FN-001",
+            column: "todo",
+            sourceIssue: {
+              provider: "github",
+              repository: "runfusion/fusion",
+              externalIssueId: "I_kgDOExample",
+              issueNumber: 2473,
+              url: "https://github.com/runfusion/fusion/issues/2473",
+            },
+          })}
+          onClose={noop}
+          onMoveTask={noopMove}
+          onDeleteTask={noopDelete}
+          onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
+          addToast={noop}
+        />,
+      );
+
+      fireEvent.click(container.querySelector(".modal-edit-btn")!);
+      fireEvent.change(screen.getByTestId("task-source-provider-input"), { target: { value: "gitlab" } });
+      fireEvent.change(screen.getByTestId("task-source-repository-input"), { target: { value: "runfusion/dashboard" } });
+      fireEvent.change(screen.getByTestId("task-source-external-id-input"), { target: { value: "I_kgDONew" } });
+      fireEvent.change(screen.getByTestId("task-source-url-input"), { target: { value: "https://gitlab.com/runfusion/dashboard/-/issues/2473" } });
+
+      fireEvent.click(screen.getByText("Save"));
+
+      await waitFor(() => {
+        expect(mockUpdate).toHaveBeenCalledWith("FN-001", expect.objectContaining({
+          sourceIssue: {
+            provider: "gitlab",
+            repository: "runfusion/dashboard",
+            externalIssueId: "I_kgDONew",
+            issueNumber: 2473,
+            url: "https://gitlab.com/runfusion/dashboard/-/issues/2473",
+          },
+        }), undefined);
+      });
+    });
+
+    it("sends sourceIssue: null when all source metadata fields are cleared", async () => {
+      const { updateTask } = await import("../../api");
+      const mockUpdate = vi.mocked(updateTask);
+      mockUpdate.mockResolvedValueOnce({ id: "FN-001" } as Task);
+
+      const { container } = render(
+        <TaskDetailModal
+          task={makeTask({
+            id: "FN-001",
+            column: "todo",
+            sourceIssue: {
+              provider: "github",
+              repository: "runfusion/fusion",
+              externalIssueId: "I_kgDOExample",
+              issueNumber: 2473,
+              url: "https://github.com/runfusion/fusion/issues/2473",
+            },
+          })}
+          onClose={noop}
+          onMoveTask={noopMove}
+          onDeleteTask={noopDelete}
+          onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
+          addToast={noop}
+        />,
+      );
+
+      fireEvent.click(container.querySelector(".modal-edit-btn")!);
+      fireEvent.change(screen.getByTestId("task-source-provider-input"), { target: { value: "" } });
+      fireEvent.change(screen.getByTestId("task-source-repository-input"), { target: { value: "" } });
+      fireEvent.change(screen.getByTestId("task-source-external-id-input"), { target: { value: "" } });
+      fireEvent.change(screen.getByTestId("task-source-url-input"), { target: { value: "" } });
+
+      fireEvent.click(screen.getByText("Save"));
+
+      await waitFor(() => {
+        expect(mockUpdate).toHaveBeenCalledWith("FN-001", expect.objectContaining({ sourceIssue: null }), undefined);
+      });
+    });
+
+    it("keeps edit mode active and shows error toast when source metadata save fails", async () => {
+      const { updateTask } = await import("../../api");
+      const mockUpdate = vi.mocked(updateTask);
+      mockUpdate.mockRejectedValueOnce(new Error("source patch failed"));
+      const addToast = vi.fn();
+
+      const { container } = render(
+        <TaskDetailModal
+          task={makeTask({
+            id: "FN-001",
+            column: "todo",
+            sourceIssue: {
+              provider: "github",
+              repository: "runfusion/fusion",
+              externalIssueId: "I_kgDOExample",
+              issueNumber: 2473,
+            },
+          })}
+          onClose={noop}
+          onMoveTask={noopMove}
+          onDeleteTask={noopDelete}
+          onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
+          addToast={addToast}
+        />,
+      );
+
+      fireEvent.click(container.querySelector(".modal-edit-btn")!);
+      fireEvent.change(screen.getByTestId("task-source-provider-input"), { target: { value: "gitlab" } });
+      fireEvent.click(screen.getByText("Save"));
+
+      await waitFor(() => {
+        expect(addToast).toHaveBeenCalledWith("Failed to update FN-001: source patch failed", "error");
+      });
+      expect(container.querySelector("#task-form-title")).toBeTruthy();
+    });
+  });
+
   describe("inline editing", () => {
     beforeEach(() => {
       vi.clearAllMocks();
