@@ -23,7 +23,7 @@ cp -r fusion-plugin-hermes-runtime ~/.fusion/plugins/
 ### Option 2: Install via CLI
 
 ```bash
-fn plugin add ./plugins/fusion-plugin-hermes-runtime
+fn plugin install ./plugins/fusion-plugin-hermes-runtime
 ```
 
 ## Runtime Metadata

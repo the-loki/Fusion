@@ -27,7 +27,7 @@ The Paperclip Runtime Plugin (`fusion-plugin-paperclip-runtime`) provides an alt
 To install the plugin:
 
 ```bash
-fn plugin add ./plugins/fusion-plugin-paperclip-runtime
+fn plugin install ./plugins/fusion-plugin-paperclip-runtime
 ```
 
 After installation, select the Paperclip runtime for an agent by setting `runtimeHint` in the agent's `runtimeConfig`:
@@ -51,7 +51,7 @@ The Hermes Runtime Plugin (`fusion-plugin-hermes-runtime`) registers an experime
 Install the plugin:
 
 ```bash
-fn plugin add ./plugins/fusion-plugin-hermes-runtime
+fn plugin install ./plugins/fusion-plugin-hermes-runtime
 ```
 
 Configure an agent to use Hermes:
@@ -77,7 +77,7 @@ The OpenClaw Runtime Plugin (`fusion-plugin-openclaw-runtime`) registers an expe
 Install the plugin:
 
 ```bash
-fn plugin add ./plugins/fusion-plugin-openclaw-runtime
+fn plugin install ./plugins/fusion-plugin-openclaw-runtime
 ```
 
 Configure an agent to use OpenClaw:

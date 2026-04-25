@@ -83,6 +83,13 @@ const commandMocks = vi.hoisted(() => ({
   runMessageRead: vi.fn(),
   runMessageDelete: vi.fn(),
   runAgentMailbox: vi.fn(),
+
+  runPluginList: vi.fn(),
+  runPluginInstall: vi.fn(),
+  runPluginUninstall: vi.fn(),
+  runPluginEnable: vi.fn(),
+  runPluginDisable: vi.fn(),
+  runPluginCreate: vi.fn(),
 }));
 
 vi.mock("../commands/dashboard.js", () => ({ runDashboard: commandMocks.runDashboard }));
@@ -185,6 +192,18 @@ vi.mock("../commands/message.js", () => ({
   runMessageRead: commandMocks.runMessageRead,
   runMessageDelete: commandMocks.runMessageDelete,
   runAgentMailbox: commandMocks.runAgentMailbox,
+}));
+
+vi.mock("../commands/plugin.js", () => ({
+  runPluginList: commandMocks.runPluginList,
+  runPluginInstall: commandMocks.runPluginInstall,
+  runPluginUninstall: commandMocks.runPluginUninstall,
+  runPluginEnable: commandMocks.runPluginEnable,
+  runPluginDisable: commandMocks.runPluginDisable,
+}));
+
+vi.mock("../commands/plugin-scaffold.js", () => ({
+  runPluginCreate: commandMocks.runPluginCreate,
 }));
 
 const originalArgv = process.argv;
@@ -368,6 +387,33 @@ describe("bin command routing and fallbacks", () => {
     expect(commandMocks.runMessageDelete).toHaveBeenCalledWith("msg-1", "demo");
     expect(commandMocks.runMessageInbox).toHaveBeenCalledWith("demo");
     expect(commandMocks.runMessageOutbox).toHaveBeenCalledWith("demo");
+  });
+
+  it("routes plugin install and add alias to the same install handler", async () => {
+    await runBin(["plugin", "install", "fusion-plugin-hermes-runtime", "-P", "demo"]);
+    await runBin(["plugin", "add", "fusion-plugin-hermes-runtime", "-P", "demo"]);
+
+    expect(commandMocks.runPluginInstall).toHaveBeenNthCalledWith(1, "fusion-plugin-hermes-runtime", {
+      projectName: "demo",
+    });
+    expect(commandMocks.runPluginInstall).toHaveBeenNthCalledWith(2, "fusion-plugin-hermes-runtime", {
+      projectName: "demo",
+    });
+  });
+
+  it("errors when plugin install source is missing", async () => {
+    await expect(runBin(["plugin", "add"])).rejects.toThrow("process.exit:1");
+    expect(errorSpy).toHaveBeenCalledWith(
+      "Usage: fn plugin install <path-or-package> (alias: fn plugin add <path-or-package>)",
+    );
+  });
+
+  it("shows plugin help guidance with install/add alias on unknown plugin subcommand", async () => {
+    await expect(runBin(["plugin", "oops"])).rejects.toThrow("process.exit:1");
+    expect(errorSpy).toHaveBeenCalledWith("Unknown subcommand: plugin oops");
+    expect(logSpy).toHaveBeenCalledWith(
+      "Try: fn plugin list | install | add (alias for install) | uninstall | enable | disable | create",
+    );
   });
 
   it("routes node add with typed option parsing", async () => {

@@ -52,7 +52,12 @@ describe("DirectoryPicker", () => {
 
     const input = screen.getByPlaceholderText("Select a directory") as HTMLInputElement;
     expect(input.value).toBe("/some/path");
-    expect(screen.getByText("Browse")).toBeDefined();
+    expect(input.classList.contains("input")).toBe(true);
+
+    const browseButton = screen.getByRole("button", { name: "Browse directories" });
+    expect(browseButton.classList.contains("btn")).toBe(true);
+    expect(browseButton.classList.contains("btn-secondary")).toBe(true);
+    expect(browseButton.classList.contains("btn-sm")).toBe(true);
   });
 
   it("calls onChange when typing in the input", () => {

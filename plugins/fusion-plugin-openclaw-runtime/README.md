@@ -23,7 +23,7 @@ cp -r fusion-plugin-openclaw-runtime ~/.fusion/plugins/
 ### Option 2: Install via CLI
 
 ```bash
-fn plugin add ./plugins/fusion-plugin-openclaw-runtime
+fn plugin install ./plugins/fusion-plugin-openclaw-runtime
 ```
 
 ## Runtime Metadata

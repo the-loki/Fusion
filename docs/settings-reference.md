@@ -300,9 +300,9 @@ To use plugin-provided runtimes like Paperclip, Hermes, or OpenClaw:
 1. Install one or more runtime plugins:
 
 ```bash
-fn plugin add ./plugins/fusion-plugin-paperclip-runtime
-fn plugin add ./plugins/fusion-plugin-hermes-runtime
-fn plugin add ./plugins/fusion-plugin-openclaw-runtime
+fn plugin install ./plugins/fusion-plugin-paperclip-runtime
+fn plugin install ./plugins/fusion-plugin-hermes-runtime
+fn plugin install ./plugins/fusion-plugin-openclaw-runtime
 ```
 
 2. Create agents with the appropriate `runtimeConfig`:

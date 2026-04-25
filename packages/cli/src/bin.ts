@@ -306,7 +306,8 @@ Usage:
   fn backup --restore <file> Restore database from a backup file
   fn backup --cleanup        Remove old backups exceeding retention limit
   fn plugin list | ls                List installed plugins
-  fn plugin install <path>           Install a plugin from path
+  fn plugin install <path-or-package> Install a plugin from path or package
+  fn plugin add <path-or-package>     Alias for plugin install
   fn plugin uninstall <id> [--force] Uninstall a plugin
   fn plugin enable <id>             Enable a plugin
   fn plugin disable <id>             Disable a plugin
@@ -1222,9 +1223,13 @@ async function main() {
           case "ls":
             await runPluginList(projectName);
             break;
-          case "install": {
+          case "install":
+          case "add": {
             const source = args[2];
-            if (!source) { console.error("Usage: fn plugin install <path-or-package>"); process.exit(1); }
+            if (!source) {
+              console.error("Usage: fn plugin install <path-or-package> (alias: fn plugin add <path-or-package>)");
+              process.exit(1);
+            }
             await runPluginInstall(source, { projectName });
             break;
           }
@@ -1255,7 +1260,7 @@ async function main() {
           }
           default:
             console.error(`Unknown subcommand: plugin ${sub || ""}`);
-            console.log("Try: fn plugin list | install | uninstall | enable | disable | create");
+            console.log("Try: fn plugin list | install | add (alias for install) | uninstall | enable | disable | create");
             process.exit(1);
         }
         break;

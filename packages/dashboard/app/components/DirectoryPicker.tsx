@@ -108,7 +108,7 @@ export function DirectoryPicker({ value, onChange, placeholder, onInputKeyDown, 
       <div className="directory-picker-input-row">
         <input
           type="text"
-          className="directory-picker-input"
+          className="input directory-picker-input"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={onInputKeyDown}
@@ -116,7 +116,7 @@ export function DirectoryPicker({ value, onChange, placeholder, onInputKeyDown, 
         />
         <button
           type="button"
-          className="directory-picker-browse-btn"
+          className="btn btn-secondary btn-sm directory-picker-browse-btn"
           onClick={handleToggleBrowser}
           aria-label={browser.isOpen ? "Close directory browser" : "Browse directories"}
         >
@@ -130,6 +130,7 @@ export function DirectoryPicker({ value, onChange, placeholder, onInputKeyDown, 
           {/* Breadcrumbs */}
           <div className="directory-picker-breadcrumbs">
             <button
+              type="button"
               className="directory-picker-breadcrumb"
               onClick={() => handleNavigate("/")}
               title="Root"
@@ -142,6 +143,7 @@ export function DirectoryPicker({ value, onChange, placeholder, onInputKeyDown, 
                 <span key={segPath} className="directory-picker-breadcrumb-item">
                   <ChevronRight size={12} className="directory-picker-breadcrumb-sep" />
                   <button
+                    type="button"
                     className="directory-picker-breadcrumb"
                     onClick={() => handleNavigate(segPath)}
                     title={segPath}
@@ -157,7 +159,8 @@ export function DirectoryPicker({ value, onChange, placeholder, onInputKeyDown, 
           <div className="directory-picker-toolbar">
             {browser.parentPath && (
               <button
-                className="directory-picker-up-btn"
+                type="button"
+                className="btn btn-sm btn-secondary directory-picker-up-btn"
                 onClick={() => handleNavigate(browser.parentPath!)}
                 aria-label="Go to parent directory"
                 title="Parent directory"
@@ -167,7 +170,8 @@ export function DirectoryPicker({ value, onChange, placeholder, onInputKeyDown, 
               </button>
             )}
             <button
-              className="directory-picker-hidden-toggle"
+              type="button"
+              className="btn btn-sm btn-secondary directory-picker-hidden-toggle"
               onClick={handleToggleHidden}
               aria-label={browser.showHidden ? "Hide hidden directories" : "Show hidden directories"}
               title={browser.showHidden ? "Hide hidden" : "Show hidden"}
@@ -195,6 +199,7 @@ export function DirectoryPicker({ value, onChange, placeholder, onInputKeyDown, 
               ) : (
                 browser.entries.map((entry) => (
                   <button
+                    type="button"
                     key={entry.path}
                     className="directory-picker-entry"
                     onClick={() => handleNavigate(entry.path)}

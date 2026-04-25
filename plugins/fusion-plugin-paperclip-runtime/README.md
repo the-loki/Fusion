@@ -36,7 +36,7 @@ pi
 Install the plugin as a local plugin:
 
 ```bash
-fn plugin add ./plugins/fusion-plugin-paperclip-runtime
+fn plugin install ./plugins/fusion-plugin-paperclip-runtime
 ```
 
 Verify installation:
