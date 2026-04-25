@@ -91,6 +91,40 @@ const COLUMN_PROGRESS_COLOR_MAP: Record<Column, string> = {
   archived: "var(--text-muted)",
 };
 
+const TIME_INDICATOR_COLUMNS = new Set<Column>(["in-progress", "done"]);
+const LIVE_TIME_INDICATOR_POLL_MS = 30_000;
+
+function parseTimestampToMs(value?: string): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getTimeIndicatorStartMs(task: Task): number | null {
+  const timestamp = task.columnMovedAt ?? task.updatedAt ?? task.createdAt;
+  const parsed = parseTimestampToMs(timestamp);
+  if (parsed == null) return null;
+
+  const now = Date.now();
+  if (parsed > now) return null;
+
+  return parsed;
+}
+
+function formatElapsedDuration(elapsedMs: number): string {
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 0) return "";
+
+  const elapsedMinutes = Math.floor(elapsedMs / 60_000);
+  if (elapsedMinutes < 1) return "<1m";
+  if (elapsedMinutes < 60) return `${elapsedMinutes}m`;
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return `${elapsedHours}h`;
+
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  return `${elapsedDays}d`;
+}
+
 interface TaskCardProps {
   task: Task;
   projectId?: string;
@@ -318,6 +352,7 @@ function TaskCardComponent({
   const [missionTitle, setMissionTitle] = useState<string | null>(null);
   const [agentName, setAgentName] = useState<string | null>(null);
   const [showSendBackMenu, setShowSendBackMenu] = useState(false);
+  const [timeIndicatorNowMs, setTimeIndicatorNowMs] = useState(() => Date.now());
 
   const descTextareaRef = useRef<HTMLTextAreaElement>(null);
   const touchOpenHandledRef = useRef(false);
@@ -563,6 +598,46 @@ function TaskCardComponent({
   );
   const showProgressSection =
     unifiedProgress.total > 0 && (task.status === "executing" || task.column === "in-progress");
+
+  useEffect(() => {
+    if (task.column !== "in-progress") {
+      return;
+    }
+
+    const startMs = getTimeIndicatorStartMs(task);
+    if (startMs == null) {
+      return;
+    }
+
+    setTimeIndicatorNowMs(Date.now());
+    const interval = window.setInterval(() => {
+      setTimeIndicatorNowMs(Date.now());
+    }, LIVE_TIME_INDICATOR_POLL_MS);
+
+    return () => window.clearInterval(interval);
+  }, [task.column, task.columnMovedAt, task.updatedAt, task.createdAt]);
+
+  const timeIndicator = useMemo(() => {
+    if (!TIME_INDICATOR_COLUMNS.has(task.column)) {
+      return null;
+    }
+
+    const startMs = getTimeIndicatorStartMs(task);
+    if (startMs == null) {
+      return null;
+    }
+
+    const referenceNowMs = task.column === "in-progress" ? timeIndicatorNowMs : Date.now();
+    const elapsedLabel = formatElapsedDuration(referenceNowMs - startMs);
+    if (!elapsedLabel) {
+      return null;
+    }
+
+    return {
+      label: elapsedLabel,
+      title: `Since ${new Date(startMs).toLocaleString()}`,
+    };
+  }, [task.column, task.columnMovedAt, task.updatedAt, task.createdAt, timeIndicatorNowMs]);
 
   useEffect(() => {
     if (!hasGitHubBadge || !isInViewport) {
@@ -1162,6 +1237,18 @@ function TaskCardComponent({
         }
         return null;
       })()}
+      {timeIndicator && (
+        <div className="card-time-row">
+          <span
+            className="card-time-indicator"
+            title={timeIndicator.title}
+            aria-label={`Elapsed time ${timeIndicator.label}. ${timeIndicator.title}`}
+          >
+            <Clock size={12} />
+            <span>{timeIndicator.label}</span>
+          </span>
+        </div>
+      )}
       {((task.dependencies && task.dependencies.length > 0) || queued || task.status === "queued" || task.blockedBy) && (
         <div className="card-meta">
           {task.dependencies && task.dependencies.length > 0 && (

@@ -823,6 +823,7 @@ describe("AgentDetailView", () => {
     });
 
     it("shows loading state while fetching chain of command", async () => {
+      const resolvedChain = [{ id: "agent-001", name: "Test Agent" } as AgentDetail];
       const resolveChainCalls: Array<(agents: AgentDetail[]) => void> = [];
       mockFetchChainOfCommand.mockImplementation(
         () =>
@@ -843,9 +844,17 @@ describe("AgentDetailView", () => {
         expect(screen.getByText("Loading reporting chain...")).toBeInTheDocument();
       });
 
+      // React Strict Mode and concurrent rendering can trigger extra effect passes.
+      // Make late calls auto-resolve so the loading state can settle deterministically.
+      mockFetchChainOfCommand.mockResolvedValue(resolvedChain as any);
+
       await act(async () => {
-        for (const resolve of resolveChainCalls) {
-          resolve([{ id: "agent-001", name: "Test Agent" } as AgentDetail]);
+        // Allow any additional in-flight calls to register before resolving all pendings.
+        await Promise.resolve();
+        while (resolveChainCalls.length > 0) {
+          const resolve = resolveChainCalls.shift();
+          resolve?.(resolvedChain);
+          await Promise.resolve();
         }
       });
 

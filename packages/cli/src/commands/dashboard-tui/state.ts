@@ -113,6 +113,12 @@ export interface AgentRunItem {
   endedAt: string | null;
   status: string;
   triggerDetail?: string;
+  invocationSource?: string;
+  stdoutExcerpt?: string;
+  stderrExcerpt?: string;
+  resultJson?: Record<string, unknown>;
+  // Optional synthetic log lines for tests / alternate data providers.
+  logs?: string[];
 }
 
 // Slim agent detail shape for Agents view detail panel

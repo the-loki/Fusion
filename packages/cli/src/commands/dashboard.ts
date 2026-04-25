@@ -1904,6 +1904,10 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
                 endedAt: r.endedAt,
                 status: r.status,
                 triggerDetail: r.triggerDetail,
+                invocationSource: r.invocationSource,
+                stdoutExcerpt: r.stdoutExcerpt,
+                stderrExcerpt: r.stderrExcerpt,
+                resultJson: r.resultJson,
               })),
             };
           },

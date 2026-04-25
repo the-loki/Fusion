@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { TaskCard } from "../TaskCard";
 import type { Task } from "@fusion/core";
 
@@ -15,6 +15,7 @@ vi.mock("lucide-react", () => ({
   CircleDot: () => null,
   Target: () => null,
   Bot: () => null,
+  Trash2: () => null,
 }));
 
 // Mock the api module
@@ -41,6 +42,10 @@ function makeTask(overrides: Partial<Task> = {}): Task {
 }
 
 const noop = () => {};
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("TaskCard", () => {
   it("renders the card ID text", () => {
@@ -436,6 +441,147 @@ describe("TaskCard", () => {
     expect(actionsContainer).not.toBeNull();
     expect(archiveBtn).not.toBeNull();
     expect(actionsContainer?.contains(archiveBtn)).toBe(true);
+  });
+
+  it("shows timer chip for in-progress cards when timestamp fields exist", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:30:00.000Z"));
+
+    const { container } = render(
+      <TaskCard
+        task={makeTask({
+          column: "in-progress",
+          columnMovedAt: "2026-04-25T12:18:00.000Z",
+          updatedAt: "2026-04-25T12:10:00.000Z",
+          createdAt: "2026-04-25T12:00:00.000Z",
+        })}
+        onOpenDetail={noop}
+        addToast={noop}
+      />,
+    );
+
+    const timer = container.querySelector(".card-time-indicator");
+    expect(timer).not.toBeNull();
+    expect(timer?.textContent).toContain("12m");
+    expect(timer?.getAttribute("title")).toContain("Since");
+  });
+
+  it("shows timer chip for done cards when timestamp fields exist", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T18:00:00.000Z"));
+
+    const { container } = render(
+      <TaskCard
+        task={makeTask({
+          column: "done",
+          columnMovedAt: "2026-04-25T15:00:00.000Z",
+          updatedAt: "2026-04-25T14:00:00.000Z",
+          createdAt: "2026-04-25T13:00:00.000Z",
+        })}
+        onOpenDetail={noop}
+        addToast={noop}
+      />,
+    );
+
+    const timer = container.querySelector(".card-time-indicator");
+    expect(timer).not.toBeNull();
+    expect(timer?.textContent).toContain("3h");
+  });
+
+  it.each(["triage", "todo", "in-review", "archived"] as const)(
+    "does not render timer chip for %s cards",
+    (column) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-04-25T18:00:00.000Z"));
+
+      const { container } = render(
+        <TaskCard
+          task={makeTask({
+            column,
+            columnMovedAt: "2026-04-25T15:00:00.000Z",
+            updatedAt: "2026-04-25T14:00:00.000Z",
+            createdAt: "2026-04-25T13:00:00.000Z",
+          })}
+          onOpenDetail={noop}
+          addToast={noop}
+        />,
+      );
+
+      expect(container.querySelector(".card-time-indicator")).toBeNull();
+    },
+  );
+
+  it("suppresses timer chip when all timestamp fallbacks are invalid or missing", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T18:00:00.000Z"));
+
+    const { container } = render(
+      <TaskCard
+        task={makeTask({
+          column: "in-progress",
+          columnMovedAt: "not-a-date",
+          updatedAt: "also-not-a-date",
+          createdAt: undefined as unknown as string,
+        })}
+        onOpenDetail={noop}
+        addToast={noop}
+      />,
+    );
+
+    expect(container.querySelector(".card-time-indicator")).toBeNull();
+  });
+
+  it.each([
+    { elapsedMs: 59_000, expected: "<1m" },
+    { elapsedMs: 60 * 60_000, expected: "1h" },
+    { elapsedMs: 24 * 60 * 60_000, expected: "1d" },
+  ])("formats elapsed timer label as $expected at boundary", ({ elapsedMs, expected }) => {
+    vi.useFakeTimers();
+    const now = new Date("2026-04-25T20:00:00.000Z");
+    vi.setSystemTime(now);
+
+    const { container } = render(
+      <TaskCard
+        task={makeTask({
+          column: "done",
+          columnMovedAt: new Date(now.getTime() - elapsedMs).toISOString(),
+          updatedAt: "2026-04-25T10:00:00.000Z",
+          createdAt: "2026-04-25T09:00:00.000Z",
+        })}
+        onOpenDetail={noop}
+        addToast={noop}
+      />,
+    );
+
+    const timer = container.querySelector(".card-time-indicator");
+    expect(timer?.textContent).toContain(expected);
+  });
+
+  it("refreshes in-progress timer chip on 30s cadence", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-25T12:00:30.000Z"));
+
+    const { container } = render(
+      <TaskCard
+        task={makeTask({
+          column: "in-progress",
+          columnMovedAt: "2026-04-25T12:00:00.000Z",
+          updatedAt: "2026-04-25T11:59:00.000Z",
+          createdAt: "2026-04-25T11:58:00.000Z",
+        })}
+        onOpenDetail={noop}
+        addToast={noop}
+      />,
+    );
+
+    const timer = container.querySelector(".card-time-indicator");
+    expect(timer?.textContent).toContain("<1m");
+
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+
+    expect(container.querySelector(".card-time-indicator")?.textContent).toContain("1m");
   });
 });
 

@@ -35,6 +35,7 @@ import type {
   TaskItem,
   AgentItem,
   AgentDetailItem,
+  AgentRunItem,
   ModelItem,
   SettingsValues,
   InteractiveView,
@@ -371,7 +372,7 @@ function StatsPanel({ state, isFocused }: { state: DashboardState; isFocused: bo
             </StatRow>
 
             <SectionHeader title="System" />
-            <StatRow label="Memory">
+            <StatRow label="MEM">
               <Text color={sysMemColor(sys.systemTotalMem - sys.systemFreeMem, sys.systemTotalMem)}>
                 {formatBytes(sys.systemTotalMem - sys.systemFreeMem)}
               </Text>
@@ -1712,6 +1713,58 @@ function heartbeatFreshness(lastHeartbeatAt?: string): { fresh: boolean; label: 
 
 type AgentSubView = "list" | "confirm-delete";
 
+function formatRunStatusLabel(status: string): string {
+  switch (status) {
+    case "completed":
+      return "Completed";
+    case "failed":
+      return "Failed";
+    case "terminated":
+      return "Terminated";
+    case "active":
+      return "Active";
+    default:
+      return status.length > 0 ? `${status[0]!.toUpperCase()}${status.slice(1)}` : "Unknown";
+  }
+}
+
+function runStatusColor(status: string): "green" | "red" | "yellow" | "cyanBright" | "gray" {
+  switch (status) {
+    case "completed":
+      return "green";
+    case "failed":
+      return "red";
+    case "terminated":
+      return "yellow";
+    case "active":
+      return "cyanBright";
+    default:
+      return "gray";
+  }
+}
+
+function getRunLogLines(run: AgentRunItem): string[] {
+  if (Array.isArray(run.logs) && run.logs.length > 0) return run.logs;
+
+  const lines: string[] = [];
+  if (run.triggerDetail) lines.push(`trigger: ${run.triggerDetail}`);
+  if (run.invocationSource) lines.push(`source: ${run.invocationSource}`);
+  if (run.stdoutExcerpt) {
+    lines.push("stdout:");
+    lines.push(...run.stdoutExcerpt.split(/\r?\n/).filter((line) => line.length > 0));
+  }
+  if (run.stderrExcerpt) {
+    lines.push("stderr:");
+    lines.push(...run.stderrExcerpt.split(/\r?\n/).filter((line) => line.length > 0));
+  }
+  if (run.resultJson) {
+    lines.push("result:");
+    lines.push(JSON.stringify(run.resultJson));
+  }
+
+  return lines.length > 0 ? lines : ["No logs captured for this run."];
+}
+
 function AgentsView({ state }: { state: DashboardState }) {
   const { stdout } = useStdout();
   const cols = stdout?.columns ?? 80;
@@ -1724,6 +1777,8 @@ function AgentsView({ state }: { state: DashboardState }) {
   const [subView, setSubView] = useState<AgentSubView>("list");
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [detailFocused, setDetailFocused] = useState(false);
+  const [selectedRunIndex, setSelectedRunIndex] = useState(0);
+  const [showRunLogs, setShowRunLogs] = useState(false);
 
   const data = state.interactiveData;
 
@@ -1733,6 +1788,8 @@ function AgentsView({ state }: { state: DashboardState }) {
   }, [data]);
 
   const selectedAgent = agents[selectedIndex] ?? null;
+  const recentRuns = detail?.recentRuns ?? [];
+  const selectedRun = recentRuns[selectedRunIndex] ?? null;
 
   useEffect(() => {
     if (!data || !selectedAgent) {
@@ -1748,6 +1805,15 @@ function AgentsView({ state }: { state: DashboardState }) {
       setLoadingDetail(false);
     });
   }, [data, selectedAgent?.id]);
+
+  useEffect(() => {
+    setSelectedRunIndex(0);
+    setShowRunLogs(false);
+  }, [selectedAgent?.id]);
+
+  useEffect(() => {
+    setSelectedRunIndex((i) => Math.min(i, Math.max(0, recentRuns.length - 1)));
+  }, [recentRuns.length]);
 
   function refreshDetail() {
     if (!data || !selectedAgent) return;
@@ -1801,6 +1867,12 @@ function AgentsView({ state }: { state: DashboardState }) {
       return;
     }
 
+    if ((key.return || input === "l") && selectedRun) {
+      setDetailFocused(true);
+      setShowRunLogs(true);
+      return;
+    }
+
     if (!detailFocused) {
       if (key.upArrow || input === "k") {
         setSelectedIndex((i) => Math.max(0, i - 1));
@@ -1808,6 +1880,19 @@ function AgentsView({ state }: { state: DashboardState }) {
       }
       if (key.downArrow || input === "j") {
         setSelectedIndex((i) => Math.min(agents.length - 1, i + 1));
+        return;
+      }
+    } else {
+      if (showRunLogs && (key.escape || input === "q" || key.backspace)) {
+        setShowRunLogs(false);
+        return;
+      }
+      if (!showRunLogs && (key.upArrow || input === "k")) {
+        setSelectedRunIndex((i) => Math.max(0, i - 1));
+        return;
+      }
+      if (!showRunLogs && (key.downArrow || input === "j")) {
+        setSelectedRunIndex((i) => Math.min(recentRuns.length - 1, i + 1));
         return;
       }
     }
@@ -1964,19 +2049,36 @@ function AgentsView({ state }: { state: DashboardState }) {
                       <Text>{detail.capabilities.join(", ")}</Text>
                     </Box>
                   )}
-                  {detail.recentRuns.length > 0 && (
+                  {recentRuns.length > 0 && (
                     <>
                       <Box height={1} />
-                      <Text dimColor>Recent runs (latest first):</Text>
-                      {detail.recentRuns.slice(0, 5).map((run) => (
-                        <Box key={run.id} flexDirection="row" gap={1} marginLeft={1}>
-                          <Text color={run.status === "completed" ? "green" : run.status === "failed" ? "red" : "yellow"}>
-                            {run.status.slice(0, 4)}
-                          </Text>
-                          <Text dimColor>{run.startedAt.slice(11, 19)}</Text>
-                          {run.triggerDetail && <Text dimColor>{run.triggerDetail}</Text>}
-                        </Box>
-                      ))}
+                      {showRunLogs && selectedRun ? (
+                        <>
+                          <Text dimColor>Run logs ({selectedRunIndex + 1})</Text>
+                          <Text dimColor>ID: {selectedRun.id}</Text>
+                          <Box height={1} />
+                          {getRunLogLines(selectedRun).slice(0, 10).map((line, i) => (
+                            <Text key={`${selectedRun.id}-log-${i}`} wrap="truncate-end">{line}</Text>
+                          ))}
+                          <Box height={1} />
+                          <Text dimColor>[Esc/q] back to runs</Text>
+                        </>
+                      ) : (
+                        <>
+                          <Text dimColor>Run history (latest first):</Text>
+                          {recentRuns.slice(0, 5).map((run, i) => (
+                            <Box key={run.id} flexDirection="row" gap={1} marginLeft={1}>
+                              <Text color={detailFocused && i === selectedRunIndex ? "white" : "gray"}>
+                                {detailFocused && i === selectedRunIndex ? "▶" : " "}
+                              </Text>
+                              <Text color={runStatusColor(run.status)}>{formatRunStatusLabel(run.status)}</Text>
+                              <Text dimColor>{run.startedAt.slice(11, 19)}</Text>
+                              {run.triggerDetail && <Text dimColor wrap="truncate-end">{run.triggerDetail}</Text>}
+                            </Box>
+                          ))}
+                          <Text dimColor>[Enter] open logs</Text>
+                        </>
+                      )}
                     </>
                   )}
                 </Box>

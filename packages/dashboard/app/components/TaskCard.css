@@ -444,6 +444,28 @@
   opacity: 0.7;
 }
 
+.card-time-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-sm);
+}
+
+.card-time-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid color-mix(in srgb, var(--text-muted) 30%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text-muted) 12%, transparent);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .card-progress-bar {
   flex: 1;
   height: 3px;
@@ -920,6 +942,15 @@
 
   .card-steps-toggle {
     padding: var(--space-xs) 0;
+  }
+
+  .card-time-row {
+    margin-top: var(--space-xs);
+  }
+
+  .card-time-indicator {
+    padding: var(--space-xs) var(--space-sm);
+    font-size: 10px;
   }
 
   /* Card: smaller status badges for 280px width */

@@ -115,6 +115,15 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+async function waitForFrameContains(lastFrame: () => string | undefined, text: string, timeoutMs = 1200) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if ((lastFrame() ?? "").includes(text)) return;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  throw new Error(`Timed out waiting for frame to include: ${text}`);
+}
+
 describe("DashboardApp smoke", () => {
   it("renders the splash logo and tagline before systemInfo arrives", () => {
     const controller = newController();
@@ -253,6 +262,45 @@ describe("Agents view", () => {
     const { lastFrame, unmount } = render(renderDashboardAppNode(controller));
     await new Promise((r) => setTimeout(r, 30));
     expect(lastFrame() ?? "").toContain("Agent Detail");
+    unmount();
+  });
+
+  it("shows run history with readable status labels and opens run logs for the selected run", async () => {
+    const controller = newController();
+    controller.setSystemInfo(makeSystemInfo());
+
+    const agents: AgentItem[] = [
+      { id: "a1", name: "worker-1", state: "active", role: "executor" },
+    ];
+    const detail: AgentDetailItem = {
+      id: "a1",
+      name: "worker-1",
+      state: "active",
+      role: "executor",
+      capabilities: ["executor"],
+      recentRuns: [
+        {
+          id: "run-1",
+          startedAt: new Date().toISOString(),
+          endedAt: new Date().toISOString(),
+          status: "completed",
+          stdoutExcerpt: "plan generated",
+        },
+      ],
+    };
+
+    controller.setInteractiveData(makeInteractiveData({ agents, detail }));
+    controller.setMode("interactive");
+    controller.setInteractiveView("agents");
+
+    const { lastFrame, stdin, unmount } = render(renderDashboardAppNode(controller));
+    await waitForFrameContains(lastFrame, "Run history (latest first):");
+    await waitForFrameContains(lastFrame, "Completed");
+
+    stdin.write("\r");
+    await waitForFrameContains(lastFrame, "Run logs (1)");
+    await waitForFrameContains(lastFrame, "plan generated");
+
     unmount();
   });
 });
