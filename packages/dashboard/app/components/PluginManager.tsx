@@ -38,6 +38,33 @@ interface PluginManagerProps {
   projectId?: string;
 }
 
+interface BundledRuntimePlugin {
+  id: string;
+  name: string;
+  path: string;
+  experimental?: boolean;
+}
+
+const BUNDLED_RUNTIME_PLUGINS: BundledRuntimePlugin[] = [
+  {
+    id: "fusion-plugin-hermes-runtime",
+    name: "Hermes Runtime",
+    path: "./plugins/fusion-plugin-hermes-runtime",
+    experimental: true,
+  },
+  {
+    id: "fusion-plugin-paperclip-runtime",
+    name: "Paperclip Runtime",
+    path: "./plugins/fusion-plugin-paperclip-runtime",
+  },
+  {
+    id: "fusion-plugin-openclaw-runtime",
+    name: "OpenClaw Runtime",
+    path: "./plugins/fusion-plugin-openclaw-runtime",
+    experimental: true,
+  },
+];
+
 export const STATE_COLORS: Record<string, string> = {
   started: "var(--color-success)",
   loaded: "var(--color-warning)",
@@ -56,6 +83,7 @@ export function PluginManager({ addToast, projectId }: PluginManagerProps) {
   const [selectedPlugin, setSelectedPlugin] = useState<PluginInstallation | null>(null);
   const [pluginSettings, setPluginSettings] = useState<Record<string, unknown>>({});
   const [settingsLoading, setSettingsLoading] = useState(false);
+  const [installingBundledPluginId, setInstallingBundledPluginId] = useState<string | null>(null);
 
   const loadPlugins = useCallback(async () => {
     try {
@@ -173,6 +201,19 @@ export function PluginManager({ addToast, projectId }: PluginManagerProps) {
     }
   };
 
+  const handleInstallBundledRuntimePlugin = async (plugin: BundledRuntimePlugin) => {
+    try {
+      setInstallingBundledPluginId(plugin.id);
+      await installPlugin({ path: plugin.path }, projectId);
+      addToast(`${plugin.name} installed successfully`, "success");
+      await loadPlugins();
+    } catch (err) {
+      addToast(`Failed to install ${plugin.name}: ${err instanceof Error ? err.message : String(err)}`, "error");
+    } finally {
+      setInstallingBundledPluginId(null);
+    }
+  };
+
   const handleEnable = async (plugin: PluginInstallation) => {
     try {
       await enablePlugin(plugin.id, projectId);
@@ -254,7 +295,7 @@ export function PluginManager({ addToast, projectId }: PluginManagerProps) {
             <X size={16} />
           </button>
           <div className="plugin-detail-title">
-            <h3>{selectedPlugin.name}</h3>
+            <h4 className="plugin-detail-name">{selectedPlugin.name}</h4>
             <span className="plugin-state-badge" style={{ color: STATE_COLORS[selectedPlugin.state] || STATE_COLORS.installed }}>
               {selectedPlugin.state}
             </span>
@@ -288,7 +329,7 @@ export function PluginManager({ addToast, projectId }: PluginManagerProps) {
           </div>
 
           <div className="plugin-detail-card">
-            <h4 className="settings-section-heading">Settings</h4>
+            <h5 className="plugin-detail-section-heading">Settings</h5>
             {settingsLoading ? (
               <p className="text-muted">Loading...</p>
             ) : selectedPlugin.settingsSchema && Object.keys(selectedPlugin.settingsSchema).length > 0 ? (
@@ -439,7 +480,7 @@ export function PluginManager({ addToast, projectId }: PluginManagerProps) {
                 Enable
               </button>
             )}
-            <button className="btn-danger" onClick={() => handleUninstall(selectedPlugin)}>
+            <button className="btn btn-danger" onClick={() => handleUninstall(selectedPlugin)}>
               <Trash2 size={14} /> Uninstall
             </button>
           </div>
@@ -447,6 +488,50 @@ export function PluginManager({ addToast, projectId }: PluginManagerProps) {
       </div>
     );
   }
+
+  const installedPluginIds = new Set(plugins.map((plugin) => plugin.id));
+
+  const renderBundledRuntimeSection = () => (
+    <section className="plugin-bundled-runtime-section" aria-label="Bundled Runtime Plugins">
+      <div className="plugin-bundled-runtime-header">
+        <h4 className="plugin-bundled-runtime-heading">Bundled Runtime Plugins</h4>
+        <p className="plugin-bundled-runtime-description">
+          Install Fusion&apos;s bundled runtimes directly from this screen.
+        </p>
+      </div>
+      <div className="plugin-bundled-runtime-list" aria-label="Bundled runtime plugin recommendations">
+        {BUNDLED_RUNTIME_PLUGINS.map((bundledPlugin) => {
+          const isInstalled = installedPluginIds.has(bundledPlugin.id);
+          return (
+            <div key={bundledPlugin.id} className="plugin-bundled-runtime-item">
+              <div className="plugin-bundled-runtime-meta">
+                <span className="plugin-bundled-runtime-name">{bundledPlugin.name}</span>
+                {bundledPlugin.experimental && (
+                  <span className="plugin-bundled-runtime-badge">Experimental</span>
+                )}
+                <span
+                  className={`plugin-bundled-runtime-status ${isInstalled ? "plugin-bundled-runtime-status--installed" : "plugin-bundled-runtime-status--available"}`}
+                >
+                  {isInstalled ? "Installed" : "Not installed"}
+                </span>
+              </div>
+              <button
+                className={`btn ${isInstalled ? "btn-secondary" : "btn-primary"} btn-sm`}
+                onClick={() => handleInstallBundledRuntimePlugin(bundledPlugin)}
+                disabled={isInstalled || installingBundledPluginId === bundledPlugin.id}
+              >
+                {isInstalled
+                  ? "Installed"
+                  : installingBundledPluginId === bundledPlugin.id
+                    ? "Installing..."
+                    : `Install ${bundledPlugin.name}`}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
 
   // Plugin list view
   return (
@@ -491,60 +576,65 @@ export function PluginManager({ addToast, projectId }: PluginManagerProps) {
 
       {loading ? (
         <div className="settings-empty-state">Loading plugins...</div>
-      ) : plugins.length === 0 ? (
-        <div className="settings-empty-state">
-          <Package size={32} className="text-muted" />
-          <p>No plugins installed.</p>
-          <p className="text-muted">Install a plugin to get started.</p>
-        </div>
       ) : (
-        <div className="plugin-list">
-          {plugins.map((plugin) => (
-            <div key={plugin.id} className="plugin-item">
-              <div className="plugin-info">
-                <span className="plugin-name">{plugin.name}</span>
-                <span className="plugin-version text-muted">v{plugin.version}</span>
-                <span className="plugin-state-badge" style={{ color: STATE_COLORS[plugin.state] || STATE_COLORS.installed }}>
-                  {plugin.state}
-                </span>
-              </div>
-              <div className="plugin-actions">
-                {plugin.state === "started" && (
-                  <button
-                    className="btn-icon"
-                    onClick={() => handleReload(plugin)}
-                    disabled={reloadingPluginId === plugin.id}
-                    title="Reload"
-                  >
-                    <RotateCcw size={14} className={reloadingPluginId === plugin.id ? "spin" : ""} />
-                  </button>
-                )}
-                <label className="toggle-switch">
-                  <input
-                    type="checkbox"
-                    checked={plugin.enabled}
-                    onChange={() => plugin.enabled ? handleDisable(plugin) : handleEnable(plugin)}
-                  />
-                  <span className="toggle-slider"></span>
-                </label>
-                <button
-                  className="btn-icon"
-                  onClick={() => handleSelectPlugin(plugin)}
-                  title="Settings"
-                >
-                  <Settings size={14} />
-                </button>
-                <button
-                  className="btn-icon"
-                  onClick={() => handleUninstall(plugin)}
-                  title="Uninstall"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
+        <>
+          {plugins.length === 0 ? (
+            <div className="settings-empty-state">
+              <Package size={32} className="text-muted" />
+              <p>No plugins installed.</p>
+              <p className="text-muted">Install a plugin to get started, or use a bundled runtime below.</p>
             </div>
-          ))}
-        </div>
+          ) : (
+            <div className="plugin-list">
+              {plugins.map((plugin) => (
+                <div key={plugin.id} className="plugin-item">
+                  <div className="plugin-info">
+                    <span className="plugin-name">{plugin.name}</span>
+                    <span className="plugin-version text-muted">v{plugin.version}</span>
+                    <span className="plugin-state-badge" style={{ color: STATE_COLORS[plugin.state] || STATE_COLORS.installed }}>
+                      {plugin.state}
+                    </span>
+                  </div>
+                  <div className="plugin-actions">
+                    {plugin.state === "started" && (
+                      <button
+                        className="btn-icon"
+                        onClick={() => handleReload(plugin)}
+                        disabled={reloadingPluginId === plugin.id}
+                        title="Reload"
+                      >
+                        <RotateCcw size={14} className={reloadingPluginId === plugin.id ? "spin" : ""} />
+                      </button>
+                    )}
+                    <label className="toggle-switch">
+                      <input
+                        type="checkbox"
+                        checked={plugin.enabled}
+                        onChange={() => plugin.enabled ? handleDisable(plugin) : handleEnable(plugin)}
+                      />
+                      <span className="toggle-slider"></span>
+                    </label>
+                    <button
+                      className="btn-icon"
+                      onClick={() => handleSelectPlugin(plugin)}
+                      title="Settings"
+                    >
+                      <Settings size={14} />
+                    </button>
+                    <button
+                      className="btn-icon"
+                      onClick={() => handleUninstall(plugin)}
+                      title="Uninstall"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {renderBundledRuntimeSection()}
+        </>
       )}
     </div>
   );

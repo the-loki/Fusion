@@ -236,7 +236,7 @@ export function PiExtensionsManager({ addToast, projectId }: PiExtensionsManager
   return (
     <div className="pi-ext-manager">
       <div className="pi-ext-manager-header">
-        <h4 className="settings-section-heading">Pi Extensions</h4>
+        <h4 className="pi-ext-manager-title">Pi Extensions</h4>
         <div className="pi-ext-manager-actions">
           <button className="btn-icon" onClick={loadSettings} title="Refresh" disabled={loading}>
             <RefreshCw size={16} className={loading ? "spin" : ""} />

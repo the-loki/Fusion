@@ -191,7 +191,28 @@ describe("PluginManager", () => {
     });
 
     expect(screen.getByText("No plugins installed.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Install$/ })).toBeTruthy();
+    expect(screen.getByText("Hermes Runtime")).toBeTruthy();
+    expect(screen.getByText("Paperclip Runtime")).toBeTruthy();
+    expect(screen.getByText("OpenClaw Runtime")).toBeTruthy();
+  });
+
+  it("installs bundled runtime plugins from the bundled runtime section", async () => {
+    render(<PluginManager addToast={addToast} />);
+
+    await waitFor(() => {
+      expect(fetchPlugins).toHaveBeenCalled();
+    });
+
+    const hermesCard = screen.getByText("Hermes Runtime").closest(".plugin-bundled-runtime-item");
+    expect(hermesCard).toBeTruthy();
+
+    const installButton = within(hermesCard as HTMLElement).getByRole("button", { name: /Install Hermes Runtime/i });
+    await userEvent.click(installButton);
+
+    await waitFor(() => {
+      expect(installPlugin).toHaveBeenCalledWith({ path: "./plugins/fusion-plugin-hermes-runtime" }, undefined);
+      expect(addToast).toHaveBeenCalledWith("Hermes Runtime installed successfully", "success");
+    });
   });
 
   it("renders plugin list when plugins are available", async () => {
@@ -206,6 +227,8 @@ describe("PluginManager", () => {
     expect(screen.getByText("Test Plugin B")).toBeTruthy();
     expect(screen.getByText("v1.0.0")).toBeTruthy();
     expect(screen.getByText("v2.0.0")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Bundled Runtime Plugins" })).toBeTruthy();
+    expect(screen.getAllByText("Not installed").length).toBeGreaterThan(0);
   });
 
   it("shows install form with directory picker and hint when Install button is clicked", async () => {
@@ -439,6 +462,29 @@ describe("PluginManager", () => {
     await waitFor(() => {
       expect(fetchPlugins).toHaveBeenCalledWith("proj-123");
     });
+  });
+
+  it("shows installed status and disables bundled runtime install button when already installed", async () => {
+    vi.mocked(fetchPlugins).mockResolvedValueOnce([
+      {
+        ...mockPlugins[0],
+        id: "fusion-plugin-hermes-runtime",
+        name: "Hermes Runtime Plugin",
+      },
+    ]);
+
+    render(<PluginManager addToast={addToast} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Hermes Runtime")).toBeTruthy();
+    });
+
+    const hermesCard = screen.getByText("Hermes Runtime").closest(".plugin-bundled-runtime-item");
+    expect(hermesCard).toBeTruthy();
+
+    const installButton = within(hermesCard as HTMLElement).getByRole("button", { name: /^Installed$/i });
+    expect(installButton).toBeDisabled();
+    expect(within(hermesCard as HTMLElement).getAllByText("Installed").length).toBeGreaterThanOrEqual(1);
   });
 
   describe("SSE Live Updates", () => {
@@ -988,6 +1034,25 @@ describe("PluginManager", () => {
 
       // But should not contain an h3 (heading is provided by SettingsModal's settings-section-heading)
       expect(header?.querySelector("h3")).toBeNull();
+    });
+
+    it("keeps plugin detail heading hierarchy with plugin title above settings section", async () => {
+      vi.mocked(fetchPlugins).mockResolvedValueOnce(mockPlugins);
+
+      render(<PluginManager addToast={addToast} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Test Plugin A")).toBeTruthy();
+      });
+
+      const settingsButtons = screen.getAllByTitle("Settings");
+      await userEvent.click(settingsButtons[0]);
+
+      const pluginTitle = await screen.findByRole("heading", { name: "Test Plugin A", level: 4 });
+      const settingsHeading = screen.getByRole("heading", { name: "Settings", level: 5 });
+
+      expect(pluginTitle).toBeTruthy();
+      expect(settingsHeading).toBeTruthy();
     });
   });
 });

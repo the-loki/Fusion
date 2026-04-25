@@ -12,7 +12,7 @@
   align-items: center;
   justify-content: space-between;
   padding-bottom: var(--space-sm);
-  border-bottom: 1px solid var(--border);
+  border-bottom: var(--btn-border-width) solid var(--border);
 }
 
 .plugin-manager-actions {
@@ -26,7 +26,7 @@
   flex-direction: column;
   gap: var(--space-sm);
   padding: var(--space-lg);
-  border: 1px solid var(--border);
+  border: var(--btn-border-width) solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
 }
@@ -39,7 +39,7 @@
 }
 
 .plugin-install-hint code {
-  padding: 1px var(--space-xs);
+  padding: var(--btn-border-width) var(--space-xs);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--text-muted) 12%, transparent);
   font-size: 0.85em;
@@ -63,7 +63,7 @@
   justify-content: space-between;
   padding: var(--space-md) var(--space-lg);
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: var(--btn-border-width) solid var(--border);
   border-radius: var(--radius-md);
   transition: border-color var(--transition-fast);
 }
@@ -109,6 +109,7 @@
   flex-shrink: 0;
 }
 
+
 /* Detail view */
 
 .plugin-manager-detail-header {
@@ -125,7 +126,7 @@
   flex-wrap: wrap;
 }
 
-.plugin-detail-title h3 {
+.plugin-detail-name {
   margin: 0;
 }
 
@@ -137,7 +138,7 @@
 
 .plugin-detail-card {
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: var(--btn-border-width) solid var(--border);
   border-radius: var(--radius-md);
   padding: var(--space-lg);
   display: flex;
@@ -167,9 +168,11 @@
   font-size: 0.85rem;
 }
 
-/* Plugin detail headings don't need extra margin (they're inside a tight card layout) */
-.plugin-settings-form .settings-section-heading {
+.plugin-detail-section-heading {
   margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 0.95rem;
 }
 
 .plugin-settings-form {
@@ -181,7 +184,7 @@
 
 .plugin-settings-form .form-group {
   padding: 0;
-  margin-bottom: 0;
+  margin: 0;
 }
 
 .plugin-settings-array {
@@ -204,7 +207,7 @@
   display: flex;
   gap: var(--space-sm);
   padding-top: var(--space-md);
-  border-top: 1px solid var(--border);
+  border-top: var(--btn-border-width) solid var(--border);
   justify-content: flex-end;
 }
 
@@ -220,6 +223,93 @@
   padding: var(--space-2xl);
   text-align: center;
   color: var(--text-muted);
+}
+
+.plugin-bundled-runtime-list {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.plugin-bundled-runtime-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: var(--btn-border-width) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.plugin-bundled-runtime-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.plugin-bundled-runtime-name {
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.plugin-bundled-runtime-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--btn-border-width) var(--space-xs);
+  border-radius: var(--radius-pill);
+  background: var(--status-in-review-bg);
+  color: var(--in-review);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.plugin-bundled-runtime-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.plugin-bundled-runtime-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.plugin-bundled-runtime-heading {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.plugin-bundled-runtime-description {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.plugin-bundled-runtime-status {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--btn-border-width) var(--space-xs);
+  border-radius: var(--radius-pill);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.plugin-bundled-runtime-status--installed {
+  background: var(--status-done-bg);
+  color: var(--done);
+}
+
+.plugin-bundled-runtime-status--available {
+  background: var(--status-todo-bg);
+  color: var(--todo);
 }
 
 @media (max-width: 768px) {
@@ -242,19 +332,57 @@
 
   .plugin-item {
     padding: var(--space-md);
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-sm);
+  }
+
+  .plugin-info {
+    width: 100%;
+    flex-wrap: wrap;
+    row-gap: var(--space-xs);
+  }
+
+  .plugin-name {
+    flex: 1 1 100%;
+    white-space: normal;
   }
 
   .plugin-actions {
-    gap: var(--space-xs);
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+  }
+
+  .plugin-actions .btn-icon,
+  .plugin-actions .toggle-switch {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  .plugin-actions .toggle-switch {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .plugin-detail-actions {
     flex-wrap: wrap;
-    justify-content: stretch;
+    justify-content: flex-start;
   }
 
   .plugin-detail-actions button {
     flex: 1 1 auto;
+    min-height: 36px;
+  }
+
+  .plugin-bundled-runtime-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .plugin-bundled-runtime-item .btn {
     min-height: 36px;
   }
 }

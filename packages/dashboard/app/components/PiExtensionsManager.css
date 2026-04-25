@@ -14,8 +14,11 @@
   border-bottom: 1px solid var(--border);
 }
 
-.pi-ext-manager-header .settings-section-heading {
+.pi-ext-manager-title {
   margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
 }
 
 .pi-ext-manager-actions {

@@ -439,69 +439,6 @@
 }
 
 
-/* Plugin toggle switch */
-.toggle-switch {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: calc(var(--space-xl) + var(--space-lg) + var(--space-xs));
-  min-height: calc(var(--space-xl) + var(--space-lg) + var(--space-xs));
-  cursor: pointer;
-}
-
-.toggle-switch input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  border: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
-.toggle-switch .toggle-slider {
-  width: calc(var(--space-lg) * 2 + var(--space-sm));
-  height: calc(var(--space-md) * 2);
-  background: var(--border);
-  border-radius: var(--radius-pill);
-  transition: background var(--transition-normal);
-  position: relative;
-}
-
-.toggle-switch .toggle-slider::after {
-  content: "";
-  position: absolute;
-  top: var(--space-xs);
-  left: var(--space-xs);
-  width: calc(var(--space-md) + var(--space-xs));
-  height: calc(var(--space-md) + var(--space-xs));
-  background: var(--card);
-  border-radius: var(--radius-pill);
-  transition: transform var(--transition-normal);
-}
-
-.toggle-switch input:focus-visible + .toggle-slider {
-  box-shadow: var(--focus-ring-strong);
-}
-
-.toggle-switch input:checked + .toggle-slider {
-  background: var(--in-review);
-}
-
-.toggle-switch input:checked + .toggle-slider::after {
-  transform: translateX(calc(var(--space-md) + var(--space-xs)));
-}
-
-.toggle-switch input:disabled + .toggle-slider {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-
 
 /* Mobile responsive for file mention popup */
 @media (max-width: 768px) {

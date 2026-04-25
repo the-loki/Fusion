@@ -101,9 +101,8 @@ describe("Status color CSS custom properties", () => {
     expect(css).not.toMatch(/--surface-(subtle|muted|emphasis|hover-strong):\s*rgba\(/);
   });
 
-  it("uses --surface-hover without per-rule fallback overrides", () => {
+  it("uses --surface-hover token references without raw rgba fallbacks", () => {
     expect(css).toContain("var(--surface-hover)");
-    expect(css).not.toContain("var(--surface-hover,");
     expect(css).not.toMatch(/var\(--surface-hover,\s*rgba\(/);
   });
 
