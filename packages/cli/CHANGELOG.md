@@ -1,5 +1,11 @@
 # @runfusion/fusion
 
+## 0.2.0
+
+### Minor Changes
+
+- a8f5591: Add support for an optional custom ntfy server URL in notification settings, with default fallback to `https://ntfy.sh` when unset.
+
 ## 0.1.3
 
 ### Patch Changes
