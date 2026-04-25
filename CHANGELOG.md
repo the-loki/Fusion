@@ -2,6 +2,40 @@
 
 User-facing release notes aggregated across all packages. This file is auto-synced from each `packages/*/CHANGELOG.md` by `scripts/release.mjs` — do not edit by hand.
 
+## 0.2.6
+
+### @fusion/dashboard
+
+#### Patch Changes
+
+- @fusion/core@0.2.6
+- @fusion/engine@0.2.6
+
+### @fusion/engine
+
+#### Patch Changes
+
+- @fusion/core@0.2.6
+
+### @fusion/plugin-sdk
+
+#### Patch Changes
+
+- @fusion/core@0.2.6
+
+### @runfusion/fusion
+
+#### Patch Changes
+
+- dbc9446: Add a blocking dashboard token-recovery dialog that appears only for daemon bearer-token 401 responses, with set-token or clear-token recovery actions that reload the app.
+
+### runfusion.ai
+
+#### Patch Changes
+
+- Updated dependencies [dbc9446]
+  - @runfusion/fusion@0.2.6
+
 ## 0.2.5
 
 ### @runfusion/fusion

@@ -1,5 +1,11 @@
 # @runfusion/fusion
 
+## 0.2.6
+
+### Patch Changes
+
+- dbc9446: Add a blocking dashboard token-recovery dialog that appears only for daemon bearer-token 401 responses, with set-token or clear-token recovery actions that reload the app.
+
 ## 0.2.5
 
 ### Patch Changes

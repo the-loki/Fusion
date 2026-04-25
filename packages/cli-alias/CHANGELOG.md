@@ -1,5 +1,12 @@
 # runfusion.ai
 
+## 0.2.6
+
+### Patch Changes
+
+- Updated dependencies [dbc9446]
+  - @runfusion/fusion@0.2.6
+
 ## 0.2.5
 
 ### Patch Changes
