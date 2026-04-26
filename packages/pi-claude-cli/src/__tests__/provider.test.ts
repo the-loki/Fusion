@@ -1292,7 +1292,7 @@ describe("streamViaCli", () => {
   });
 
   describe("inactivity timeout", () => {
-    it("kills subprocess and pushes error after 300s of no output", async () => {
+    it("kills subprocess and pushes error after 1800s of no output", async () => {
       const model = mockModels[0] as any;
       const context = {
         messages: [{ role: "user", content: "Hello" }],
@@ -1303,8 +1303,8 @@ describe("streamViaCli", () => {
 
       const proc = (spawn as any).mock.results[0].value;
 
-      // Advance timers by 300 seconds without writing to stdout
-      await vi.advanceTimersByTimeAsync(300_000);
+      // Advance timers by 1800 seconds without writing to stdout
+      await vi.advanceTimersByTimeAsync(1_800_000);
 
       const mockStream = MockAssistantMessageEventStream.mock.instances[0];
       const doneEvent = mockStream._events.find(
@@ -1331,7 +1331,7 @@ describe("streamViaCli", () => {
       const proc = (spawn as any).mock.results[0].value;
 
       // Advance to 290s then write a line (just under the 300s cap)
-      await vi.advanceTimersByTimeAsync(290_000);
+      await vi.advanceTimersByTimeAsync(1_790_000);
 
       // Write a stream event line
       proc.stdout.write(
@@ -1346,7 +1346,7 @@ describe("streamViaCli", () => {
       await vi.advanceTimersByTimeAsync(0);
 
       // Advance another 290s (580s total, 290s since last line) -- should NOT timeout
-      await vi.advanceTimersByTimeAsync(290_000);
+      await vi.advanceTimersByTimeAsync(1_790_000);
 
       const mockStream = MockAssistantMessageEventStream.mock.instances[0];
       const doneEvent = mockStream._events.find(
@@ -1354,7 +1354,7 @@ describe("streamViaCli", () => {
       );
       expect(doneEvent).toBeUndefined();
 
-      // Advance 10 more seconds (300s since last line) -- NOW should timeout
+      // Advance 10 more seconds (1800s since last line) -- NOW should timeout
       await vi.advanceTimersByTimeAsync(10_000);
 
       const doneEvent2 = mockStream._events.find(
@@ -1401,7 +1401,7 @@ describe("streamViaCli", () => {
       await vi.advanceTimersByTimeAsync(100);
 
       // Advance past 180s -- should NOT timeout since result was received
-      await vi.advanceTimersByTimeAsync(300_000);
+      await vi.advanceTimersByTimeAsync(1_800_000);
 
       const mockStream = MockAssistantMessageEventStream.mock.instances[0];
       const errorEvents = mockStream._events.filter(

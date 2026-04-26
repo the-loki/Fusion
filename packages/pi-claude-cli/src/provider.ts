@@ -45,13 +45,22 @@ import { handleControlRequest } from "./control-handler.js";
 import { mapThinkingEffort } from "./thinking-config.js";
 import { isPiKnownClaudeTool } from "./tool-mapping.js";
 /**
- * Inactivity timeout: kill the Claude CLI subprocess if no stdout arrives
- * for this long. Sonnet 4.6 with extended thinking on large system prompts
- * (e.g. the triage prompt + AGENTS.md + skill blocks ~ 40k chars) can take
- * minutes between thinking deltas; a 3-minute timeout was killing those
- * sessions before they could call fn_review_spec. Bump to 5 minutes.
+ * Inactivity safety net for the Claude CLI subprocess.
+ *
+ * Set very high (30 minutes) because the caller is the authoritative source of
+ * truth for "this session is stuck": Fusion's engine runs a `StuckTaskDetector`
+ * with a configurable heartbeat (default 1 hour) and aborts the session via
+ * `AbortSignal` when it decides the agent has gone quiet. pi-claude-cli already
+ * forwards that signal to the subprocess (`forceKillProcess` on `signal.abort`).
+ *
+ * A short timeout here was racing the engine: Sonnet 4.6 with extended thinking
+ * on the triage prompt (~40k chars) routinely goes >3 minutes between thinking
+ * deltas, and we were killing those subprocesses before they could write
+ * PROMPT.md and call `fn_review_spec`. The half-hour ceiling is just a
+ * last-resort guard for catastrophically hung processes when no abort signal
+ * arrives (e.g. someone embeds pi-claude-cli without a stuck detector).
  */
-const INACTIVITY_TIMEOUT_MS = 300_000;
+const INACTIVITY_TIMEOUT_MS = 30 * 60_000;
 
 /** Extended stream options: pi's SimpleStreamOptions plus optional cwd and mcpConfigPath */
 type StreamViaCLiOptions = SimpleStreamOptions & {
