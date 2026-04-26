@@ -3,6 +3,7 @@ import type { TaskStore, Task, TaskDetail, Settings } from "@fusion/core";
 import {
   TriageProcessor,
   TRIAGE_SYSTEM_PROMPT,
+  FAST_TRIAGE_SYSTEM_PROMPT,
   buildSpecificationPrompt,
   readAttachmentContents,
   computeUserCommentFingerprint,
@@ -562,6 +563,155 @@ describe("TRIAGE_SYSTEM_PROMPT", () => {
   });
 });
 
+describe("fast-mode triage", () => {
+  it("exports a lean FAST_TRIAGE_SYSTEM_PROMPT", () => {
+    expect(typeof FAST_TRIAGE_SYSTEM_PROMPT).toBe("string");
+    expect(FAST_TRIAGE_SYSTEM_PROMPT.length).toBeGreaterThan(0);
+    expect(FAST_TRIAGE_SYSTEM_PROMPT).toContain("This task is running in **fast mode**");
+    expect(FAST_TRIAGE_SYSTEM_PROMPT).toContain("fn_review_spec()");
+    expect(FAST_TRIAGE_SYSTEM_PROMPT).not.toContain("## Review Level");
+    expect(FAST_TRIAGE_SYSTEM_PROMPT).not.toContain("## Triage subtask breakdown");
+    expect(FAST_TRIAGE_SYSTEM_PROMPT).not.toContain("## Proactive Subtask Breakdown");
+    expect(FAST_TRIAGE_SYSTEM_PROMPT).not.toContain("Frontend UX Criteria");
+  });
+
+  it("selects FAST_TRIAGE_SYSTEM_PROMPT for fast tasks", async () => {
+    const task = createTriageTask({ id: "FN-FAST-001", executionMode: "fast" });
+    const store = createMockStore({
+      getTask: vi.fn().mockResolvedValue({ ...mockTaskDetail, id: task.id, attachments: [], comments: [] }),
+    });
+
+    let capturedSystemPrompt = "";
+    mockCreateFnAgent.mockImplementationOnce(async (opts: any) => {
+      capturedSystemPrompt = opts.systemPrompt;
+      return {
+        session: {
+          state: {},
+          sessionManager: { getLeafId: vi.fn().mockReturnValue(null) },
+          prompt: vi.fn().mockResolvedValue(undefined),
+          dispose: vi.fn(),
+          navigateTree: vi.fn(),
+        },
+      };
+    });
+
+    const processor = new TriageProcessor(store, "/tmp/root");
+    await processor.specifyTask(task);
+
+    expect(capturedSystemPrompt).toContain("This task is running in **fast mode**");
+    expect(capturedSystemPrompt).not.toContain("## Review Level");
+  });
+
+  it("keeps standard prompt for standard tasks", async () => {
+    const task = createTriageTask({ id: "FN-FAST-002", executionMode: "standard" });
+    const store = createMockStore({
+      getTask: vi.fn().mockResolvedValue({ ...mockTaskDetail, id: task.id, attachments: [], comments: [] }),
+    });
+
+    let capturedSystemPrompt = "";
+    mockCreateFnAgent.mockImplementationOnce(async (opts: any) => {
+      capturedSystemPrompt = opts.systemPrompt;
+      return {
+        session: {
+          state: {},
+          sessionManager: { getLeafId: vi.fn().mockReturnValue(null) },
+          prompt: vi.fn().mockResolvedValue(undefined),
+          dispose: vi.fn(),
+          navigateTree: vi.fn(),
+        },
+      };
+    });
+
+    const processor = new TriageProcessor(store, "/tmp/root");
+    await processor.specifyTask(task);
+
+    expect(capturedSystemPrompt).toContain("## Review Level");
+  });
+
+  it("auto-approves fn_review_spec in fast mode without calling reviewer", async () => {
+    const rootDir = await createTriageFixtureRoot("fusion-triage-fast-review-");
+    try {
+      const taskId = "FN-FAST-003";
+      await mkdir(join(rootDir, ".fusion", "tasks", taskId), { recursive: true });
+      await writeFile(join(rootDir, ".fusion", "tasks", taskId, "PROMPT.md"), "# Task\n\nSpec");
+
+      const store = createMockStore({
+        getTask: vi.fn().mockResolvedValue({ ...mockTaskDetail, id: taskId, comments: [] }),
+      });
+      const processor = new TriageProcessor(store, rootDir);
+      const verdictRef = { current: null as any };
+      const approvedCommentFingerprintRef = { current: "" };
+
+      const tool = (processor as any).createReviewSpecTool(
+        taskId,
+        `.fusion/tasks/${taskId}/PROMPT.md`,
+        { current: null },
+        { current: null },
+        verdictRef,
+        approvedCommentFingerprintRef,
+        {},
+        true,
+      );
+
+      const result = await tool.execute({});
+
+      expect(mockReviewStep).not.toHaveBeenCalled();
+      expect(verdictRef.current).toBe("APPROVE");
+      expect(result.content[0]?.text).toBe("APPROVE");
+      expect(store.logEntry).toHaveBeenCalledWith(taskId, "Spec review: APPROVE (auto, fast mode)");
+    } finally {
+      await cleanupTriageFixtureRoot(rootDir);
+    }
+  });
+
+  it("passes post-session gate in fast mode after fn_review_spec auto-approval", async () => {
+    const rootDir = await createTriageFixtureRoot("fusion-triage-fast-gate-");
+    try {
+      const task = createTriageTask({ id: "FN-FAST-004", executionMode: "fast" });
+      const promptPath = join(rootDir, ".fusion", "tasks", task.id, "PROMPT.md");
+      await mkdir(join(rootDir, ".fusion", "tasks", task.id), { recursive: true });
+
+      const store = createMockStore({
+        getTask: vi.fn().mockResolvedValue({ ...mockTaskDetail, id: task.id, attachments: [], comments: [] }),
+        parseDependenciesFromPrompt: vi.fn().mockResolvedValue([]),
+        parseStepsFromPrompt: vi.fn().mockResolvedValue([]),
+        parseFileScopeFromPrompt: vi.fn().mockResolvedValue([]),
+      });
+
+      let capturedTools: any[] = [];
+      mockCreateFnAgent.mockImplementationOnce(async (opts: any) => {
+        capturedTools = opts.customTools;
+        return {
+          session: {
+            state: {},
+            sessionManager: { getLeafId: vi.fn().mockReturnValue(null) },
+            prompt: vi.fn().mockResolvedValue(undefined),
+            dispose: vi.fn(),
+            navigateTree: vi.fn(),
+          },
+        };
+      });
+
+      const { promptWithFallback } = await import("../pi.js");
+      (promptWithFallback as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => {
+        await writeFile(promptPath, "# Task: FN-FAST-004 - Fast\n\n## Mission\n\nShip it.");
+        const reviewTool = capturedTools.find((tool) => tool.name === "fn_review_spec");
+        expect(reviewTool).toBeDefined();
+        await reviewTool.execute({});
+      });
+
+      const processor = new TriageProcessor(store, rootDir);
+      await processor.specifyTask(task);
+
+      expect(mockReviewStep).not.toHaveBeenCalled();
+      expect(store.moveTask).toHaveBeenCalledWith("FN-FAST-004", "todo");
+      expect(store.logEntry).toHaveBeenCalledWith("FN-FAST-004", "Spec review: APPROVE (auto, fast mode)");
+    } finally {
+      await cleanupTriageFixtureRoot(rootDir);
+    }
+  });
+});
+
 describe("readAttachmentContents", () => {
   let testDir = "";
   const taskId = "FN-TEST";
@@ -860,6 +1010,7 @@ describe("TriageProcessor", () => {
           projectValidatorProvider: "anthropic",
           projectValidatorModelId: "claude-opus-4-6",
         },
+        false,
       );
 
       await tool.execute({});
@@ -2283,6 +2434,7 @@ describe("stale approval detection", () => {
       { current: null },
       approvedCommentFingerprintRef,
       {},
+      false,
     );
 
     // Execute fn_review_spec — should capture fingerprint at APPROVE time
@@ -2330,6 +2482,7 @@ describe("stale approval detection", () => {
       { current: null },
       approvedCommentFingerprintRef,
       {},
+      false,
     );
 
     await tool.execute({});
