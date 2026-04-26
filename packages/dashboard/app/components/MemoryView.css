@@ -175,6 +175,102 @@
   align-items: center;
 }
 
+.memory-empty-extract-button {
+  margin-top: var(--space-md);
+}
+
+.memory-stat-value--updated {
+  font-size: var(--space-lg);
+}
+
+.memory-capability-row {
+  display: flex;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.memory-emphasis-text {
+  font-weight: 500;
+}
+
+.memory-health-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-md);
+}
+
+.memory-health-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+}
+
+.memory-health-label {
+  font-size: var(--space-md);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-bottom: var(--space-xs);
+}
+
+.memory-health-detail {
+  font-size: var(--space-md);
+  color: var(--text-muted);
+}
+
+.memory-health-section {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+}
+
+.memory-status-text--success {
+  color: var(--color-success);
+}
+
+.memory-status-text--error {
+  color: var(--color-error);
+}
+
+.memory-status-text--warning {
+  color: var(--color-warning);
+}
+
+.memory-status-text--muted {
+  color: var(--text-muted);
+}
+
+.memory-audit-check-content {
+  flex: 1;
+}
+
+.memory-settings-note {
+  margin-top: var(--space-lg);
+  font-size: var(--space-md);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+.memory-settings-note-button {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.memory-settings-note-button:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring-strong);
+}
+
 .memory-empty-state {
   color: var(--text-muted);
   padding: var(--space-2xl);
@@ -279,6 +375,10 @@
   padding: var(--space-sm) 0;
 }
 
+.memory-flex-spacer {
+  flex: 1;
+}
+
 .memory-qmd-card {
   border-style: solid;
 }
@@ -344,6 +444,10 @@
 
   .memory-settings-group {
     padding: var(--space-xs) 0;
+  }
+
+  .memory-health-grid {
+    grid-template-columns: 1fr;
   }
 
   .memory-config-section {

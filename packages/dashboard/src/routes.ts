@@ -2147,61 +2147,6 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
   const heartbeatMonitor = options?.heartbeatMonitor;
   const hasHeartbeatExecutor = Boolean(heartbeatMonitor);
 
-  const REMOTE_MIN_TTL_MS = 60_000;
-  const REMOTE_MAX_TTL_MS = 86_400_000;
-  const remoteShortLivedTokens = new Map<string, { expiresAt: number }>();
-
-  function generateRemoteToken(): string {
-    return `rtok_${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
-  }
-
-  function maskRemoteToken(token: string): string {
-    if (token.length <= 8) return "********";
-    return `${token.slice(0, 4)}…${token.slice(-4)}`;
-  }
-
-  async function ensurePersistentRemoteToken(scopedStore: TaskStore): Promise<string> {
-    const settings = await scopedStore.getSettings();
-    const existing = typeof settings.remotePersistentToken === "string" ? settings.remotePersistentToken : "";
-    if (existing) return existing;
-    const token = generateRemoteToken();
-    await scopedStore.updateSettings({ remotePersistentToken: token });
-    return token;
-  }
-
-  function resolveRemoteOrigin(req: Request): string {
-    const protocol = req.protocol || "http";
-    const hostHeader = req.get("host") ?? "127.0.0.1:4040";
-    return `${protocol}://${hostHeader}`;
-  }
-
-  async function buildRemoteUrlForTokenType(
-    scopedStore: TaskStore,
-    req: Request,
-    tokenType: "persistent" | "short-lived",
-    ttlMs?: number,
-  ): Promise<{ url: string; tokenType: "persistent" | "short-lived"; expiresAt: string | null }> {
-    const baseUrl = new URL(resolveRemoteOrigin(req));
-    let token: string;
-    let expiresAt: string | null = null;
-
-    if (tokenType === "short-lived") {
-      const ttl = Math.floor(Number(ttlMs ?? 900_000));
-      if (!Number.isFinite(ttl) || ttl < REMOTE_MIN_TTL_MS || ttl > REMOTE_MAX_TTL_MS) {
-        throw new ApiError(400, "Short-lived token ttlMs out of range", { code: "INVALID_TTL" });
-      }
-      token = generateRemoteToken();
-      const expiryMs = Date.now() + ttl;
-      remoteShortLivedTokens.set(token, { expiresAt: expiryMs });
-      expiresAt = new Date(expiryMs).toISOString();
-    } else {
-      token = await ensurePersistentRemoteToken(scopedStore);
-    }
-
-    baseUrl.searchParams.set("token", token);
-    return { url: baseUrl.toString(), tokenType, expiresAt };
-  }
-
   /**
    * Check whether the heartbeatMonitor is bound to the same project as scopedStore.
    * Returns false when the monitor's rootDir is set and differs from the store's root.

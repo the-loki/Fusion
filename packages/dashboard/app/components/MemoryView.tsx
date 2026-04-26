@@ -462,7 +462,7 @@ export function MemoryView({ projectId, addToast }: MemoryViewProps) {
 
                 <div className="memory-action-bar">
                   <span className="memory-char-count">{selectedFileContent.length} characters</span>
-                  <div style={{ flex: 1 }} />
+                  <div className="memory-flex-spacer" />
                   {isWritable && selectedFileContent.length > 0 && (
                     <button
                       type="button"
@@ -681,10 +681,9 @@ export function MemoryView({ projectId, addToast }: MemoryViewProps) {
                 </p>
                 <button
                   type="button"
-                  className="btn btn-primary btn-sm"
+                  className="btn btn-primary btn-sm memory-empty-extract-button"
                   onClick={handleExtractInsights}
                   disabled={extracting}
-                  style={{ marginTop: "var(--space-md)" }}
                 >
                   {extracting ? (
                     <>
@@ -710,7 +709,7 @@ export function MemoryView({ projectId, addToast }: MemoryViewProps) {
                   </div>
                   {lastUpdated && (
                     <div className="memory-stat-card">
-                      <div className="memory-stat-value" style={{ fontSize: "16px" }}>{lastUpdated}</div>
+                      <div className="memory-stat-value memory-stat-value--updated">{lastUpdated}</div>
                       <div className="memory-stat-label">Last Updated</div>
                     </div>
                   )}
@@ -819,7 +818,7 @@ export function MemoryView({ projectId, addToast }: MemoryViewProps) {
                       <span className="memory-char-count">Checking qmd availability…</span>
                     </div>
                   )}
-                  <div style={{ display: "flex", gap: "var(--space-xs)", marginTop: "var(--space-sm)", flexWrap: "wrap" }}>
+                  <div className="memory-capability-row">
                     {backendStatus?.capabilities?.readable && (
                       <span className="memory-capability-badge">Readable</span>
                     )}
@@ -888,9 +887,9 @@ export function MemoryView({ projectId, addToast }: MemoryViewProps) {
                 <div className="memory-engine-card">
                   <h3>Current Backend</h3>
                   <div className="memory-engine-status">
-                    <span style={{ fontWeight: 500 }}>{getBackendDisplayName(backendStatus?.currentBackend ?? "unknown")}</span>
+                    <span className="memory-emphasis-text">{getBackendDisplayName(backendStatus?.currentBackend ?? "unknown")}</span>
                   </div>
-                  <div style={{ display: "flex", gap: "var(--space-xs)", marginTop: "var(--space-sm)", flexWrap: "wrap" }}>
+                  <div className="memory-capability-row">
                     {backendStatus?.capabilities?.readable && (
                       <span className="memory-capability-badge">Readable</span>
                     )}
@@ -909,63 +908,55 @@ export function MemoryView({ projectId, addToast }: MemoryViewProps) {
                 {/* Health Status Card */}
                 {auditReport && (
                   <div className="memory-engine-card">
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-md)" }}>
+                    <div className="memory-health-header">
                       <h3>Health Status</h3>
                       <span className={`memory-health-badge memory-health-badge--${auditReport.health}`}>
                         {getHealthBadgeText(auditReport.health)}
                       </span>
                     </div>
 
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-md)" }}>
+                    <div className="memory-health-grid">
                       <div>
-                        <div style={{ fontSize: "12px", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: "var(--space-xs)" }}>
-                          Working Memory
-                        </div>
-                        <div style={{ fontWeight: 500 }}>{auditReport.workingMemory.size} chars</div>
-                        <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+                        <div className="memory-health-label">Working Memory</div>
+                        <div className="memory-emphasis-text">{auditReport.workingMemory.size} chars</div>
+                        <div className="memory-health-detail">
                           {auditReport.workingMemory.sectionCount} sections
                         </div>
                       </div>
                       <div>
-                        <div style={{ fontSize: "12px", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: "var(--space-xs)" }}>
-                          Insights Memory
-                        </div>
-                        <div style={{ fontWeight: 500 }}>{auditReport.insightsMemory.size} chars</div>
-                        <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+                        <div className="memory-health-label">Insights Memory</div>
+                        <div className="memory-emphasis-text">{auditReport.insightsMemory.size} chars</div>
+                        <div className="memory-health-detail">
                           {auditReport.insightsMemory.insightCount} insights
                         </div>
                       </div>
                     </div>
 
-                    <div style={{ marginTop: "var(--space-md)", paddingTop: "var(--space-md)", borderTop: "1px solid var(--border)" }}>
-                      <div style={{ fontSize: "12px", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: "var(--space-xs)" }}>
-                        Last Extraction
-                      </div>
-                      <div style={{ fontWeight: 500 }}>
+                    <div className="memory-health-section">
+                      <div className="memory-health-label">Last Extraction</div>
+                      <div className="memory-emphasis-text">
                         {auditReport.extraction.success ? (
-                          <span style={{ color: "var(--color-success)" }}>Success</span>
+                          <span className="memory-status-text memory-status-text--success">Success</span>
                         ) : (
-                          <span style={{ color: "var(--color-error)" }}>Failed</span>
+                          <span className="memory-status-text memory-status-text--error">Failed</span>
                         )}
                       </div>
-                      <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+                      <div className="memory-health-detail">
                         {auditReport.extraction.summary || `${auditReport.extraction.insightCount} insights extracted`}
                       </div>
                     </div>
 
-                    <div style={{ marginTop: "var(--space-md)", paddingTop: "var(--space-md)", borderTop: "1px solid var(--border)" }}>
-                      <div style={{ fontSize: "12px", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: "var(--space-xs)" }}>
-                        Pruning
-                      </div>
-                      <div style={{ fontWeight: 500 }}>
+                    <div className="memory-health-section">
+                      <div className="memory-health-label">Pruning</div>
+                      <div className="memory-emphasis-text">
                         {auditReport.pruning.applied ? (
-                          <span style={{ color: "var(--color-warning)" }}>Applied</span>
+                          <span className="memory-status-text memory-status-text--warning">Applied</span>
                         ) : (
-                          <span style={{ color: "var(--text-muted)" }}>Not needed</span>
+                          <span className="memory-status-text memory-status-text--muted">Not needed</span>
                         )}
                       </div>
                       {auditReport.pruning.applied && (
-                        <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+                        <div className="memory-health-detail">
                           {auditReport.pruning.reason}
                         </div>
                       )}
@@ -983,9 +974,9 @@ export function MemoryView({ projectId, addToast }: MemoryViewProps) {
                           <span className={check.passed ? "memory-audit-check-passed" : "memory-audit-check-failed"}>
                             {check.passed ? "✓" : "✗"}
                           </span>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: 500 }}>{check.name}</div>
-                            <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>{check.details}</div>
+                          <div className="memory-audit-check-content">
+                            <div className="memory-emphasis-text">{check.name}</div>
+                            <div className="memory-health-detail">{check.details}</div>
                           </div>
                         </div>
                       ))}
@@ -1005,10 +996,11 @@ export function MemoryView({ projectId, addToast }: MemoryViewProps) {
                 </div>
 
                 {/* Note about Settings */}
-                <div style={{ marginTop: "var(--space-lg)", fontSize: "13px", color: "var(--text-muted)" }}>
-                  Note: Change backend type in{' '}
-                  <span
-                    style={{ cursor: "pointer", textDecoration: "underline" }}
+                <div className="memory-settings-note">
+                  <span>Note: Change backend type in</span>
+                  <button
+                    type="button"
+                    className="memory-settings-note-button"
                     onClick={() => {
                       // This would open the settings modal with memory section focused
                       // For now, just add a toast hint
@@ -1016,7 +1008,7 @@ export function MemoryView({ projectId, addToast }: MemoryViewProps) {
                     }}
                   >
                     Settings → Memory
-                  </span>
+                  </button>
                 </div>
               </>
             )}

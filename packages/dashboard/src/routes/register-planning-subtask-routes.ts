@@ -14,7 +14,7 @@ interface PlanningSubtaskRouteDeps {
 
 export function registerPlanningSubtaskRoutes(ctx: ApiRoutesContext, deps: PlanningSubtaskRouteDeps): void {
   const { router, getProjectContext, planningLogger, rethrowAsApiError } = ctx;
-  const { store, aiSessionStore, checkSessionLock, parseLastEventId, replayBufferedSSE } = deps;
+  const { aiSessionStore, checkSessionLock, parseLastEventId, replayBufferedSSE } = deps;
 
   // ── Planning Mode Routes ──────────────────────────────────────────────────
   // UTILITY PATH: Planning and subtask session routes are on a separate control-plane lane.
@@ -185,7 +185,7 @@ export function registerPlanningSubtaskRoutes(ctx: ApiRoutesContext, deps: Plann
       }
 
       // Fetch parent task to inherit model settings if parentTaskId is provided
-      let parentTask: Awaited<ReturnType<typeof store.getTask>> | undefined;
+      let parentTask: Awaited<ReturnType<TaskStore["getTask"]>> | undefined;
       if (typeof parentTaskId === "string" && parentTaskId.trim()) {
         try {
           parentTask = await scopedStore.getTask(parentTaskId);
@@ -195,7 +195,7 @@ export function registerPlanningSubtaskRoutes(ctx: ApiRoutesContext, deps: Plann
         }
       }
 
-      const createdTasks = [] as Awaited<ReturnType<typeof store.createTask>>[];
+      const createdTasks = [] as Awaited<ReturnType<TaskStore["createTask"]>>[];
       const tempIdToTaskId = new Map<string, string>();
 
       for (const item of subtasks) {
@@ -912,7 +912,7 @@ export function registerPlanningSubtaskRoutes(ctx: ApiRoutesContext, deps: Plann
         }
       }
 
-      const createdTasks = [] as Awaited<ReturnType<typeof store.createTask>>[];
+      const createdTasks = [] as Awaited<ReturnType<TaskStore["createTask"]>>[];
       const tempIdToTaskId = new Map<string, string>();
 
       // Create tasks

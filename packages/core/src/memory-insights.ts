@@ -81,6 +81,9 @@ export const MEMORY_INSIGHTS_PATH = ".fusion/memory-insights.md";
 /** Path to memory audit report relative to project root. */
 export const MEMORY_AUDIT_PATH = ".fusion/memory-audit.md";
 
+/** Path to persisted memory audit state (latest extraction/pruning metadata). */
+export const MEMORY_AUDIT_STATE_PATH = ".fusion/memory-audit-state.json";
+
 /** Default cron schedule for insight extraction: daily at 2 AM. */
 export const DEFAULT_INSIGHT_SCHEDULE = "0 2 * * *";
 
@@ -167,6 +170,17 @@ export interface MemoryAuditCheck {
   details: string;
 }
 
+/** Persisted extraction metadata used by audits/routes. */
+export interface MemoryExtractionMetadata {
+  runAt: string;
+  success: boolean;
+  insightCount: number;
+  duplicateCount: number;
+  skippedCount: number;
+  summary: string;
+  error?: string;
+}
+
 /** Result of a memory audit run. */
 export interface MemoryAuditReport {
   /** ISO-8601 timestamp of the audit. */
@@ -187,15 +201,7 @@ export interface MemoryAuditReport {
     lastUpdated?: string;
   };
   /** Extraction metadata. */
-  extraction: {
-    runAt: string;
-    success: boolean;
-    insightCount: number;
-    duplicateCount: number;
-    skippedCount: number;
-    summary: string;
-    error?: string;
-  };
+  extraction: MemoryExtractionMetadata;
   /** Pruning operation outcome. */
   pruning: {
     applied: boolean;
@@ -208,6 +214,13 @@ export interface MemoryAuditReport {
   checks: MemoryAuditCheck[];
   /** Overall health status. */
   health: "healthy" | "warning" | "issues";
+}
+
+/** Persisted state for audit continuity across requests. */
+interface MemoryAuditState {
+  extraction?: MemoryExtractionMetadata;
+  pruning?: PruneOutcome;
+  updatedAt: string;
 }
 
 /** Input for processing an insight extraction run. */
@@ -324,6 +337,81 @@ export async function writeMemoryAudit(rootDir: string, content: string): Promis
     await mkdir(dir, { recursive: true });
   }
   await writeFile(filePath, content, "utf-8");
+}
+
+/**
+ * Read persisted memory audit state (`memory-audit-state.json`).
+ *
+ * Returns `null` when no prior state exists.
+ */
+async function readMemoryAuditState(rootDir: string): Promise<MemoryAuditState | null> {
+  const filePath = join(rootDir, MEMORY_AUDIT_STATE_PATH);
+  if (!existsSync(filePath)) {
+    return null;
+  }
+
+  try {
+    const raw = await readFile(filePath, "utf-8");
+    const parsed = JSON.parse(raw) as Partial<MemoryAuditState>;
+
+    const extraction = isValidExtractionMetadata(parsed.extraction) ? parsed.extraction : undefined;
+    const pruning = isValidPruneOutcome(parsed.pruning) ? parsed.pruning : undefined;
+
+    return {
+      extraction,
+      pruning,
+      updatedAt: typeof parsed.updatedAt === "string" && parsed.updatedAt.trim()
+        ? parsed.updatedAt
+        : new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Persist memory audit state (`memory-audit-state.json`).
+ */
+async function writeMemoryAuditState(rootDir: string, state: MemoryAuditState): Promise<void> {
+  const filePath = join(rootDir, MEMORY_AUDIT_STATE_PATH);
+  const dir = join(rootDir, ".fusion");
+  if (!existsSync(dir)) {
+    await mkdir(dir, { recursive: true });
+  }
+
+  await writeFile(filePath, JSON.stringify(state, null, 2), "utf-8");
+}
+
+function isValidExtractionMetadata(value: unknown): value is MemoryExtractionMetadata {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Partial<MemoryExtractionMetadata>;
+  return (
+    typeof candidate.runAt === "string" &&
+    typeof candidate.success === "boolean" &&
+    typeof candidate.insightCount === "number" &&
+    typeof candidate.duplicateCount === "number" &&
+    typeof candidate.skippedCount === "number" &&
+    typeof candidate.summary === "string" &&
+    (candidate.error === undefined || typeof candidate.error === "string")
+  );
+}
+
+function isValidPruneOutcome(value: unknown): value is PruneOutcome {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Partial<PruneOutcome>;
+  return (
+    typeof candidate.applied === "boolean" &&
+    typeof candidate.reason === "string" &&
+    typeof candidate.sizeDelta === "number" &&
+    typeof candidate.originalSize === "number" &&
+    typeof candidate.newSize === "number"
+  );
 }
 
 // ── AI Prompt Construction ───────────────────────────────────────────
@@ -1103,19 +1191,18 @@ function countInsightsInMarkdown(markdown: string): number {
  */
 export async function generateMemoryAudit(
   rootDir: string,
-  lastExtraction?: {
-    runAt: string;
-    success: boolean;
-    insightCount: number;
-    duplicateCount: number;
-    skippedCount: number;
-    summary: string;
-    error?: string;
-  },
+  lastExtraction?: MemoryExtractionMetadata,
   pruningOutcome?: PruneOutcome,
 ): Promise<MemoryAuditReport> {
   const checks: MemoryAuditCheck[] = [];
   const now = new Date().toISOString();
+
+  const persistedState =
+    lastExtraction === undefined || pruningOutcome === undefined
+      ? await readMemoryAuditState(rootDir)
+      : null;
+  const effectiveExtraction = lastExtraction ?? persistedState?.extraction;
+  const effectivePruning = pruningOutcome ?? persistedState?.pruning;
 
   // ── Check 1: Working memory file presence ──────────────────────────
   const workingMemoryPath = join(rootDir, MEMORY_WORKING_PATH);
@@ -1261,26 +1348,26 @@ export async function generateMemoryAudit(
   }
 
   // ── Check 6: Recent extraction activity ───────────────────────────
-  if (lastExtraction) {
-    const extractionAge = Date.now() - new Date(lastExtraction.runAt).getTime();
+  if (effectiveExtraction) {
+    const extractionAge = Date.now() - new Date(effectiveExtraction.runAt).getTime();
     const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
 
     checks.push({
       id: "recent-extraction",
       name: "Recent extraction activity",
-      passed: lastExtraction.success && extractionAge < oneWeekMs,
-      details: lastExtraction.success
-        ? `Last successful extraction ${formatTimeAgo(lastExtraction.runAt)} (${lastExtraction.insightCount} insights, ${lastExtraction.duplicateCount} duplicates skipped)`
-        : `Last extraction failed: ${lastExtraction.error || "Unknown error"}`,
+      passed: effectiveExtraction.success && extractionAge < oneWeekMs,
+      details: effectiveExtraction.success
+        ? `Last successful extraction ${formatTimeAgo(effectiveExtraction.runAt)} (${effectiveExtraction.insightCount} insights, ${effectiveExtraction.duplicateCount} duplicates skipped)`
+        : `Last extraction failed: ${effectiveExtraction.error || "Unknown error"}`,
     });
 
     // Check 7: Extraction summary quality
     checks.push({
       id: "extraction-summary",
       name: "Extraction produces meaningful summaries",
-      passed: lastExtraction.success && lastExtraction.summary.length > 10,
-      details: lastExtraction.success
-        ? `Summary: "${lastExtraction.summary.slice(0, 100)}${lastExtraction.summary.length > 100 ? "..." : ""}"`
+      passed: effectiveExtraction.success && effectiveExtraction.summary.length > 10,
+      details: effectiveExtraction.success
+        ? `Summary: "${effectiveExtraction.summary.slice(0, 100)}${effectiveExtraction.summary.length > 100 ? "..." : ""}"`
         : "No meaningful summary available",
     });
   } else {
@@ -1293,14 +1380,14 @@ export async function generateMemoryAudit(
   }
 
   // ── Check 8: Pruning outcome ──────────────────────────────────────
-  if (pruningOutcome) {
+  if (effectivePruning) {
     checks.push({
       id: "pruning-applied",
       name: "Memory pruning outcome",
-      passed: pruningOutcome.applied,
-      details: pruningOutcome.applied
-        ? `Pruning applied: ${pruningOutcome.originalSize} → ${pruningOutcome.newSize} chars (${pruningOutcome.sizeDelta >= 0 ? "+" : ""}${pruningOutcome.sizeDelta} chars)`
-        : `Pruning skipped: ${pruningOutcome.reason}`,
+      passed: effectivePruning.applied,
+      details: effectivePruning.applied
+        ? `Pruning applied: ${effectivePruning.originalSize} → ${effectivePruning.newSize} chars (${effectivePruning.sizeDelta >= 0 ? "+" : ""}${effectivePruning.sizeDelta} chars)`
+        : `Pruning skipped: ${effectivePruning.reason}`,
     });
   }
 
@@ -1332,15 +1419,15 @@ export async function generateMemoryAudit(
       categories: categoryCounts,
       lastUpdated,
     },
-    extraction: lastExtraction
+    extraction: effectiveExtraction
       ? {
-          runAt: lastExtraction.runAt,
-          success: lastExtraction.success,
-          insightCount: lastExtraction.insightCount,
-          duplicateCount: lastExtraction.duplicateCount,
-          skippedCount: lastExtraction.skippedCount,
-          summary: lastExtraction.summary,
-          error: lastExtraction.error,
+          runAt: effectiveExtraction.runAt,
+          success: effectiveExtraction.success,
+          insightCount: effectiveExtraction.insightCount,
+          duplicateCount: effectiveExtraction.duplicateCount,
+          skippedCount: effectiveExtraction.skippedCount,
+          summary: effectiveExtraction.summary,
+          error: effectiveExtraction.error,
         }
       : {
           runAt: "",
@@ -1350,7 +1437,7 @@ export async function generateMemoryAudit(
           skippedCount: 0,
           summary: "No extraction runs recorded",
         },
-    pruning: pruningOutcome ?? {
+    pruning: effectivePruning ?? {
       applied: false,
       reason: "No pruning run recorded",
       sizeDelta: 0,
@@ -1536,15 +1623,7 @@ export async function processAndAuditInsightExtraction(
   input: ProcessRunInput,
 ): Promise<MemoryAuditReport> {
   // Track extraction info for the audit
-  let extractionInfo: {
-    runAt: string;
-    success: boolean;
-    insightCount: number;
-    duplicateCount: number;
-    skippedCount: number;
-    summary: string;
-    error?: string;
-  };
+  let extractionInfo: MemoryExtractionMetadata;
   let pruneOutcome: PruneOutcome | undefined;
 
   try {
@@ -1583,6 +1662,19 @@ export async function processAndAuditInsightExtraction(
       originalSize: currentMemory.length,
       newSize: currentMemory.length,
     };
+  }
+
+  // Persist latest extraction/pruning state for future audit reads (best-effort)
+  try {
+    await writeMemoryAuditState(rootDir, {
+      extraction: extractionInfo,
+      pruning: pruneOutcome,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error(
+      `[memory-audit] Failed to persist audit state: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // Generate the audit report with pruning info

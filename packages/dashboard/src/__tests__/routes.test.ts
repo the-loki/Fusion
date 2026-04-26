@@ -14118,6 +14118,31 @@ describe("GET /api/memory/audit", () => {
     expect(res.body.workingMemory).toHaveProperty("size");
     expect(res.body.workingMemory).toHaveProperty("sectionCount");
   });
+
+  it("preserves extraction metadata across extract then audit requests", async () => {
+    writeFileSync(
+      join(rootDir, ".fusion", "memory", "MEMORY.md"),
+      "## Architecture\n\nDurable architecture\n\n## Conventions\n\nDurable conventions\n\n## Pitfalls\n\nDurable pitfalls",
+    );
+
+    const extractRes = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/memory/extract",
+      JSON.stringify({}),
+      { "Content-Type": "application/json" },
+    );
+
+    expect(extractRes.status).toBe(200);
+    expect(extractRes.body.success).toBe(true);
+
+    const auditRes = await GET(buildApp(), "/api/memory/audit");
+
+    expect(auditRes.status).toBe(200);
+    expect(auditRes.body.extraction.runAt).toBeTruthy();
+    expect(auditRes.body.extraction.summary).not.toBe("No extraction runs recorded");
+    expect(auditRes.body.checks.find((check: { id: string; details: string }) => check.id === "recent-extraction")?.details).not.toContain("No extraction runs recorded");
+  });
 });
 
 describe("GET /api/memory/stats", () => {

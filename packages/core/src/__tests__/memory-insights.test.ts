@@ -1100,6 +1100,31 @@ describe("memory-insights audit generation", () => {
       expect(report.extraction.duplicateCount).toBe(2);
     });
 
+    it("reuses persisted extraction state when explicit metadata is omitted", async () => {
+      const runAt = new Date().toISOString();
+
+      writeFileSync(
+        join(tempDir, MEMORY_WORKING_PATH),
+        "## Architecture\n\nDurable notes\n\n## Conventions\n\nConventions",
+      );
+
+      await processAndAuditInsightExtraction(tempDir, {
+        rawResponse: JSON.stringify({
+          summary: "Persisted extraction summary",
+          insights: [{ category: "pattern", content: "Persisted insight" }],
+        }),
+        stepSuccess: true,
+        runAt,
+      });
+
+      const report = await generateMemoryAudit(tempDir);
+
+      expect(report.extraction.runAt).toBe(runAt);
+      expect(report.extraction.success).toBe(true);
+      expect(report.extraction.summary).toBe("Persisted extraction summary");
+      expect(report.checks.find((c) => c.id === "recent-extraction")?.passed).toBe(true);
+    });
+
     it("should include pruning outcome in report", async () => {
       writeFileSync(join(tempDir, MEMORY_WORKING_PATH), "## Architecture\n\nNotes");
 
