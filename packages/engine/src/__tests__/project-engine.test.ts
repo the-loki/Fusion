@@ -155,6 +155,7 @@ const baseRemoteAccess = {
     },
     cloudflare: {
       enabled: true,
+      quickTunnel: false,
       tunnelName: "demo",
       tunnelToken: "cf-secret-token",
       ingressUrl: "https://remote.example.com",
@@ -646,6 +647,121 @@ describe("ProjectEngine remote lifecycle restore policy", () => {
     startSpy.mockRestore();
     stopSpy.mockRestore();
     statusSpy.mockRestore();
+  });
+});
+
+describe("ProjectEngine remote lifecycle quick tunnel mode", () => {
+  it("starts cloudflare quick tunnel without manual tunnel fields", async () => {
+    const quickTunnelSettings = {
+      ...baseSettings,
+      remoteAccess: {
+        ...baseRemoteAccess,
+        providers: {
+          ...baseRemoteAccess.providers,
+          cloudflare: {
+            ...baseRemoteAccess.providers.cloudflare,
+            quickTunnel: true,
+            tunnelName: "",
+            tunnelToken: null,
+            ingressUrl: "",
+          },
+        },
+      },
+    };
+    const mockStore = createMockStore(quickTunnelSettings);
+    mocks.currentStore = mockStore.store;
+
+    const startSpy = vi.spyOn(TunnelProcessManager.prototype, "start").mockResolvedValue(undefined);
+
+    const engine = createEngine();
+    await engine.start();
+    await engine.startRemoteTunnel();
+
+    expect(startSpy).toHaveBeenCalledWith(
+      "cloudflare",
+      expect.objectContaining({
+        provider: "cloudflare",
+        quickTunnel: true,
+        executablePath: "cloudflared",
+        args: ["tunnel", "--url", "http://localhost:4040"],
+      }),
+    );
+
+    await engine.stop();
+    startSpy.mockRestore();
+  });
+
+  it("surfaces runtime prerequisite missing when cloudflared is unavailable in quick tunnel mode", async () => {
+    mocks.execFile.mockImplementation((
+      _file: string,
+      _args: string[],
+      _options: unknown,
+      callback?: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+    ) => {
+      const err = new Error("cloudflared not found");
+      if (typeof _options === "function") {
+        (_options as (error: Error, result: { stdout: string; stderr: string }) => void)(err, {
+          stdout: "",
+          stderr: "",
+        });
+        return {} as never;
+      }
+
+      callback?.(err, { stdout: "", stderr: "" });
+      return {} as never;
+    });
+
+    const quickTunnelSettings = {
+      ...baseSettings,
+      remoteAccess: {
+        ...baseRemoteAccess,
+        providers: {
+          ...baseRemoteAccess.providers,
+          cloudflare: {
+            ...baseRemoteAccess.providers.cloudflare,
+            quickTunnel: true,
+            tunnelName: "",
+            tunnelToken: null,
+            ingressUrl: "",
+          },
+        },
+      },
+    };
+    const mockStore = createMockStore(quickTunnelSettings);
+    mocks.currentStore = mockStore.store;
+
+    const engine = createEngine();
+    await engine.start();
+    await expect(engine.startRemoteTunnel()).rejects.toThrow(
+      "runtime_prerequisite_missing:cloudflared is not available on PATH",
+    );
+    await engine.stop();
+  });
+
+  it("keeps manual cloudflare validation unchanged when quick tunnel is disabled", async () => {
+    const manualSettings = {
+      ...baseSettings,
+      remoteAccess: {
+        ...baseRemoteAccess,
+        providers: {
+          ...baseRemoteAccess.providers,
+          cloudflare: {
+            ...baseRemoteAccess.providers.cloudflare,
+        quickTunnel: false,
+            tunnelToken: null,
+          },
+        },
+      },
+    };
+    const mockStore = createMockStore(manualSettings);
+    mocks.currentStore = mockStore.store;
+
+    const engine = createEngine();
+    await engine.start();
+    await expect(engine.startRemoteTunnel()).rejects.toThrow(
+      "provider_not_configured:Cloudflare tunnel token is required",
+    );
+    await engine.stop();
   });
 });
 

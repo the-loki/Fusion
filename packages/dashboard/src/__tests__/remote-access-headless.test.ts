@@ -85,6 +85,7 @@ describe("remote access headless parity", () => {
         },
         cloudflare: {
           enabled: true,
+        quickTunnel: false,
           tunnelName: "demo",
           tunnelToken: "cf-secret-token",
           ingressUrl: "https://demo.example.com",

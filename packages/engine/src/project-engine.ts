@@ -686,6 +686,23 @@ export class ProjectEngine {
     if (!cloudflare.enabled) {
       return { provider, reason: "provider_not_enabled", message: "Cloudflare provider is disabled" };
     }
+    if (cloudflare.quickTunnel === true) {
+      const executable = await this.checkExecutableAvailable("cloudflared");
+      if (!executable.available) {
+        return { provider, reason: "runtime_prerequisite_missing", message: executable.message };
+      }
+
+      return {
+        provider,
+        config: {
+          provider: "cloudflare",
+          quickTunnel: true,
+          executablePath: "cloudflared",
+          args: ["tunnel", "--url", "http://localhost:4040"],
+        },
+      };
+    }
+
     if (!cloudflare.tunnelName?.trim() || !cloudflare.ingressUrl?.trim()) {
       return { provider, reason: "provider_not_configured", message: "Cloudflare tunnel name and ingress URL must be configured" };
     }

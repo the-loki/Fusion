@@ -315,7 +315,7 @@ describe("createServer health and headless mode", () => {
       activeProvider: "cloudflare",
       providers: {
         tailscale: { enabled: false, hostname: "", targetPort: 4040, acceptRoutes: false },
-        cloudflare: { enabled: true, tunnelName: "demo", tunnelToken: "cf-secret", ingressUrl: "https://remote.example.com" },
+        cloudflare: { enabled: true, quickTunnel: false, tunnelName: "demo", tunnelToken: "cf-secret", ingressUrl: "https://remote.example.com" },
       },
       tokenStrategy: {
         persistent: { enabled: true, token: "frt_persistent_token" },
@@ -2206,6 +2206,7 @@ describe("GET /remote-login", () => {
         },
         cloudflare: {
           enabled: true,
+        quickTunnel: false,
           tunnelName: "tunnel",
           tunnelToken: "secret",
           ingressUrl: "https://remote.example.com",

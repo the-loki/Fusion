@@ -18,6 +18,7 @@ function buildRemoteAccessSettings() {
       },
       cloudflare: {
         enabled: true,
+        quickTunnel: false,
         tunnelName: "demo-tunnel",
         tunnelToken: "cf-secret-token",
         ingressUrl: "https://remote.example.com",
@@ -98,12 +99,14 @@ describe("remote access API route contracts", () => {
       settings: expect.objectContaining({
         remoteEnabled: true,
         remoteActiveProvider: "cloudflare",
+        remoteCloudflareQuickTunnel: false,
       }),
     });
 
     const putRes = await REQUEST(app, "PUT", "/api/remote/settings", {
       remoteEnabled: true,
       remoteActiveProvider: "tailscale",
+      remoteCloudflareQuickTunnel: true,
       remoteShortLivedEnabled: true,
       remoteShortLivedTtlMs: 180000,
     });
@@ -113,10 +116,19 @@ describe("remote access API route contracts", () => {
       settings: expect.objectContaining({
         remoteEnabled: true,
         remoteActiveProvider: "tailscale",
+        remoteCloudflareQuickTunnel: true,
         remoteShortLivedEnabled: true,
         remoteShortLivedTtlMs: 180000,
       }),
     });
+
+    expect(store.updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      remoteAccess: expect.objectContaining({
+        providers: expect.objectContaining({
+          cloudflare: expect.objectContaining({ quickTunnel: true }),
+        }),
+      }),
+    }));
   });
 
   it("supports provider activation and tunnel lifecycle endpoints", async () => {
@@ -157,6 +169,66 @@ describe("remote access API route contracts", () => {
     expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
       remoteAccess: expect.objectContaining({ activeProvider: "tailscale" }),
     }));
+  });
+
+  it("uses live tunnel URL for cloudflare quick tunnel link generation", async () => {
+    const quickTunnelSettings = {
+      ...buildRemoteAccessSettings(),
+      providers: {
+        ...buildRemoteAccessSettings().providers,
+        cloudflare: {
+          ...buildRemoteAccessSettings().providers.cloudflare,
+          quickTunnel: true,
+          ingressUrl: "",
+          tunnelToken: null,
+          tunnelName: "",
+        },
+      },
+    };
+
+    const store = createMockStore({
+      getSettings: vi.fn().mockResolvedValue({ remoteAccess: quickTunnelSettings }),
+    });
+    const engine = {
+      getRemoteTunnelManager: () => ({
+        getStatus: () => ({ url: "https://demo.trycloudflare.com" }),
+      }),
+    };
+    const { app } = createApp({ store, engine });
+
+    const urlRes = await REQUEST(app, "GET", "/api/remote/url?tokenType=persistent");
+    expect(urlRes.status).toBe(200);
+    expect(urlRes.body.url).toContain("https://demo.trycloudflare.com/remote-login?rt=");
+  });
+
+  it("returns 409 when quick tunnel URL is requested before cloudflared reports URL", async () => {
+    const quickTunnelSettings = {
+      ...buildRemoteAccessSettings(),
+      providers: {
+        ...buildRemoteAccessSettings().providers,
+        cloudflare: {
+          ...buildRemoteAccessSettings().providers.cloudflare,
+          quickTunnel: true,
+          ingressUrl: "",
+          tunnelToken: null,
+          tunnelName: "",
+        },
+      },
+    };
+
+    const store = createMockStore({
+      getSettings: vi.fn().mockResolvedValue({ remoteAccess: quickTunnelSettings }),
+    });
+    const engine = {
+      getRemoteTunnelManager: () => ({
+        getStatus: () => ({ url: null }),
+      }),
+    };
+    const { app } = createApp({ store, engine });
+
+    const urlRes = await REQUEST(app, "GET", "/api/remote/url?tokenType=persistent");
+    expect(urlRes.status).toBe(409);
+    expect(urlRes.body.error).toContain("quick tunnel has not started yet");
   });
 
   it("supports persistent and short-lived token endpoints plus URL/QR contracts", async () => {

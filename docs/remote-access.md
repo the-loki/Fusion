@@ -44,11 +44,12 @@ Operational notes:
 - Fusion validates executable availability (`which tailscale` / `where tailscale`) before start.
 - If prerequisites are missing, start returns a prerequisite/config error (HTTP 409 from API start route).
 
-## 1.3 Cloudflare Tunnel prerequisites
+## 1.3 Cloudflare named tunnel prerequisites
 
-Cloudflare provider startup gates:
+Cloudflare **named tunnel** startup gates (`quickTunnel = false`):
 
 - `remoteAccess.providers.cloudflare.enabled = true`
+- `remoteAccess.providers.cloudflare.quickTunnel = false` (default)
 - `remoteAccess.providers.cloudflare.tunnelName` is non-empty
 - `remoteAccess.providers.cloudflare.ingressUrl` is non-empty (must parse as `http://` or `https://` for login URL generation)
 - `remoteAccess.providers.cloudflare.tunnelToken` is non-empty
@@ -58,6 +59,26 @@ Runtime command used by engine:
 
 - `cloudflared tunnel --no-autoupdate run <tunnelName>`
 - Token is passed via env (`TUNNEL_TOKEN`), not as a plain CLI argument.
+
+## 1.4 Cloudflare Quick Tunnel prerequisites
+
+Cloudflare **Quick Tunnel** startup gates (`quickTunnel = true`):
+
+- `remoteAccess.providers.cloudflare.enabled = true`
+- `remoteAccess.providers.cloudflare.quickTunnel = true`
+- `cloudflared` executable is available on `PATH`
+
+No Cloudflare account, tunnel token, named tunnel, or pre-created ingress URL is required.
+
+Runtime command used by engine:
+
+- `cloudflared tunnel --url http://localhost:<dashboardPort>`
+
+Operational notes:
+
+- `trycloudflare.com` URLs are ephemeral and typically change every tunnel restart.
+- Login URL generation for quick tunnel mode uses the **live runtime URL** reported by the running tunnel.
+- If the tunnel is not started yet, login URL generation cannot resolve a remote base URL.
 
 ---
 
@@ -83,6 +104,7 @@ Minimal `remoteAccess` shape (redacted placeholders):
       },
       "cloudflare": {
         "enabled": true,
+        "quickTunnel": false,
         "tunnelName": "<tunnel-name>",
         "tunnelToken": "<token>",
         "ingressUrl": "https://<host>"

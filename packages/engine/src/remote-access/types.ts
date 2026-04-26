@@ -109,6 +109,11 @@ export interface TailscaleProviderConfig extends TunnelProviderConfigBase {
 export interface CloudflareProviderConfig extends TunnelProviderConfigBase {
   provider: "cloudflare";
   /**
+   * Enables account-less Cloudflare quick tunnels (`cloudflared tunnel --url ...`).
+   * In this mode, no token env var or credentials file is required.
+   */
+  quickTunnel?: boolean;
+  /**
    * Optional environment variable name holding a Cloudflare token reference.
    * The manager validates that it exists when provided, but never logs its value.
    */

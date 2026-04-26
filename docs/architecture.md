@@ -359,6 +359,9 @@ Operator setup + troubleshooting guide: **[Remote Access runbook](./remote-acces
   - Lifecycle states: `"stopped" | "starting" | "running" | "stopping" | "failed"`
   - Error codes: `invalid_config`, `start_failed`, `stop_failed`, `switch_failed`, `readiness_timeout`, `process_exit`, etc.
 - `remote-access/provider-adapters.ts` provides provider-specific command composition + readiness parsing while enforcing config validation.
+- Cloudflare has two command variants:
+  - Named tunnel mode: `cloudflared tunnel --no-autoupdate run <tunnelName>` (token from env)
+  - Quick tunnel mode: `cloudflared tunnel --url http://localhost:<dashboardPort>` (ephemeral `trycloudflare.com` URL, no token)
 - Credential inputs are reference-based (`tokenEnvVar`, `credentialsPath`) and validated without logging raw secret values.
 - Redaction is applied to command previews and emitted log lines before publishing status/log events.
 - Deterministic stop semantics: graceful shutdown (`SIGTERM`) first, bounded wait, then force-kill fallback (`SIGKILL`).

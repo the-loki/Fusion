@@ -50,20 +50,33 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
   const { router, options, store, runtimeLogger, getProjectContext, rethrowAsApiError } = ctx;
   const { githubToken, validateModelPresets, sanitizeOverlapIgnorePaths, discoverDashboardPiExtensions } = deps;
 
-  function resolveRemoteBaseUrl(remoteAccess: NonNullable<Awaited<ReturnType<typeof store.getSettings>>["remoteAccess"]>): URL {
+  function resolveRemoteBaseUrl(
+    remoteAccess: NonNullable<Awaited<ReturnType<typeof store.getSettings>>["remoteAccess"]>,
+    tunnelUrl?: string | null,
+  ): URL {
     if (!remoteAccess.activeProvider) {
       throw new ApiError(409, "No active remote provider configured", { code: "REMOTE_PROVIDER_NOT_CONFIGURED" });
     }
 
     if (remoteAccess.activeProvider === "cloudflare") {
-      const ingressUrl = remoteAccess.providers.cloudflare.ingressUrl?.trim();
-      if (!ingressUrl) {
+      const cloudflare = remoteAccess.providers.cloudflare;
+      const ingressUrl = cloudflare.ingressUrl?.trim();
+      const candidateUrl = cloudflare.quickTunnel === true && !ingressUrl
+        ? (tunnelUrl?.trim() ?? "")
+        : ingressUrl;
+
+      if (!candidateUrl) {
+        if (cloudflare.quickTunnel === true) {
+          throw new ApiError(409, "Cloudflare quick tunnel has not started yet", {
+            code: "REMOTE_URL_NOT_READY",
+          });
+        }
         throw new ApiError(409, "Cloudflare ingress URL is not configured", { code: "REMOTE_URL_NOT_CONFIGURED" });
       }
 
       let parsed: URL;
       try {
-        parsed = new URL(ingressUrl);
+        parsed = new URL(candidateUrl);
       } catch {
         throw new ApiError(409, "Cloudflare ingress URL is invalid", { code: "REMOTE_URL_INVALID" });
       }
@@ -115,9 +128,17 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
     return token;
   }
 
+  function getCurrentTunnelUrl(engine: unknown): string | null {
+    const manager = (engine as {
+      getRemoteTunnelManager?: () => { getStatus?: () => { url?: string | null } } | undefined;
+    } | undefined)?.getRemoteTunnelManager?.();
+    return manager?.getStatus?.().url ?? null;
+  }
+
   async function buildRemoteLoginUrlForTokenType(
     scopedStore: typeof store,
     mode: "persistent" | "short-lived",
+    tunnelUrl?: string | null,
   ): Promise<{ loginUrl: string; tokenType: "persistent" | "short-lived"; expiresAt: string | null }> {
     const settings = await scopedStore.getSettings();
     const remoteAccess = settings.remoteAccess;
@@ -126,7 +147,7 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
       throw new ApiError(409, "No remote provider is enabled", { code: "REMOTE_ACCESS_DISABLED" });
     }
 
-    const baseUrl = resolveRemoteBaseUrl(remoteAccess);
+    const baseUrl = resolveRemoteBaseUrl(remoteAccess, tunnelUrl);
 
     if (mode === "persistent") {
       if (!remoteAccess.tokenStrategy.persistent.enabled) {
@@ -274,6 +295,7 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
       remoteTailscaleTargetPort: Number(remoteAccess.providers.tailscale.targetPort ?? 4040),
       remoteTailscaleAcceptRoutes: Boolean(remoteAccess.providers.tailscale.acceptRoutes),
       remoteCloudflareEnabled: Boolean(remoteAccess.providers.cloudflare.enabled),
+      remoteCloudflareQuickTunnel: Boolean(remoteAccess.providers.cloudflare.quickTunnel),
       remoteCloudflareTunnelName: remoteAccess.providers.cloudflare.tunnelName,
       remoteCloudflareTunnelToken: remoteAccess.providers.cloudflare.tunnelToken,
       remoteCloudflareIngressUrl: remoteAccess.providers.cloudflare.ingressUrl,
@@ -330,6 +352,9 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
           cloudflare: {
             ...remoteAccess.providers.cloudflare,
             enabled: body.remoteCloudflareEnabled === undefined ? remoteAccess.providers.cloudflare.enabled : Boolean(body.remoteCloudflareEnabled),
+            quickTunnel: body.remoteCloudflareQuickTunnel === undefined
+              ? Boolean(remoteAccess.providers.cloudflare.quickTunnel)
+              : Boolean(body.remoteCloudflareQuickTunnel),
             tunnelName: body.remoteCloudflareTunnelName === undefined ? remoteAccess.providers.cloudflare.tunnelName : String(body.remoteCloudflareTunnelName ?? ""),
             tunnelToken: body.remoteCloudflareTunnelToken === undefined
               ? remoteAccess.providers.cloudflare.tunnelToken
@@ -553,8 +578,8 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
         throw new ApiError(400, "mode must be 'persistent' or 'short-lived'", { code: "INVALID_REMOTE_AUTH_MODE" });
       }
 
-      const { store: scopedStore } = await getProjectContext(req);
-      const payload = await buildRemoteLoginUrlForTokenType(scopedStore, mode);
+      const { store: scopedStore, engine } = await getProjectContext(req);
+      const payload = await buildRemoteLoginUrlForTokenType(scopedStore, mode, getCurrentTunnelUrl(engine ?? options?.engine));
       res.json({
         loginUrl: payload.loginUrl,
         tokenType: payload.tokenType,
@@ -568,9 +593,9 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
 
   router.get("/remote/url", async (req, res) => {
     try {
-      const { store: scopedStore } = await getProjectContext(req);
+      const { store: scopedStore, engine } = await getProjectContext(req);
       const tokenType = req.query.tokenType === "short-lived" ? "short-lived" : "persistent";
-      const payload = await buildRemoteLoginUrlForTokenType(scopedStore, tokenType);
+      const payload = await buildRemoteLoginUrlForTokenType(scopedStore, tokenType, getCurrentTunnelUrl(engine ?? options?.engine));
       res.json({ url: payload.loginUrl, tokenType: payload.tokenType, expiresAt: payload.expiresAt });
     } catch (err: unknown) {
       if (err instanceof ApiError) throw err;
@@ -580,10 +605,10 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
 
   router.get("/remote/qr", async (req, res) => {
     try {
-      const { store: scopedStore } = await getProjectContext(req);
+      const { store: scopedStore, engine } = await getProjectContext(req);
       const tokenType = req.query.tokenType === "short-lived" ? "short-lived" : "persistent";
       const format = req.query.format === "image/svg" ? "image/svg" : "text";
-      const payload = await buildRemoteLoginUrlForTokenType(scopedStore, tokenType);
+      const payload = await buildRemoteLoginUrlForTokenType(scopedStore, tokenType, getCurrentTunnelUrl(engine ?? options?.engine));
       if (format === "image/svg") {
         const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="80"><rect width="100%" height="100%" fill="white"/><text x="10" y="42" font-size="12" fill="black">${payload.loginUrl.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</text></svg>`;
         res.json({ url: payload.loginUrl, tokenType: payload.tokenType, expiresAt: payload.expiresAt, format, data: svg });

@@ -157,6 +157,11 @@ const cloudflareAdapter: TunnelProviderAdapter = {
   provider: "cloudflare",
   validateConfig(config) {
     validateBaseConfig(config, "cloudflare");
+
+    if (config.provider === "cloudflare" && config.quickTunnel === true) {
+      return;
+    }
+
     if ("credentialsPath" in config && config.credentialsPath !== undefined) {
       assertNonEmpty(config.credentialsPath, "credentialsPath");
       if (isAbsoluteOrPathLike(config.credentialsPath)) {

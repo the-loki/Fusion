@@ -13207,6 +13207,7 @@ describe("PUT /settings", () => {
         },
         cloudflare: {
           enabled: false,
+        quickTunnel: false,
           tunnelName: "existing-tunnel",
           tunnelToken: null,
           ingressUrl: "",
@@ -13680,6 +13681,7 @@ describe("GET /settings/scopes", () => {
             },
             cloudflare: {
               enabled: false,
+        quickTunnel: false,
               tunnelName: "",
               tunnelToken: null,
               ingressUrl: "",
@@ -18031,6 +18033,7 @@ describe("remote access auth login-url endpoints", () => {
       },
       cloudflare: {
         enabled: true,
+        quickTunnel: false,
         tunnelName: "tunnel",
         tunnelToken: "cf-secret",
         ingressUrl: "https://remote.example.com",

@@ -24,6 +24,7 @@ function createRemoteSettings(overrides: Partial<RemoteAccessProjectSettings> = 
       },
       cloudflare: {
         enabled: false,
+        quickTunnel: false,
         tunnelName: "",
         tunnelToken: null,
         ingressUrl: "",

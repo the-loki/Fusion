@@ -296,6 +296,7 @@ describe("Auth middleware integration with createServer", () => {
           },
           cloudflare: {
             enabled: true,
+        quickTunnel: false,
             tunnelName: "demo-tunnel",
             tunnelToken: "cf-secret",
             ingressUrl: "https://remote.example.com",

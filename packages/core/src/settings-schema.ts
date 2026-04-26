@@ -167,6 +167,7 @@ export const DEFAULT_PROJECT_SETTINGS = {
       },
       cloudflare: {
         enabled: false,
+        quickTunnel: false,
         tunnelName: "",
         tunnelToken: null,
         ingressUrl: "",

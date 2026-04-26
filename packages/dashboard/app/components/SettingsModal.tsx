@@ -1262,6 +1262,7 @@ export function SettingsModal({
       remoteTailscaleTargetPort: Number((form as Record<string, unknown>).remoteTailscaleTargetPort ?? 4040),
       remoteTailscaleAcceptRoutes: Boolean((form as Record<string, unknown>).remoteTailscaleAcceptRoutes),
       remoteCloudflareEnabled: Boolean((form as Record<string, unknown>).remoteCloudflareEnabled),
+      remoteCloudflareQuickTunnel: Boolean((form as Record<string, unknown>).remoteCloudflareQuickTunnel),
       remoteCloudflareTunnelName: String((form as Record<string, unknown>).remoteCloudflareTunnelName ?? ""),
       remoteCloudflareTunnelToken: (((form as Record<string, unknown>).remoteCloudflareTunnelToken as string | null) || null),
       remoteCloudflareIngressUrl: String((form as Record<string, unknown>).remoteCloudflareIngressUrl ?? ""),
@@ -3501,30 +3502,44 @@ export function SettingsModal({
                 />
                 Enable Cloudflare provider config
               </label>
-              <label htmlFor="remoteCloudflareTunnelName">Tunnel name</label>
-              <input
-                id="remoteCloudflareTunnelName"
-                type="text"
-                placeholder="Tunnel name"
-                value={String(remoteForm.remoteCloudflareTunnelName ?? "")}
-                onChange={(e) => setForm((f) => ({ ...f, remoteCloudflareTunnelName: e.target.value } as SettingsFormState))}
-              />
-              <label htmlFor="remoteCloudflareTunnelToken">Tunnel token</label>
-              <input
-                id="remoteCloudflareTunnelToken"
-                type="password"
-                placeholder="Tunnel token"
-                value={String(remoteForm.remoteCloudflareTunnelToken ?? "")}
-                onChange={(e) => setForm((f) => ({ ...f, remoteCloudflareTunnelToken: e.target.value } as SettingsFormState))}
-              />
-              <label htmlFor="remoteCloudflareIngressUrl">Ingress URL</label>
-              <input
-                id="remoteCloudflareIngressUrl"
-                type="text"
-                placeholder="https://your-domain.example"
-                value={String(remoteForm.remoteCloudflareIngressUrl ?? "")}
-                onChange={(e) => setForm((f) => ({ ...f, remoteCloudflareIngressUrl: e.target.value } as SettingsFormState))}
-              />
+              <label htmlFor="remoteCloudflareQuickTunnel" className="checkbox-label">
+                <input
+                  id="remoteCloudflareQuickTunnel"
+                  type="checkbox"
+                  checked={Boolean(remoteForm.remoteCloudflareQuickTunnel)}
+                  onChange={(e) => setForm((f) => ({ ...f, remoteCloudflareQuickTunnel: e.target.checked } as SettingsFormState))}
+                />
+                Quick Tunnel
+              </label>
+              <small>Automatically creates a random trycloudflare.com URL — no account or token needed.</small>
+              {!remoteForm.remoteCloudflareQuickTunnel && (
+                <>
+                  <label htmlFor="remoteCloudflareTunnelName">Tunnel name</label>
+                  <input
+                    id="remoteCloudflareTunnelName"
+                    type="text"
+                    placeholder="Tunnel name"
+                    value={String(remoteForm.remoteCloudflareTunnelName ?? "")}
+                    onChange={(e) => setForm((f) => ({ ...f, remoteCloudflareTunnelName: e.target.value } as SettingsFormState))}
+                  />
+                  <label htmlFor="remoteCloudflareTunnelToken">Tunnel token</label>
+                  <input
+                    id="remoteCloudflareTunnelToken"
+                    type="password"
+                    placeholder="Tunnel token"
+                    value={String(remoteForm.remoteCloudflareTunnelToken ?? "")}
+                    onChange={(e) => setForm((f) => ({ ...f, remoteCloudflareTunnelToken: e.target.value } as SettingsFormState))}
+                  />
+                  <label htmlFor="remoteCloudflareIngressUrl">Ingress URL</label>
+                  <input
+                    id="remoteCloudflareIngressUrl"
+                    type="text"
+                    placeholder="https://your-domain.example"
+                    value={String(remoteForm.remoteCloudflareIngressUrl ?? "")}
+                    onChange={(e) => setForm((f) => ({ ...f, remoteCloudflareIngressUrl: e.target.value } as SettingsFormState))}
+                  />
+                </>
+              )}
             </div>
 
             <div className="form-group">

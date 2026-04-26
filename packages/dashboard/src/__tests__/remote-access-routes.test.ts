@@ -18,6 +18,7 @@ function buildRemoteAccessSettings(overrides: Record<string, unknown> = {}) {
       },
       cloudflare: {
         enabled: true,
+        quickTunnel: false,
         tunnelName: "demo-tunnel",
         tunnelToken: "cf-secret-token",
         ingressUrl: "https://remote.example.com",

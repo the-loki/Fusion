@@ -44,6 +44,16 @@ function cloudflareConfig(overrides: Partial<TunnelProviderConfig> = {}): Tunnel
   } as TunnelProviderConfig;
 }
 
+function cloudflareQuickTunnelConfig(overrides: Partial<TunnelProviderConfig> = {}): TunnelProviderConfig {
+  return {
+    provider: "cloudflare",
+    quickTunnel: true,
+    executablePath: "cloudflared",
+    args: ["tunnel", "--url", "http://localhost:4040"],
+    ...overrides,
+  } as TunnelProviderConfig;
+}
+
 describe("TunnelProcessManager", () => {
   let pid = 1000;
   let children = new Map<number, FakeChildProcess>();
@@ -72,6 +82,19 @@ describe("TunnelProcessManager", () => {
   afterEach(() => {
     processKillSpy.mockRestore();
     vi.useRealTimers();
+  });
+
+  it("accepts quick tunnel cloudflare config without token env requirements", async () => {
+    const manager = new TunnelProcessManager({
+      spawnImpl: () => {
+        const child = new FakeChildProcess(++pid);
+        children.set(child.pid, child);
+        return child as never;
+      },
+    });
+
+    await expect(manager.start("cloudflare", cloudflareQuickTunnelConfig())).resolves.toBeUndefined();
+    expect(manager.getStatus().state).toBe("starting");
   });
 
   it("starts, emits readiness transitions, and redacts token-bearing logs", async () => {
@@ -105,6 +128,25 @@ describe("TunnelProcessManager", () => {
     const allLogs = logs.join("\n");
     expect(allLogs).toContain("[REDACTED]");
     expect(allLogs).not.toContain("secret-token");
+  });
+
+  it("detects trycloudflare readiness output for quick tunnel config", async () => {
+    const manager = new TunnelProcessManager({
+      spawnImpl: () => {
+        const child = new FakeChildProcess(++pid);
+        children.set(child.pid, child);
+        return child as never;
+      },
+    });
+
+    await manager.start("cloudflare", cloudflareQuickTunnelConfig());
+    const child = [...children.values()][0];
+    child.emitStdout("Tunnel ready https://demo.trycloudflare.com");
+
+    await vi.waitFor(() => {
+      expect(manager.getStatus().state).toBe("running");
+    });
+    expect(manager.getStatus().url).toBe("https://demo.trycloudflare.com");
   });
 
   it("transitions start→running and stop→stopped, with idempotent repeated stop", async () => {

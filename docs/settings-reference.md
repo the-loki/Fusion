@@ -192,9 +192,10 @@ Use **[Remote Access runbook](./remote-access.md)** for setup prerequisites (Tai
 | `remoteAccess.providers.tailscale.targetPort` | `number` | `0` | Local port exposed by Tailscale when configured. |
 | `remoteAccess.providers.tailscale.acceptRoutes` | `boolean` | `false` | Accept subnet routes when supported by local Tailscale config. |
 | `remoteAccess.providers.cloudflare.enabled` | `boolean` | `false` | Enables Cloudflare tunnel configuration. |
-| `remoteAccess.providers.cloudflare.tunnelName` | `string` | `""` | Named tunnel identifier for `cloudflared tunnel run`. |
-| `remoteAccess.providers.cloudflare.tunnelToken` | `string \| null` | `null` | Tunnel token value (treat as secret; do not log raw values). |
-| `remoteAccess.providers.cloudflare.ingressUrl` | `string` | `""` | Optional preferred public ingress URL for display. |
+| `remoteAccess.providers.cloudflare.quickTunnel` | `boolean` | `false` | Enables Cloudflare Quick Tunnel mode (`cloudflared tunnel --url`) with no account/token requirement; named tunnel fields are ignored while enabled. |
+| `remoteAccess.providers.cloudflare.tunnelName` | `string` | `""` | Named tunnel identifier for `cloudflared tunnel run` when `quickTunnel` is `false`. |
+| `remoteAccess.providers.cloudflare.tunnelToken` | `string \| null` | `null` | Tunnel token value (treat as secret; do not log raw values) for named tunnel mode. |
+| `remoteAccess.providers.cloudflare.ingressUrl` | `string` | `""` | Preferred public ingress URL for named tunnel mode; in quick tunnel mode the live `trycloudflare.com` URL comes from runtime status. |
 | `remoteAccess.tokenStrategy.persistent.enabled` | `boolean` | `true` | Enables persistent remote-auth token mode. |
 | `remoteAccess.tokenStrategy.persistent.token` | `string \| null` | `null` | Persistent remote-auth token. |
 | `remoteAccess.tokenStrategy.shortLived.enabled` | `boolean` | `false` | Enables short-lived token generation. |

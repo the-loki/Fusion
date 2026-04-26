@@ -206,6 +206,7 @@ describe("SettingsModal", () => {
         remoteTailscaleTargetPort: 4040,
         remoteTailscaleAcceptRoutes: false,
         remoteCloudflareEnabled: false,
+        remoteCloudflareQuickTunnel: false,
         remoteCloudflareTunnelName: "",
         remoteCloudflareTunnelToken: null,
         remoteCloudflareIngressUrl: "",
@@ -226,6 +227,7 @@ describe("SettingsModal", () => {
         remoteTailscaleTargetPort: 4040,
         remoteTailscaleAcceptRoutes: false,
         remoteCloudflareEnabled: false,
+        remoteCloudflareQuickTunnel: false,
         remoteCloudflareTunnelName: "",
         remoteCloudflareTunnelToken: null,
         remoteCloudflareIngressUrl: "",
@@ -1394,6 +1396,7 @@ describe("SettingsModal", () => {
         expect.objectContaining({
           remoteTailscaleEnabled: true,
           remoteCloudflareEnabled: true,
+          remoteCloudflareQuickTunnel: false,
           remoteTailscaleHostname: "tail-new.ts.net",
           remoteTailscaleTargetPort: 4242,
           remoteCloudflareTunnelName: "cf-team",
@@ -1403,6 +1406,33 @@ describe("SettingsModal", () => {
         }),
         undefined,
       );
+    });
+
+    it("toggles Cloudflare quick tunnel and hides manual cloudflare fields", async () => {
+      renderModal();
+      await waitForSettingsModalReady();
+      await openRemoteSection();
+
+      expect(screen.getByLabelText("Tunnel name")).toBeInTheDocument();
+      expect(screen.getByLabelText("Tunnel token")).toBeInTheDocument();
+      expect(screen.getByLabelText("Ingress URL")).toBeInTheDocument();
+
+      await userEvent.click(screen.getByLabelText("Quick Tunnel"));
+
+      expect(screen.queryByLabelText("Tunnel name")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Tunnel token")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Ingress URL")).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: "Save Remote Settings" }));
+
+      await waitFor(() => {
+        expect(mockUpdateRemoteSettings).toHaveBeenCalledWith(
+          expect.objectContaining({
+            remoteCloudflareQuickTunnel: true,
+          }),
+          undefined,
+        );
+      });
     });
 
     it("updates active provider selection and provider status affordance after activation", async () => {

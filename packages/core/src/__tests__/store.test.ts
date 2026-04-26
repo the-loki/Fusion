@@ -2638,6 +2638,7 @@ describe("TaskStore", () => {
         },
         cloudflare: {
           enabled: true,
+          quickTunnel: false,
           tunnelName: "main-tunnel",
           tunnelToken: "cf-secret-token",
           ingressUrl: "https://project.example.com",

@@ -1189,6 +1189,7 @@ export interface RemoteAccessProvidersConfig {
   };
   cloudflare: {
     enabled: boolean;
+    quickTunnel: boolean;
     tunnelName: string;
     tunnelToken: string | null;
     ingressUrl: string;

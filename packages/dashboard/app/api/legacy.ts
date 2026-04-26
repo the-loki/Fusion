@@ -410,6 +410,7 @@ export interface RemoteSettings {
   remoteTailscaleTargetPort: number;
   remoteTailscaleAcceptRoutes: boolean;
   remoteCloudflareEnabled: boolean;
+  remoteCloudflareQuickTunnel: boolean;
   remoteCloudflareTunnelName: string;
   remoteCloudflareTunnelToken: string | null;
   remoteCloudflareIngressUrl: string;
