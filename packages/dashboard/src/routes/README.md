@@ -10,7 +10,7 @@ Registrars should be typed as `ApiRouteRegistrar` so modules share one explicit 
 
 The context centralizes cross-cutting dependencies so registrars preserve behavior without re-implementing plumbing.
 
-Some registrars (for example `register-task-workflow-routes.ts` and `register-file-workspace-routes.ts`) also take a narrow dependency-injection object for non-context helpers that must stay source-of-truth in `routes.ts` (git diff helpers, background refresh helpers, multer upload middleware). This avoids helper duplication while preserving runtime parity.
+Some registrars (for example `register-task-workflow-routes.ts`) also take a narrow dependency-injection object for non-context helpers that must stay source-of-truth in `routes.ts` (git helpers, background refresh helpers, multer upload middleware). This avoids helper duplication while preserving runtime parity.
 
 The context provides core cross-cutting plumbing:
 
@@ -48,9 +48,18 @@ The context provides core cross-cutting plumbing:
   - Workspace discovery/files: `/workspaces`, `/files`, `/files/markdown-list`, `/files/search`, `/files/{*filepath}`
   - File operations: `/files/{*filepath}/copy|move|delete|rename`, `/files/{*filepath}/download`, `/files/{*filepath}/download-zip`
   - Generic wildcard write: `/files/{*filepath}` (must remain after operation routes)
-  - Changed-file helpers: `/tasks/:id/session-files`, `/tasks/:id/file-diffs`
   - Project markdown search: `/project-files/md`
-  - Caches: local `sessionFilesCache` and `fileDiffsCache` (10-second TTL)
+- `register-session-diff-routes.ts` — task session/diff domain:
+  - Session changed-file list: `/tasks/:id/session-files`
+  - Aggregate task diff: `/tasks/:id/diff`
+  - Per-file diffs: `/tasks/:id/file-diffs`
+  - Caches: module-level `sessionFilesCache` and `fileDiffsCache` (10-second TTL)
+- `resolve-diff-base.ts` — shared git diff-base utilities:
+  - `runGitCommand(args, cwd, timeoutMs)`
+  - `resolveDiffBase(task, cwd)` + `ResolveDiffBaseTaskInput` type
+- `register-terminal-routes.ts` — terminal execution and PTY endpoints:
+  - Command execution + streaming: `/terminal/exec`, `/terminal/sessions/:id`, `/terminal/sessions/:id/stream`, `/terminal/sessions/:id/kill`
+  - PTY lifecycle: `/terminal/sessions` (create/list) and `/terminal/sessions/:id` (delete)
 - `register-agent-core-routes.ts` — core agent CRUD, lookups, stats/org-tree, hierarchy aliases (`/agents/:id/children|employees`)
 - `register-agent-runtime-routes.ts` — agent runtime/control-plane, heartbeats/runs, access/permissions, soul/memory, revisions/budget/keys, task/inbox surfaces
 - `register-agent-reflection-rating-routes.ts` — reflection/performance/context endpoints and ratings APIs

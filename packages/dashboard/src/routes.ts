@@ -29,6 +29,7 @@ import {
   internalError,
   notFound,
   rateLimited,
+  rethrowAsApiError,
   sendErrorResponse,
   unauthorized,
 } from "./api-error.js";
@@ -40,7 +41,7 @@ import { registerPlanningSubtaskRoutes } from "./routes/register-planning-subtas
 import { registerChatRoutes } from "./routes/register-chat-routes.js";
 import { registerSettingsMemoryRoutes } from "./routes/register-settings-memory-routes.js";
 import { registerMessagingScriptRoutes } from "./routes/register-messaging-scripts.js";
-import { registerGitGitHubRoutes, runGitCommand } from "./routes/register-git-github.js";
+import { registerGitGitHubRoutes } from "./routes/register-git-github.js";
 import { registerFileWorkspaceRoutes } from "./routes/register-file-workspace-routes.js";
 import { registerAgentsProjectsNodesRoutes } from "./routes/register-agents-projects-nodes.js";
 import { registerProjectRoutes } from "./routes/register-project-routes.js";
@@ -60,6 +61,9 @@ import { registerModelRoutes } from "./routes/register-model-routes.js";
 import { registerUsageRoutes } from "./routes/register-usage-routes.js";
 import { registerAuthRoutes } from "./routes/register-auth-routes.js";
 import { registerIntegratedRouters, registerIntegratedDevServerRouter } from "./routes/register-integrated-routers.js";
+import { registerTerminalRoutes } from "./routes/register-terminal-routes.js";
+import { registerSessionDiffRoutes } from "./routes/register-session-diff-routes.js";
+import { runGitCommand } from "./routes/resolve-diff-base.js";
 
 const TASK_DETAIL_ACTIVITY_LOG_LIMIT = 500;
 
@@ -298,82 +302,7 @@ function assertConsistentOptionalPair(
   };
 }
 
-function rethrowAsApiError(error: unknown, fallbackMessage = "Internal server error"): never {
-  if (error instanceof ApiError) {
-    throw error;
-  }
-
-  if (error instanceof Error && error.message) {
-    throw internalError(error.message);
-  }
-
-  throw internalError(fallbackMessage);
-}
-
-export interface ResolveDiffBaseTaskInput {
-  baseCommitSha?: string;
-  baseBranch?: string;
-}
-
-/**
- * Resolve the diff base ref for a task worktree.
- *
- * IMPORTANT: `packages/engine/src/merger.ts` mirrors this exact ordering for
- * merge-time scope warnings. Keep both implementations in sync so dashboard
- * changed-files views and merger scope enforcement evaluate the same range.
- *
- * Strategy (in priority order):
- * 1. **Branch merge-base** — Prefer the live merge-base between `headRef` and
- *    local `{baseBranch}` (fallback: `origin/{baseBranch}`).
- * 2. **Task-scoped baseCommitSha** — If merge-base is unavailable or equals
- *    `headRef`, use `baseCommitSha` when still an ancestor of `headRef`.
- * 3. **headRef~1** — Last-resort fallback.
- */
-export async function resolveDiffBase(
-  task: ResolveDiffBaseTaskInput,
-  cwd: string,
-  headRef = "HEAD",
-  runGit: (args: string[], cwd?: string, timeout?: number) => Promise<string> = runGitCommand,
-): Promise<string | undefined> {
-  const baseBranch = task.baseBranch ?? "main";
-  let mergeBase: string | undefined;
-
-  try {
-    try {
-      mergeBase = (await runGit(["merge-base", headRef, baseBranch], cwd, 5000)).trim() || undefined;
-    } catch {
-      mergeBase = (await runGit(["merge-base", headRef, `origin/${baseBranch}`], cwd, 5000)).trim() || undefined;
-    }
-  } catch {
-    // base branch may no longer exist locally/remotely
-  }
-
-  // If merge-base equals headRef, the live merge-base would produce an empty
-  // diff. Prefer task.baseCommitSha when still valid.
-  if (mergeBase) {
-    try {
-      const head = (await runGit(["rev-parse", headRef], cwd, 5000)).trim();
-      if (head && head !== mergeBase) return mergeBase;
-    } catch {
-      return mergeBase;
-    }
-  }
-
-  if (task.baseCommitSha) {
-    try {
-      await runGit(["merge-base", "--is-ancestor", task.baseCommitSha, headRef], cwd, 5000);
-      return task.baseCommitSha;
-    } catch {
-      // stale or unreachable — fall through
-    }
-  }
-
-  try {
-    return (await runGit(["rev-parse", `${headRef}~1`], cwd, 5000)).trim() || undefined;
-  } catch {
-    return undefined;
-  }
-}
+export { resolveDiffBase, type ResolveDiffBaseTaskInput, runGitCommand } from "./routes/resolve-diff-base.js";
 
 function slugifyPresetName(name: string): string {
   const slug = name
@@ -953,7 +882,6 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
     validateOptionalModelField,
     normalizeModelSelectionPair,
     runGitCommand,
-    resolveDiffBase,
     trimTaskDetailActivityLog,
     triggerCommentWakeForAssignedAgent: (...args) => triggerCommentWakeForAssignedAgent(...args),
   });
@@ -970,10 +898,8 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
   });
   registerMessagingScriptRoutes(routeContext);
   registerGitGitHubRoutes(routeContext);
-  registerFileWorkspaceRoutes(routeContext, {
-    runGitCommand,
-    resolveDiffBase,
-  });
+  registerSessionDiffRoutes(router, { getProjectContext });
+  registerFileWorkspaceRoutes(routeContext);
   registerAgentsProjectsNodesRoutes(routeContext);
   registerPluginsAutomationRoutes(routeContext);
   registerProxyRoutes(routeContext);
@@ -1340,270 +1266,10 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
   // ---------- Auth routes ----------
   registerAuthRoutes(routeContext);
 
-  // ── Terminal Routes ─────────────────────────────────────────────────
-
-  /**
-   * POST /api/terminal/exec
-   * Execute a shell command in the project root directory.
-   * Body: { command: string }
-   * Returns: { sessionId: string }
-   * 
-   * Output is streamed via SSE at /api/terminal/sessions/:id/stream
-   */
-  router.post("/terminal/exec", async (req, res) => {
-    try {
-      const { command } = req.body;
-      
-      if (!command || typeof command !== "string") {
-        throw badRequest("command is required and must be a string");
-      }
-      
-      if (command.length > 4096) {
-        throw badRequest("command exceeds maximum length of 4096 characters");
-      }
-      
-      const { store: scopedStore } = await getProjectContext(req);
-      const rootDir = scopedStore.getRootDir();
-      const result = terminalSessionManager.createSession(command, rootDir);
-      
-      if (result.error) {
-        throw new ApiError(403, result.error);
-      }
-      
-      res.status(201).json({ sessionId: result.sessionId });
-    } catch (err: unknown) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-      rethrowAsApiError(err, "Failed to execute command");
-    }
-  });
-
-  /**
-   * POST /api/terminal/sessions/:id/kill
-   * Terminate a running terminal session.
-   * Returns: { killed: boolean }
-   */
-  router.post("/terminal/sessions/:id/kill", (req, res) => {
-    try {
-      const { id } = req.params;
-      const { signal } = req.body;
-      
-      const validSignals: NodeJS.Signals[] = ["SIGTERM", "SIGKILL", "SIGINT"];
-      const killSignal = validSignals.includes(signal) ? signal : "SIGTERM";
-      
-      const killed = terminalSessionManager.killSession(id, killSignal);
-      
-      if (!killed) {
-        const session = terminalSessionManager.getSession(id);
-        if (!session) {
-          throw notFound("Session not found");
-        }
-        throw badRequest("Session is not running");
-      }
-
-      res.json({ killed: true, sessionId: id });
-    } catch (err: unknown) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-      rethrowAsApiError(err);
-    }
-  });
-
-  /**
-   * GET /api/terminal/sessions/:id
-   * Get session status and output history.
-   * Returns: { id, command, running, exitCode, output }
-   */
-  router.get("/terminal/sessions/:id", (req, res) => {
-    try {
-      const session = terminalSessionManager.getSession(req.params.id);
-      
-      if (!session) {
-        throw notFound("Session not found");
-      }
-      
-      res.json({
-        id: session.id,
-        command: session.command,
-        running: session.exitCode === null && !session.killed,
-        exitCode: session.exitCode,
-        output: session.output.join(""),
-        startTime: session.startTime.toISOString(),
-      });
-    } catch (err: unknown) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-      rethrowAsApiError(err);
-    }
-  });
-
-  /**
-   * GET /api/terminal/sessions/:id/stream
-   * SSE endpoint for real-time terminal output streaming.
-   * Events: terminal:output (stdout/stderr), terminal:exit
-   */
-  router.get("/terminal/sessions/:id/stream", (req, res) => {
-    try {
-      const { id } = req.params;
-      const session = terminalSessionManager.getSession(id);
-      
-      if (!session) {
-        throw notFound("Session not found");
-      }
-
-      // Set up SSE headers
-      res.setHeader("Content-Type", "text/event-stream");
-      res.setHeader("Cache-Control", "no-cache");
-      res.setHeader("Connection", "keep-alive");
-      res.setHeader("X-Accel-Buffering", "no"); // Disable nginx buffering if present
-
-      // Send initial connection event
-      res.write(`event: connected\ndata: ${JSON.stringify({ sessionId: id })}\n\n`);
-
-      // Handler for output events
-      const onOutput = (event: import("./terminal.js").TerminalOutputEvent) => {
-        if (event.sessionId !== id) return;
-        
-        const eventName = event.type === "exit" ? "terminal:exit" : "terminal:output";
-        const data = JSON.stringify({
-          type: event.type,
-          data: event.data,
-          ...(event.exitCode !== undefined && { exitCode: event.exitCode }),
-        });
-        
-        res.write(`event: ${eventName}\ndata: ${data}\n\n`);
-        
-        // Close connection on exit after a brief delay to ensure client receives final data
-        if (event.type === "exit") {
-          setTimeout(() => {
-            res.end();
-          }, 100);
-        }
-      };
-
-      // Subscribe to session manager events
-      terminalSessionManager.on("output", onOutput);
-
-      // Handle client disconnect
-      req.on("close", () => {
-        terminalSessionManager.off("output", onOutput);
-      });
-
-      // Handle errors
-      req.on("error", () => {
-        terminalSessionManager.off("output", onOutput);
-      });
-    } catch (err: unknown) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-      rethrowAsApiError(err);
-    }
-  });
-
-  // ── PTY Terminal Routes (WebSocket-based) ────────────────────────────
-
-  /**
-   * POST /api/terminal/sessions
-   * Create a new PTY terminal session.
-   * Body: { cwd?: string, cols?: number, rows?: number }
-   * Returns: { sessionId: string, shell: string, cwd: string }
-   */
-  router.post("/terminal/sessions", async (req, res) => {
-    try {
-      const { cwd, cols, rows } = req.body;
-      const { store: scopedStore } = await getProjectContext(req);
-      const terminalService = getTerminalService(scopedStore.getRootDir());
-
-      const result = await terminalService.createSession({
-        cwd,
-        cols: typeof cols === "number" ? cols : undefined,
-        rows: typeof rows === "number" ? rows : undefined,
-      });
-
-      if (!result.success) {
-        const statusByCode = {
-          max_sessions: 503,
-          invalid_shell: 400,
-          pty_load_failed: 503,
-          pty_spawn_failed: 500,
-        } as const;
-
-        throw new ApiError(statusByCode[result.code], result.error, { code: result.code });
-      }
-
-      res.status(201).json({
-        sessionId: result.session.id,
-        shell: result.session.shell,
-        cwd: result.session.cwd,
-      });
-    } catch (err: unknown) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-      rethrowAsApiError(err, "Failed to create terminal session");
-    }
-  });
-
-  /**
-   * GET /api/terminal/sessions
-   * List all active PTY terminal sessions.
-   * Returns: [{ id: string, cwd: string, shell: string, createdAt: string }]
-   */
-  router.get("/terminal/sessions", async (req, res) => {
-    try {
-      const { store: scopedStore } = await getProjectContext(req);
-      const terminalService = getTerminalService(scopedStore.getRootDir());
-      const sessions = terminalService.getAllSessions();
-
-      res.json(
-        sessions.map((s) => ({
-          id: s.id,
-          cwd: s.cwd,
-          shell: s.shell,
-          createdAt: s.createdAt.toISOString(),
-          lastActivityAt: s.lastActivityAt.toISOString(),
-        }))
-      );
-    } catch (err: unknown) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-      rethrowAsApiError(err, "Failed to list sessions");
-    }
-  });
-
-  /**
-   * DELETE /api/terminal/sessions/:id
-   * Kill a PTY terminal session.
-   * Returns: { killed: boolean }
-   */
-  router.delete("/terminal/sessions/:id", async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { store: scopedStore } = await getProjectContext(req);
-      const terminalService = getTerminalService(scopedStore.getRootDir());
-
-      const killed = terminalService.killSession(id);
-
-      if (!killed) {
-        const session = terminalService.getSession(id);
-        if (!session) {
-          throw notFound("Session not found");
-        }
-        throw badRequest("Failed to kill session");
-      }
-
-      res.json({ killed: true });
-    } catch (err: unknown) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-      rethrowAsApiError(err);
-    }
+  registerTerminalRoutes(router, {
+    getProjectContext,
+    terminalSessionManager,
+    getTerminalService,
   });
 
   /**

@@ -1,7 +1,5 @@
 import { type NextFunction, type Request, type Response } from "express";
-import { execFile } from "node:child_process";
 import { isAbsolute } from "node:path";
-import { promisify } from "node:util";
 import type { BatchStatusEntry, BatchStatusResponse, BatchStatusResult, IssueInfo, PrInfo, TaskStore } from "@fusion/core";
 import { getCurrentRepo, isGhAuthenticated } from "@fusion/core";
 import {
@@ -23,8 +21,7 @@ import {
   verifyWebhookSignature,
 } from "../github-webhooks.js";
 import type { ApiRoutesContext } from "./types.js";
-
-const execFileAsync = promisify(execFile);
+import { runGitCommand } from "./resolve-diff-base.js";
 
 function getCommandErrorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -34,28 +31,7 @@ function getCommandErrorMessage(error: unknown): string {
   return String(error);
 }
 
-export async function runGitCommand(args: string[], cwd?: string, timeout = 10000): Promise<string> {
-  const result = await execFileAsync("git", args, {
-    cwd,
-    timeout,
-    maxBuffer: 10 * 1024 * 1024,
-    encoding: "utf-8",
-  });
-
-  if (typeof result === "string") {
-    return result;
-  }
-
-  if (Array.isArray(result)) {
-    return String(result[0] ?? "");
-  }
-
-  if (result && typeof result === "object" && "stdout" in result) {
-    return String((result as { stdout?: unknown }).stdout ?? "");
-  }
-
-  return "";
-}
+export { runGitCommand };
 
 /** Git remote info returned by the remotes endpoint */
 export interface GitRemote {

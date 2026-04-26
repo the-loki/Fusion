@@ -100,3 +100,15 @@ export function rateLimited(message: string, retryAfter?: number): ApiError {
 export function internalError(message: string): ApiError {
   return new ApiError(500, message);
 }
+
+export function rethrowAsApiError(error: unknown, fallbackMessage = "Internal server error"): never {
+  if (error instanceof ApiError) {
+    throw error;
+  }
+
+  if (error instanceof Error && error.message) {
+    throw internalError(error.message);
+  }
+
+  throw internalError(fallbackMessage);
+}

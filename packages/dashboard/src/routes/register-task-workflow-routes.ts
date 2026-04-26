@@ -1,5 +1,4 @@
 import { createReadStream } from "node:fs";
-import { access } from "node:fs/promises";
 import type { TaskStore, Task, TaskDetail, Column } from "@fusion/core";
 import { COLUMNS, VALID_TRANSITIONS } from "@fusion/core";
 import { ApiError, badRequest, notFound } from "../api-error.js";
@@ -12,7 +11,6 @@ interface TaskWorkflowRouteDeps {
   validateOptionalModelField: (value: unknown, name: string) => string | undefined;
   normalizeModelSelectionPair: (provider: string | undefined, modelId: string | undefined) => { provider?: string | null; modelId?: string | null };
   runGitCommand: (args: string[], cwd: string, timeoutMs: number) => Promise<string>;
-  resolveDiffBase: (task: Task, cwd: string) => Promise<string | undefined>;
   trimTaskDetailActivityLog: (task: TaskDetail) => TaskDetail;
   triggerCommentWakeForAssignedAgent: (scopedStore: TaskStore, task: Task, wake: { triggeringCommentType: "steering" | "task" | "pr"; triggeringCommentIds?: string[]; triggerDetail: string }) => Promise<void>;
 }
@@ -26,7 +24,6 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
     validateOptionalModelField,
     normalizeModelSelectionPair,
     runGitCommand,
-    resolveDiffBase,
     trimTaskDetailActivityLog,
     triggerCommentWakeForAssignedAgent,
   } = deps;
@@ -1625,222 +1622,5 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
     }
   });
 
-  /**
-   * GET /api/tasks/:id/diff
-   * Fetch git diff for a task's changes.
-   * Query: ?worktree=path
-   * Returns: TaskDiff
-   */
-  router.get("/tasks/:id/diff", async (req, res) => {
-    try {
-      const { store: scopedStore } = await getProjectContext(req);
-      const task = await scopedStore.getTask(req.params.id);
-      if (!task) {
-        res.status(404).json({ error: "Task not found" });
-        return;
-      }
-
-      // Done tasks: diff from the squash commit's first parent.
-      // The merger only performs squash merges, so sha^..sha contains exactly
-      // this task's merged changes and excludes unrelated tasks merged in between.
-      if (task.column === "done" && task.mergeDetails?.commitSha) {
-        const rootDir = scopedStore.getRootDir();
-        const sha = task.mergeDetails.commitSha;
-
-        let mergeBase: string | undefined;
-
-        try {
-          mergeBase = (await runGitCommand(["rev-parse", `${sha}^`], rootDir, 5000)).trim();
-        } catch {
-          // Last resort: no diff available
-          res.json({ files: [], stats: { filesChanged: 0, additions: 0, deletions: 0 } });
-          return;
-        }
-
-        const nameStatus = (await runGitCommand(["diff", "--name-status", `${mergeBase}..${sha}`], rootDir, 10000)).trim();
-
-        const doneFiles: Array<{
-          path: string;
-          status: "added" | "modified" | "deleted";
-          additions: number;
-          deletions: number;
-          patch: string;
-        }> = [];
-
-        for (const line of nameStatus.split("\n").filter(Boolean)) {
-          const parts = line.split("\t");
-          const statusCode = parts[0] ?? "M";
-          const filePath = parts[1] ?? "";
-          if (!filePath) continue;
-
-          let status: "added" | "modified" | "deleted" = "modified";
-          if (statusCode.startsWith("A")) status = "added";
-          else if (statusCode.startsWith("D")) status = "deleted";
-
-          let patch = "";
-          try {
-            patch = await runGitCommand(["diff", `${mergeBase}..${sha}`, "--", filePath], rootDir, 10000);
-          } catch { /* ignore */ }
-
-          const additions = (patch.match(/^\+[^+]/gm) || []).length;
-          const deletions = (patch.match(/^-[^-]/gm) || []).length;
-          doneFiles.push({ path: filePath, status, additions, deletions, patch });
-        }
-
-        const doneStats = {
-          filesChanged: doneFiles.length,
-          additions: doneFiles.reduce((s, f) => s + f.additions, 0),
-          deletions: doneFiles.reduce((s, f) => s + f.deletions, 0),
-        };
-
-        res.json({ files: doneFiles, stats: doneStats });
-        return;
-      }
-
-      // Done tasks without a commit SHA: return safe, deterministic response.
-      // Do NOT fall through to the worktree-based diff logic, which would use
-      // the repo root as cwd and return an inflated repository-wide diff.
-      if (task.column === "done") {
-        const md = task.mergeDetails;
-        res.json({
-          files: [],
-          stats: {
-            filesChanged: md?.filesChanged ?? 0,
-            additions: md?.insertions ?? 0,
-            deletions: md?.deletions ?? 0,
-          },
-        });
-        return;
-      }
-
-      const worktree = typeof req.query.worktree === "string" ? req.query.worktree : undefined;
-      const resolvedWorktree = worktree || task.worktree;
-
-      // Check worktree existence asynchronously to avoid blocking event loop
-      if (!resolvedWorktree) {
-        res.json({ files: [], stats: { filesChanged: 0, additions: 0, deletions: 0 } });
-        return;
-      }
-      let worktreeExists = false;
-      try {
-        await access(resolvedWorktree);
-        worktreeExists = true;
-      } catch {
-        worktreeExists = false;
-      }
-      if (!worktreeExists) {
-        res.json({ files: [], stats: { filesChanged: 0, additions: 0, deletions: 0 } });
-        return;
-      }
-      const cwd = resolvedWorktree;
-
-      // Use resolveDiffBase for consistent diff base across all endpoints
-      const diffBase = await resolveDiffBase(task, cwd);
-      const diffRange = diffBase ? `${diffBase}..HEAD` : "HEAD";
-
-      // Get list of changed files — include committed, staged, unstaged, and untracked
-      const fileMap = new Map<string, string>();
-
-      if (diffBase) {
-        try {
-          const committedOutput = (await runGitCommand(["diff", "--name-status", `${diffBase}..HEAD`], cwd, 10000)).trim();
-          for (const line of committedOutput.split("\n").filter(Boolean)) {
-            const parts = line.split("\t");
-            fileMap.set(parts[1] ?? "", parts[0] ?? "M");
-          }
-        } catch {
-          // committed diff failed
-        }
-      }
-
-      // Staged changes (in git index)
-      try {
-        const stagedOutput = (await runGitCommand(["diff", "--cached", "--name-status"], cwd, 10000)).trim();
-        for (const line of stagedOutput.split("\n").filter(Boolean)) {
-          const parts = line.split("\t");
-          // Use staged status (don't overwrite committed status)
-          const filePath = parts[1] ?? "";
-          if (filePath && !fileMap.has(filePath)) {
-            fileMap.set(filePath, parts[0] ?? "M");
-          }
-        }
-      } catch {
-        // staged diff failed
-      }
-
-      try {
-        const workingTreeOutput = (await runGitCommand(["diff", "--name-status"], cwd, 10000)).trim();
-        for (const line of workingTreeOutput.split("\n").filter(Boolean)) {
-          const parts = line.split("\t");
-          const filePath = parts[1] ?? "";
-          // Unstaged changes only affect files not already in map (to avoid overwrite)
-          if (filePath && !fileMap.has(filePath)) {
-            fileMap.set(filePath, parts[0] ?? "M");
-          }
-        }
-      } catch {
-        // working tree diff failed
-      }
-
-      // Untracked files (new files not yet staged)
-      try {
-        const untrackedOutput = (await runGitCommand(["ls-files", "--others", "--exclude-standard"], cwd, 10000)).trim();
-        for (const line of untrackedOutput.split("\n").filter(Boolean)) {
-          // Mark as untracked with special status "U" - will be converted to "added"
-          fileMap.set(line, "U");
-        }
-      } catch {
-        // untracked listing failed
-      }
-
-      const files: Array<{
-        path: string;
-        status: "added" | "modified" | "deleted";
-        additions: number;
-        deletions: number;
-        patch: string;
-      }> = [];
-
-      for (const [filePath, statusCode] of fileMap) {
-        if (!filePath) continue;
-
-        let status: "added" | "modified" | "deleted";
-        if (statusCode.startsWith("A") || statusCode === "U") status = "added";
-        else if (statusCode.startsWith("D")) status = "deleted";
-        else status = "modified";
-
-        // Get patch for this file
-        let patch = "";
-        try {
-          // For untracked files, generate synthetic diff against /dev/null
-          if (statusCode === "U") {
-            patch = await runGitCommand(["diff", "--no-index", "/dev/null", filePath], cwd, 10000).catch(() => "");
-          } else {
-            patch = await runGitCommand(["diff", diffRange, "--", filePath], cwd, 10000);
-          }
-        } catch {
-          // Ignore errors for individual files
-        }
-
-        const additions = (patch.match(/^\+[^+]/gm) || []).length;
-        const deletions = (patch.match(/^-[^-]/gm) || []).length;
-
-        files.push({ path: filePath, status, additions, deletions, patch });
-      }
-
-      const stats = {
-        filesChanged: files.length,
-        additions: files.reduce((sum, f) => sum + f.additions, 0),
-        deletions: files.reduce((sum, f) => sum + f.deletions, 0),
-      };
-
-      res.json({ files, stats });
-    } catch (err: unknown) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-      rethrowAsApiError(err);
-    }
-  });
 
 }
