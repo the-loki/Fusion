@@ -1990,6 +1990,54 @@ describe("runDashboard — --dev mode", () => {
   });
 });
 
+describe("runDashboard — plugin auto-load", () => {
+  let mockStore: ReturnType<typeof makeMockStore>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    resetGitHubMocks();
+    mockStore = makeMockStore();
+    const { TaskStore } = await import("@fusion/core");
+    (TaskStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => mockStore);
+  });
+
+  it("auto-loads installed plugins during startup", async () => {
+    const { PluginLoader } = await import("@fusion/core");
+
+    await runDashboard(0, { open: false });
+
+    const loaderInstance = (PluginLoader as unknown as ReturnType<typeof vi.fn>).mock.results[0]?.value as
+      | { loadAllPlugins: ReturnType<typeof vi.fn> }
+      | undefined;
+    expect(loaderInstance?.loadAllPlugins).toHaveBeenCalledTimes(1);
+  });
+
+  it("continues startup when plugin auto-load fails", async () => {
+    const { PluginLoader } = await import("@fusion/core");
+    (PluginLoader as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+      const emitter = new EventEmitter();
+      return {
+        loadPlugin: vi.fn().mockResolvedValue(undefined),
+        loadAllPlugins: vi.fn().mockRejectedValue(new Error("plugin load failed")),
+        stopPlugin: vi.fn().mockResolvedValue(undefined),
+        reloadPlugin: vi.fn().mockResolvedValue(undefined),
+        getPluginRoutes: vi.fn().mockReturnValue([]),
+        getPlugin: vi.fn(),
+        getLoadedPlugins: vi.fn().mockReturnValue([]),
+        on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+          emitter.on(event, handler);
+        }),
+        off: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+          emitter.off(event, handler);
+        }),
+        emit: emitter.emit.bind(emitter),
+      };
+    });
+
+    await expect(runDashboard(0, { open: false })).resolves.toBeDefined();
+  });
+});
+
 describe("runDashboard — merge conflict retry logic", () => {
   let mockStore: ReturnType<typeof makeMockStore>;
   let consoleSpy: ReturnType<typeof vi.spyOn>;

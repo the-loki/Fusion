@@ -422,6 +422,17 @@ export async function runServe(
     taskStore: store,
   });
 
+  // Auto-load all enabled plugins so runtime UI (NewAgentDialog, AgentDetailView)
+  // can discover installed runtimes like Hermes and OpenClaw.
+  try {
+    const { loaded, errors } = await pluginLoader.loadAllPlugins();
+    console.log(`[plugins] Loaded ${loaded} plugins (${errors} errors)`);
+  } catch (err) {
+    console.error(
+      `[plugins] Failed to load plugins: ${err instanceof Error ? err.message : err}`
+    );
+  }
+
   // Get subsystems from the cwd engine for the HTTP layer
   const heartbeatMonitor = cwdEngine.getRuntime().getHeartbeatMonitor();
   const missionAutopilot = cwdEngine.getRuntime().getMissionAutopilot();

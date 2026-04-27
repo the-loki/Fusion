@@ -281,6 +281,7 @@ const mocks = vi.hoisted(() => {
   const pluginLoaderCtor = vi.fn().mockImplementation(() => {
     const pluginLoader = {
       loadPlugin: vi.fn().mockResolvedValue(undefined),
+      loadAllPlugins: vi.fn().mockResolvedValue({ loaded: 0, errors: 0 }),
       stopPlugin: vi.fn().mockResolvedValue(undefined),
       reloadPlugin: vi.fn().mockResolvedValue(undefined),
       getPluginRoutes: vi.fn().mockReturnValue([]),
@@ -890,6 +891,41 @@ describe("runServe — Plugin wiring", () => {
     expect(loaderOptions).toHaveProperty("taskStore");
 
     await triggerSignal("SIGINT");
+  });
+
+  it("auto-loads installed plugins during startup", async () => {
+    const { PluginLoader } = await import("@fusion/core");
+
+    await runServe(4040, {});
+
+    const loaderInstance = (PluginLoader as unknown as ReturnType<typeof vi.fn>).mock.results[0]?.value as
+      | { loadAllPlugins: ReturnType<typeof vi.fn> }
+      | undefined;
+    expect(loaderInstance?.loadAllPlugins).toHaveBeenCalledTimes(1);
+
+    await triggerSignal("SIGINT");
+  });
+
+  it("continues startup when plugin auto-load fails", async () => {
+    const { PluginLoader } = await import("@fusion/core");
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    (PluginLoader as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => ({
+      loadPlugin: vi.fn().mockResolvedValue(undefined),
+      loadAllPlugins: vi.fn().mockRejectedValue(new Error("plugin load failed")),
+      stopPlugin: vi.fn().mockResolvedValue(undefined),
+      reloadPlugin: vi.fn().mockResolvedValue(undefined),
+      getPluginRoutes: vi.fn().mockReturnValue([]),
+      getPlugin: vi.fn(),
+      getLoadedPlugins: vi.fn().mockReturnValue([]),
+    }));
+
+    await expect(runServe(4040, {})).resolves.toBeUndefined();
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[plugins] Failed to load plugins: plugin load failed")
+    );
+
+    await triggerSignal("SIGINT");
+    errorSpy.mockRestore();
   });
 
   it("includes plugin wiring in headless server", async () => {

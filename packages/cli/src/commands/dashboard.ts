@@ -1023,6 +1023,18 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
     taskStore: store,
   });
 
+  // Auto-load all enabled plugins so runtime UI (NewAgentDialog, AgentDetailView)
+  // can discover installed runtimes like Hermes and OpenClaw.
+  try {
+    const { loaded, errors } = await pluginLoader.loadAllPlugins();
+    logSink.log(`Loaded ${loaded} plugins (${errors} errors)`, "plugins");
+  } catch (err) {
+    logSink.log(
+      `Failed to load plugins: ${err instanceof Error ? err.message : err}`,
+      "plugins"
+    );
+  }
+
   // ── HeartbeatMonitor + HeartbeatTriggerScheduler ──────────────────────
   //
   // In non-dev mode: obtained from ProjectEngine after engine.start(), which
