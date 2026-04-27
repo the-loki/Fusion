@@ -802,9 +802,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 2px 8px;
-  margin-left: 8px;
-  font-size: 11px;
+  padding: calc(var(--space-xs) / 4)
+    calc(var(--space-sm) - (var(--space-xs) / 2));
+  margin-left: var(--space-xs);
+  font-size: calc(var(--space-sm) + (var(--space-xs) / 2));
   font-weight: 500;
   background: var(--card);
   border: 1px solid var(--border);
@@ -842,10 +843,11 @@
 .card-send-back-btn {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 2px 8px;
-  margin-left: 8px;
-  font-size: 11px;
+  gap: calc(var(--space-xs) / 2);
+  padding: calc(var(--space-xs) / 4)
+    calc(var(--space-sm) - (var(--space-xs) / 2));
+  margin-left: var(--space-xs);
+  font-size: calc(var(--space-sm) + (var(--space-xs) / 2));
   font-weight: 500;
   background: var(--card);
   border: 1px solid var(--border);
@@ -975,7 +977,7 @@
   .card-archive-btn,
   .card-unarchive-btn {
     opacity: 1;
-    padding: 4px 10px;
+    padding: calc(var(--space-xs) - (var(--space-xs) / 4)) var(--space-sm);
   }
 
   /* Card: compact progress bar on narrow cards */
