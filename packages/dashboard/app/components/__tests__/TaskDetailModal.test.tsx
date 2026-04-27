@@ -5853,6 +5853,62 @@ describe("TaskDetailModal", () => {
       expect(lastUsed).toBeTruthy();
     });
 
+    it("preserves fullDetail.log when SSE-stripped task prop has empty log", async () => {
+      // Regression: SSE strips `log` to [] in task list payloads (see
+      // stripTaskListHeavyFields in packages/dashboard/src/sse.ts). The modal
+      // merges live `task` over `fullDetail` to keep tokenUsage/status fresh,
+      // which previously clobbered fullDetail.log and emptied the Activity tab.
+      const { fetchTaskDetail } = await import("../../api");
+      const mockFetch = vi.mocked(fetchTaskDetail);
+
+      const strippedTask: Task = {
+        id: "FN-LOG-1",
+        description: "SSE stripped task",
+        column: "doing",
+        dependencies: [],
+        steps: [],
+        currentStep: 0,
+        log: [],
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      } as Task;
+
+      mockFetch.mockResolvedValueOnce({
+        ...strippedTask,
+        prompt: "# Spec",
+        log: [
+          { timestamp: "2026-04-24T09:00:00.000Z", action: "Created task" },
+          { timestamp: "2026-04-24T09:01:00.000Z", action: "Started executor", outcome: "OK" },
+        ],
+      } as TaskDetail);
+
+      const { container } = render(
+        <TaskDetailModal
+          task={strippedTask}
+          onClose={noop}
+          onMoveTask={noopMove}
+          onDeleteTask={noopDelete}
+          onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
+          addToast={noop}
+        />,
+      );
+
+      // Wait for fetchTaskDetail to resolve.
+      await waitFor(() => {
+        expect(container.querySelector(".markdown-body")).toBeTruthy();
+      }, { timeout: 3000 });
+
+      fireEvent.click(screen.getByText("Logs"));
+
+      const activityList = container.querySelector(".detail-activity-list");
+      expect(activityList).toBeTruthy();
+      const logEntries = container.querySelectorAll(".detail-log-entry");
+      expect(logEntries).toHaveLength(2);
+      expect(logEntries[0].textContent).toContain("Started executor");
+      expect(logEntries[1].textContent).toContain("Created task");
+    });
+
     it("shows token stats empty state once detail is loaded without usage", async () => {
       const { fetchTaskDetail } = await import("../../api");
       const mockFetch = vi.mocked(fetchTaskDetail);
