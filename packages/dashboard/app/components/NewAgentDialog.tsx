@@ -1,7 +1,8 @@
 import "./NewAgentDialog.css";
 import { useState, useEffect, useCallback } from "react";
-import type { Agent, AgentCapability, ModelInfo, AgentGenerationSpec } from "../api";
+import type { Agent, AgentCapability, ModelInfo, AgentGenerationSpec, PluginRuntimeInfo } from "../api";
 import { createAgent, fetchAgents, fetchModels, updateGlobalSettings } from "../api";
+import * as apiModule from "../api";
 import { CustomModelDropdown } from "./CustomModelDropdown";
 import { ProviderIcon } from "./ProviderIcon";
 import { AgentGenerationModal } from "./AgentGenerationModal";
@@ -66,6 +67,10 @@ export function NewAgentDialog({ isOpen, onClose, onCreated, projectId }: NewAge
   const [modelsLoading, setModelsLoading] = useState(false);
   const [favoriteProviders, setFavoriteProviders] = useState<string[]>([]);
   const [favoriteModels, setFavoriteModels] = useState<string[]>([]);
+  const [runtimeMode, setRuntimeMode] = useState<"model" | "runtime">("model");
+  const [selectedRuntimeId, setSelectedRuntimeId] = useState("");
+  const [availableRuntimes, setAvailableRuntimes] = useState<PluginRuntimeInfo[]>([]);
+  const [runtimesLoading, setRuntimesLoading] = useState(false);
 
   // Manager dropdown state
   const [availableManagers, setAvailableManagers] = useState<Agent[]>([]);
@@ -103,6 +108,29 @@ export function NewAgentDialog({ isOpen, onClose, onCreated, projectId }: NewAge
       .finally(() => setManagersLoading(false));
   }, [isOpen, projectId]);
 
+  // Load plugin runtimes when dialog opens
+  useEffect(() => {
+    if (!isOpen) return;
+    const fetchPluginRuntimes = apiModule.fetchPluginRuntimes;
+    if (typeof fetchPluginRuntimes !== "function") {
+      setAvailableRuntimes([]);
+      setRuntimesLoading(false);
+      return;
+    }
+
+    setRuntimesLoading(true);
+    setAvailableRuntimes([]);
+    fetchPluginRuntimes(projectId)
+      .then((runtimes) => {
+        setAvailableRuntimes(runtimes);
+      })
+      .catch(() => {
+        // Gracefully handle — runtime selector will show empty state
+        setAvailableRuntimes([]);
+      })
+      .finally(() => setRuntimesLoading(false));
+  }, [isOpen, projectId]);
+
   // Selected model in "provider/modelId" format, or "" for default
   const selectedModel = runtimeConfig.model.includes("/")
     ? runtimeConfig.model
@@ -133,6 +161,13 @@ export function NewAgentDialog({ isOpen, onClose, onCreated, projectId }: NewAge
   const handleModelChange = useCallback((value: string) => {
     // value is "provider/modelId" or "" for default
     setRuntimeConfig(c => ({ ...c, model: value }));
+  }, []);
+
+  const handleRuntimeModeChange = useCallback((mode: "model" | "runtime") => {
+    setRuntimeMode(mode);
+    if (mode === "model") {
+      setSelectedRuntimeId("");
+    }
   }, []);
 
   const handleToggleFavorite = useCallback(async (provider: string) => {
@@ -196,6 +231,8 @@ export function NewAgentDialog({ isOpen, onClose, onCreated, projectId }: NewAge
     setSoul("");
     setMemory("");
     setRuntimeConfig({ model: "", thinkingLevel: "off", maxTurns: 1000 });
+    setRuntimeMode("model");
+    setSelectedRuntimeId("");
     setSelectedPresetId(null);
     setSelectedSkills([]);
     setError(null);
@@ -209,7 +246,11 @@ export function NewAgentDialog({ isOpen, onClose, onCreated, projectId }: NewAge
     setError(null);
     try {
       const runtimeCfg: Record<string, unknown> = {};
-      if (runtimeConfig.model.trim()) runtimeCfg.model = runtimeConfig.model.trim();
+      if (runtimeMode === "runtime") {
+        if (selectedRuntimeId.trim()) runtimeCfg.runtimeHint = selectedRuntimeId.trim();
+      } else if (runtimeConfig.model.trim()) {
+        runtimeCfg.model = runtimeConfig.model.trim();
+      }
       if (runtimeConfig.thinkingLevel !== "off") runtimeCfg.thinkingLevel = runtimeConfig.thinkingLevel;
       if (runtimeConfig.maxTurns !== 1000) runtimeCfg.maxTurns = runtimeConfig.maxTurns;
       await createAgent({
@@ -238,6 +279,9 @@ export function NewAgentDialog({ isOpen, onClose, onCreated, projectId }: NewAge
   const selectedReportsToId = reportsTo.trim();
   const selectedManager = selectedReportsToId
     ? availableManagers.find((manager) => manager.id === selectedReportsToId)
+    : undefined;
+  const selectedRuntime = selectedRuntimeId
+    ? availableRuntimes.find((runtime) => runtime.runtimeId === selectedRuntimeId)
     : undefined;
 
   return (
@@ -478,24 +522,74 @@ export function NewAgentDialog({ isOpen, onClose, onCreated, projectId }: NewAge
           {step === 1 && (
             <div>
               <div className="agent-dialog-field">
-                <label>Model</label>
-                {modelsLoading ? (
-                  <div className="agent-dialog-loading">Loading models…</div>
-                ) : (
-                  <CustomModelDropdown
-                    id="agent-model"
-                    label="Model"
-                    value={selectedModel}
-                    onChange={handleModelChange}
-                    models={availableModels}
-                    placeholder="Select a model…"
-                    favoriteProviders={favoriteProviders}
-                    onToggleFavorite={handleToggleFavorite}
-                    favoriteModels={favoriteModels}
-                    onToggleModelFavorite={handleToggleModelFavorite}
-                  />
-                )}
+                <label>Runtime Source</label>
+                <div className="agent-runtime-mode-toggle" role="radiogroup" aria-label="Runtime source">
+                  <label className="agent-runtime-mode-option">
+                    <input
+                      type="radio"
+                      name="agent-runtime-mode"
+                      value="model"
+                      checked={runtimeMode === "model"}
+                      onChange={() => handleRuntimeModeChange("model")}
+                    />
+                    <span>Built-in Model</span>
+                  </label>
+                  <label className="agent-runtime-mode-option">
+                    <input
+                      type="radio"
+                      name="agent-runtime-mode"
+                      value="runtime"
+                      checked={runtimeMode === "runtime"}
+                      onChange={() => handleRuntimeModeChange("runtime")}
+                    />
+                    <span>Plugin Runtime</span>
+                  </label>
+                </div>
               </div>
+              {runtimeMode === "model" ? (
+                <div className="agent-dialog-field">
+                  <label>Model</label>
+                  {modelsLoading ? (
+                    <div className="agent-dialog-loading">Loading models…</div>
+                  ) : (
+                    <CustomModelDropdown
+                      id="agent-model"
+                      label="Model"
+                      value={selectedModel}
+                      onChange={handleModelChange}
+                      models={availableModels}
+                      placeholder="Select a model…"
+                      favoriteProviders={favoriteProviders}
+                      onToggleFavorite={handleToggleFavorite}
+                      favoriteModels={favoriteModels}
+                      onToggleModelFavorite={handleToggleModelFavorite}
+                    />
+                  )}
+                </div>
+              ) : (
+                <div className="agent-dialog-field">
+                  <label htmlFor="agent-runtime-hint">Runtime</label>
+                  {runtimesLoading ? (
+                    <div className="agent-dialog-loading">Loading runtimes…</div>
+                  ) : (
+                    <select
+                      id="agent-runtime-hint"
+                      className="select"
+                      value={selectedRuntimeId}
+                      onChange={e => setSelectedRuntimeId(e.target.value)}
+                    >
+                      <option value="">
+                        {availableRuntimes.length > 0 ? "Select a plugin runtime…" : "No plugin runtimes available"}
+                      </option>
+                      {availableRuntimes.map((runtime) => (
+                        <option key={`${runtime.pluginId}:${runtime.runtimeId}`} value={runtime.runtimeId}>
+                          {runtime.description ? `${runtime.name} — ${runtime.description}` : runtime.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
               <div className="agent-dialog-field">
                 <label htmlFor="agent-thinking">Thinking Level</label>
                 <select
@@ -590,9 +684,15 @@ export function NewAgentDialog({ isOpen, onClose, onCreated, projectId }: NewAge
                   </div>
                 )}
                 <div className="agent-dialog-summary-row">
-                  <span className="agent-dialog-summary-row-label">Model</span>
+                  <span className="agent-dialog-summary-row-label">{runtimeMode === "runtime" ? "Runtime" : "Model"}</span>
                   <span>
-                    {selectedModel ? (
+                    {runtimeMode === "runtime" ? (
+                      selectedRuntime ? (
+                        selectedRuntime.name
+                      ) : (
+                        <em className="agent-dialog-summary-row-value--muted">Not selected</em>
+                      )
+                    ) : selectedModel ? (
                       <>
                         <ProviderIcon provider={selectedModel.split("/")[0]} size="sm" />
                         {" "}

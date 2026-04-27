@@ -2830,6 +2830,24 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
   });
 
   /**
+   * GET /api/plugins/runtimes
+   * Get all plugin runtime metadata from active plugins.
+   * Returns aggregated array of { pluginId, runtimeId, name, description, version }.
+   */
+  router.get("/plugins/runtimes", async (_req: Request, res: Response) => {
+    const runtimes = options?.pluginLoader?.getPluginRuntimes() ?? [];
+    res.json(
+      runtimes.map(({ pluginId, runtime }) => ({
+        pluginId,
+        runtimeId: runtime.metadata.runtimeId,
+        name: runtime.metadata.name,
+        description: runtime.metadata.description,
+        version: runtime.metadata.version,
+      })),
+    );
+  });
+
+  /**
    * GET /api/plugins/:id
    * Get a single plugin by ID.
    * Query: { projectId?: string }

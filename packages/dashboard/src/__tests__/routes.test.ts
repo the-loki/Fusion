@@ -251,6 +251,54 @@ describe("route registrar ordering invariants", () => {
   });
 });
 
+describe("GET /api/plugins/runtimes", () => {
+  function buildApp(pluginLoader?: { getPluginRuntimes?: () => Array<{ pluginId: string; runtime: { metadata: { runtimeId: string; name: string; description?: string; version?: string }; factory: () => unknown } }> }) {
+    const app = express();
+    app.use(express.json());
+    app.use("/api", createApiRoutes(createMockStore(), { pluginLoader }));
+    return app;
+  }
+
+  it("returns plugin runtime metadata with 200 status", async () => {
+    const pluginLoader = {
+      getPluginRuntimes: () => [
+        {
+          pluginId: "plugin-openclaw",
+          runtime: {
+            metadata: {
+              runtimeId: "openclaw",
+              name: "OpenClaw Runtime",
+              description: "Executes OpenClaw prompts",
+              version: "1.2.3",
+            },
+            factory: () => ({ run: async () => undefined }),
+          },
+        },
+      ],
+    };
+
+    const res = await GET(buildApp(pluginLoader), "/api/plugins/runtimes");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      {
+        pluginId: "plugin-openclaw",
+        runtimeId: "openclaw",
+        name: "OpenClaw Runtime",
+        description: "Executes OpenClaw prompts",
+        version: "1.2.3",
+      },
+    ]);
+  });
+
+  it("returns an empty array with 200 status when plugin runtimes are unavailable", async () => {
+    const res = await GET(buildApp(), "/api/plugins/runtimes");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+});
+
 describe("routes/context project scoping helpers", () => {
   it("prefers query.projectId over body.projectId", () => {
     const req = {

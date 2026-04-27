@@ -9,6 +9,7 @@ vi.mock("../../api", () => ({
   createAgent: vi.fn(),
   fetchAgents: vi.fn(),
   fetchModels: vi.fn(),
+  fetchPluginRuntimes: vi.fn(),
   updateGlobalSettings: vi.fn(),
   fetchDiscoveredSkills: vi.fn(),
 }));
@@ -78,6 +79,7 @@ vi.mock("../AgentGenerationModal", () => ({
 const mockCreateAgent = vi.mocked(apiModule.createAgent);
 const mockFetchAgents = vi.mocked(apiModule.fetchAgents);
 const mockFetchModels = vi.mocked(apiModule.fetchModels);
+const mockFetchPluginRuntimes = vi.mocked(apiModule.fetchPluginRuntimes);
 const mockUpdateGlobalSettings = vi.mocked(apiModule.updateGlobalSettings);
 const mockFetchDiscoveredSkills = vi.mocked(apiModule.fetchDiscoveredSkills);
 
@@ -89,6 +91,11 @@ const MOCK_MODELS_RESPONSE = {
   favoriteProviders: ["anthropic"],
   favoriteModels: ["anthropic/claude-sonnet-4-5"],
 };
+
+const MOCK_PLUGIN_RUNTIMES = [
+  { pluginId: "fusion-plugin-openclaw-runtime", runtimeId: "openclaw", name: "OpenClaw", description: "OpenClaw plugin runtime", version: "1.0.0" },
+  { pluginId: "fusion-plugin-hermes-runtime", runtimeId: "hermes", name: "Hermes", description: "Hermes plugin runtime", version: "1.1.0" },
+];
 
 const MOCK_SKILLS_RESPONSE = [
   { id: "skill-1", name: "Skill One", path: "/path/skill-1", relativePath: "skills/skill-1", enabled: true, metadata: { source: "*", scope: "user" as const, origin: "top-level" as const } },
@@ -160,6 +167,7 @@ describe("NewAgentDialog", () => {
     mockFetchModels.mockResolvedValue(MOCK_MODELS_RESPONSE);
     mockFetchAgents.mockResolvedValue(MOCK_MANAGER_AGENTS as any);
     mockCreateAgent.mockResolvedValue({} as any);
+    mockFetchPluginRuntimes.mockResolvedValue(MOCK_PLUGIN_RUNTIMES);
     mockUpdateGlobalSettings.mockResolvedValue({});
     mockFetchDiscoveredSkills.mockResolvedValue(MOCK_SKILLS_RESPONSE);
   });
@@ -436,6 +444,46 @@ describe("NewAgentDialog", () => {
       fireEvent.click(within(defaultPortal).getByRole("option", { name: "Use default" }));
       expect(screen.getByRole("button", { name: "Model" }).textContent).toContain("Use default");
     });
+
+    it("switching to runtime mode hides model dropdown and shows runtime selector", async () => {
+      const user = userEvent.setup();
+      render(
+        <NewAgentDialog isOpen={true} onClose={mockOnClose} onCreated={mockOnCreated} />,
+      );
+
+      await waitFor(() => expect(mockFetchModels).toHaveBeenCalledOnce());
+
+      const nameInput = getStepZeroField(/Name/);
+      await user.type(nameInput, "Runtime Agent");
+      await user.click(screen.getByText("Next"));
+
+      expect(screen.getByRole("button", { name: "Model" })).toBeTruthy();
+
+      await user.click(screen.getByText("Plugin Runtime"));
+
+      expect(screen.queryByRole("button", { name: "Model" })).toBeNull();
+      expect(screen.getByLabelText("Runtime")).toBeTruthy();
+    });
+
+    it("switching back to model mode clears selected runtime", async () => {
+      const user = userEvent.setup();
+      render(
+        <NewAgentDialog isOpen={true} onClose={mockOnClose} onCreated={mockOnCreated} />,
+      );
+
+      await waitFor(() => expect(mockFetchModels).toHaveBeenCalledOnce());
+
+      const nameInput = getStepZeroField(/Name/);
+      await user.type(nameInput, "Runtime Toggle Agent");
+      await user.click(screen.getByText("Next"));
+
+      await user.click(screen.getByText("Plugin Runtime"));
+      await user.selectOptions(screen.getByLabelText("Runtime"), "openclaw");
+      await user.click(screen.getByText("Built-in Model"));
+      await user.click(screen.getByText("Plugin Runtime"));
+
+      expect((screen.getByLabelText("Runtime") as HTMLSelectElement).value).toBe("");
+    });
   });
 
   describe("summary display", () => {
@@ -515,6 +563,33 @@ describe("NewAgentDialog", () => {
       expect(createCall.name).toBe("Test Agent");
       expect(createCall.runtimeConfig).toEqual({
         model: "anthropic/claude-sonnet-4-5",
+      });
+    });
+
+    it("creates agent with selected plugin runtime", async () => {
+      const user = userEvent.setup();
+      render(
+        <NewAgentDialog isOpen={true} onClose={mockOnClose} onCreated={mockOnCreated} />,
+      );
+
+      await waitFor(() => expect(mockFetchModels).toHaveBeenCalledOnce());
+
+      const nameInput = getStepZeroField(/Name/);
+      await user.type(nameInput, "Plugin Runtime Agent");
+
+      await user.click(screen.getByText("Next"));
+      await user.click(screen.getByText("Plugin Runtime"));
+      await user.selectOptions(screen.getByLabelText("Runtime"), "openclaw");
+
+      await user.click(screen.getByText("Next"));
+      await user.click(screen.getByText("Create"));
+
+      await waitFor(() => {
+        expect(mockCreateAgent).toHaveBeenCalledOnce();
+      });
+
+      expect(mockCreateAgent.mock.calls[0][0].runtimeConfig).toEqual({
+        runtimeHint: "openclaw",
       });
     });
 

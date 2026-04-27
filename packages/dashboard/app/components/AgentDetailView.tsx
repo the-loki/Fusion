@@ -8,8 +8,8 @@ import {
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { AgentDetail, AgentState, AgentHeartbeatRun, AgentBudgetStatus, ModelInfo, MemoryFileInfo, AgentCapability } from "../api";
-import { fetchAgent, updateAgent, updateAgentState, deleteAgent, fetchAgentLogsWithMeta, fetchAgentRunLogs, fetchAgentChildren, fetchAgentRuns, fetchAgentRunDetail, startAgentRun, stopAgentRun, updateAgentInstructions, updateAgentSoul, updateAgentMemory, fetchAgentMemoryFiles, fetchAgentMemoryFile, saveAgentMemoryFile, fetchAgentTasks, fetchChainOfCommand, fetchAgentBudgetStatus, resetAgentBudget, fetchWorkspaceFileContent, saveWorkspaceFileContent, fetchModels, fetchAgents } from "../api";
+import type { AgentDetail, AgentState, AgentHeartbeatRun, AgentBudgetStatus, ModelInfo, MemoryFileInfo, AgentCapability, PluginRuntimeInfo } from "../api";
+import { fetchAgent, updateAgent, updateAgentState, deleteAgent, fetchAgentLogsWithMeta, fetchAgentRunLogs, fetchAgentChildren, fetchAgentRuns, fetchAgentRunDetail, startAgentRun, stopAgentRun, updateAgentInstructions, updateAgentSoul, updateAgentMemory, fetchAgentMemoryFiles, fetchAgentMemoryFile, saveAgentMemoryFile, fetchAgentTasks, fetchChainOfCommand, fetchAgentBudgetStatus, resetAgentBudget, fetchWorkspaceFileContent, saveWorkspaceFileContent, fetchModels, fetchPluginRuntimes, fetchAgents } from "../api";
 import type { Agent } from "../api";
 import type { AgentLogEntry, Task } from "@fusion/core";
 import { getErrorMessage } from "@fusion/core";
@@ -631,9 +631,18 @@ function DashboardTab({
   const [chainOfCommand, setChainOfCommand] = useState<Agent[]>([]);
   const [isLoadingChainOfCommand, setIsLoadingChainOfCommand] = useState(true);
   const [budgetStatus, setBudgetStatus] = useState<AgentBudgetStatus | null>(null);
+  const [availableRuntimes, setAvailableRuntimes] = useState<PluginRuntimeInfo[]>([]);
+
+  const runtimeHint = typeof agent.runtimeConfig?.runtimeHint === "string"
+    ? agent.runtimeConfig.runtimeHint
+    : "";
 
   const modelDisplay = (() => {
     const rc = agent.runtimeConfig ?? {};
+    if (runtimeHint) {
+      const selectedRuntime = availableRuntimes.find((runtime) => runtime.runtimeId === runtimeHint);
+      return selectedRuntime ? selectedRuntime.name : runtimeHint;
+    }
     if (rc.modelProvider && rc.modelId) {
       return `${rc.modelProvider}/${rc.modelId}`;
     }
@@ -650,6 +659,12 @@ function DashboardTab({
       .then(setBudgetStatus)
       .catch(() => setBudgetStatus(null));
   }, [agent.id, projectId]);
+
+  useEffect(() => {
+    fetchPluginRuntimes(projectId)
+      .then(setAvailableRuntimes)
+      .catch(() => setAvailableRuntimes([]));
+  }, [projectId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -757,7 +772,7 @@ function DashboardTab({
           </div>
           {modelDisplay && (
             <div className="info-item">
-              <span className="info-label">Model</span>
+              <span className="info-label">{runtimeHint ? "Runtime" : "Model"}</span>
               <span className="info-value">{modelDisplay}</span>
             </div>
           )}
@@ -2527,9 +2542,11 @@ function ConfigTab({
     Array.isArray(agent.metadata?.skills) ? agent.metadata.skills as string[] : []
   );
 
-  // Model dropdown state
+  // Model/runtime selector state
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [availableRuntimes, setAvailableRuntimes] = useState<PluginRuntimeInfo[]>([]);
+  const [runtimesLoading, setRuntimesLoading] = useState(false);
 
   const initialModelValue = (() => {
     const rc = agent.runtimeConfig ?? {};
@@ -2541,7 +2558,12 @@ function ConfigTab({
     }
     return "";
   })();
+  const initialRuntimeHint = typeof agent.runtimeConfig?.runtimeHint === "string"
+    ? agent.runtimeConfig.runtimeHint
+    : "";
+  const [runtimeMode, setRuntimeMode] = useState<"model" | "runtime">(initialRuntimeHint ? "runtime" : "model");
   const [modelValue, setModelValue] = useState(initialModelValue);
+  const [selectedRuntimeId, setSelectedRuntimeId] = useState(initialRuntimeHint);
 
   const managerSelection = reportsToValue.trim();
   const availableManagers = useMemo(
@@ -2587,6 +2609,14 @@ function ConfigTab({
       })
       .finally(() => setModelsLoading(false));
   }, []);
+
+  useEffect(() => {
+    setRuntimesLoading(true);
+    fetchPluginRuntimes(projectId)
+      .then(setAvailableRuntimes)
+      .catch(() => setAvailableRuntimes([]))
+      .finally(() => setRuntimesLoading(false));
+  }, [projectId]);
 
   // Budget status for progress bar display
   const [budgetStatus, setBudgetStatus] = useState<AgentBudgetStatus | null>(null);
@@ -2684,8 +2714,10 @@ function ConfigTab({
     const persistedSkills = Array.isArray(agent.metadata?.skills) ? agent.metadata.skills as string[] : [];
     if (JSON.stringify(selectedSkills) !== JSON.stringify(persistedSkills)) return true;
 
-    // Check model override
+    // Check model/runtime override
+    if (runtimeMode !== (initialRuntimeHint ? "runtime" : "model")) return true;
     if (modelValue !== initialModelValue) return true;
+    if (selectedRuntimeId !== initialRuntimeHint) return true;
 
     return false;
   })();
@@ -2726,7 +2758,10 @@ function ConfigTab({
     setHeartbeatValues(deriveHeartbeatValues(agent.runtimeConfig));
     setHeartbeatEnabled(deriveHeartbeatEnabled(agent.runtimeConfig));
     setBudgetValues(deriveBudgetValues(agent.runtimeConfig));
-  }, [agent, hasChanges]);
+    setModelValue(initialModelValue);
+    setSelectedRuntimeId(initialRuntimeHint);
+    setRuntimeMode(initialRuntimeHint ? "runtime" : "model");
+  }, [agent, hasChanges, initialModelValue, initialRuntimeHint]);
 
   const handleFieldChange = (key: string, value: string) => {
     setFormValues((prev) => ({ ...prev, [key]: value }));
@@ -2885,18 +2920,31 @@ function ConfigTab({
       newRuntimeConfig.messageResponseMode = messageResponseMode;
     }
 
-    // Model override: parse "provider/modelId" into separate fields
-    if (modelValue.trim()) {
-      const slashIdx = modelValue.indexOf("/");
-      if (slashIdx !== -1) {
-        newRuntimeConfig.modelProvider = modelValue.slice(0, slashIdx);
-        newRuntimeConfig.modelId = modelValue.slice(slashIdx + 1);
-        newRuntimeConfig.model = modelValue.trim();
+    if (runtimeMode === "runtime") {
+      if (selectedRuntimeId.trim()) {
+        newRuntimeConfig.runtimeHint = selectedRuntimeId.trim();
+      } else {
+        delete newRuntimeConfig.runtimeHint;
       }
-    } else {
       delete newRuntimeConfig.modelProvider;
       delete newRuntimeConfig.modelId;
       delete newRuntimeConfig.model;
+    } else {
+      delete newRuntimeConfig.runtimeHint;
+
+      // Model override: parse "provider/modelId" into separate fields
+      if (modelValue.trim()) {
+        const slashIdx = modelValue.indexOf("/");
+        if (slashIdx !== -1) {
+          newRuntimeConfig.modelProvider = modelValue.slice(0, slashIdx);
+          newRuntimeConfig.modelId = modelValue.slice(slashIdx + 1);
+          newRuntimeConfig.model = modelValue.trim();
+        }
+      } else {
+        delete newRuntimeConfig.modelProvider;
+        delete newRuntimeConfig.modelId;
+        delete newRuntimeConfig.model;
+      }
     }
 
     // Build budgetConfig payload — only include non-empty values
@@ -3073,20 +3121,74 @@ function ConfigTab({
       <div className="config-section">
         <h3>Model</h3>
         <p className="config-description">
-          Override the AI model used by this agent. Leave empty to use the global default model.
+          Choose either a built-in model or a plugin runtime for this agent. These options are mutually exclusive.
         </p>
 
         <div className="config-fields">
           <div className="config-field">
-            <CustomModelDropdown
-              models={availableModels}
-              value={modelValue}
-              onChange={setModelValue}
-              placeholder="Use global default"
-              label="Agent Model"
-              disabled={modelsLoading}
-            />
+            <label>Runtime Source</label>
+            <div className="agent-runtime-mode-toggle" role="radiogroup" aria-label="Runtime source">
+              <label className="agent-runtime-mode-option">
+                <input
+                  type="radio"
+                  name="agent-runtime-mode"
+                  value="model"
+                  checked={runtimeMode === "model"}
+                  onChange={() => {
+                    setRuntimeMode("model");
+                    setSelectedRuntimeId("");
+                  }}
+                />
+                <span>Built-in Model</span>
+              </label>
+              <label className="agent-runtime-mode-option">
+                <input
+                  type="radio"
+                  name="agent-runtime-mode"
+                  value="runtime"
+                  checked={runtimeMode === "runtime"}
+                  onChange={() => setRuntimeMode("runtime")}
+                />
+                <span>Plugin Runtime</span>
+              </label>
+            </div>
           </div>
+
+          {runtimeMode === "model" ? (
+            <div className="config-field">
+              <CustomModelDropdown
+                models={availableModels}
+                value={modelValue}
+                onChange={setModelValue}
+                placeholder="Use global default"
+                label="Agent Model"
+                disabled={modelsLoading}
+              />
+            </div>
+          ) : (
+            <div className="config-field">
+              <label htmlFor="agent-runtime-hint">Runtime</label>
+              {runtimesLoading ? (
+                <span className="config-hint">Loading runtimes…</span>
+              ) : (
+                <select
+                  id="agent-runtime-hint"
+                  className="select"
+                  value={selectedRuntimeId}
+                  onChange={(e) => setSelectedRuntimeId(e.target.value)}
+                >
+                  <option value="">
+                    {availableRuntimes.length > 0 ? "Select a plugin runtime…" : "No plugin runtimes available"}
+                  </option>
+                  {availableRuntimes.map((runtime) => (
+                    <option key={`${runtime.pluginId}:${runtime.runtimeId}`} value={runtime.runtimeId}>
+                      {runtime.description ? `${runtime.name} — ${runtime.description}` : runtime.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

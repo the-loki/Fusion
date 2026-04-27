@@ -150,6 +150,58 @@
   gap: var(--space-sm);
 }
 
+.agent-runtime-mode-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-sm);
+}
+
+.agent-runtime-mode-option {
+  position: relative;
+  display: flex;
+}
+
+.agent-runtime-mode-option input {
+  position: absolute;
+  width: var(--space-xs);
+  height: var(--space-xs);
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.agent-runtime-mode-option span {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  color: var(--text-muted);
+  padding: var(--space-sm) var(--space-md);
+  text-align: center;
+  font-size: calc(var(--space-sm) + var(--space-xs));
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), color var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.agent-runtime-mode-option input:checked + span {
+  border-color: var(--todo);
+  color: var(--text);
+  background: color-mix(in srgb, var(--todo) 12%, transparent);
+}
+
+.agent-runtime-mode-option input:focus-visible + span {
+  outline: none;
+  border-color: var(--todo);
+  box-shadow: var(--focus-ring-strong);
+}
+
+.agent-runtime-mode-option span:hover {
+  border-color: var(--todo);
+  color: var(--text);
+  background: var(--card-hover);
+}
+
 .agent-role-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(calc(var(--space-xl) * 3 + var(--space-sm)), 1fr));
@@ -483,5 +535,11 @@
   color: var(--text-muted);
   font-size: calc(var(--space-md) + var(--space-xs) * 0.25);
   padding: var(--space-sm) 0;
+}
+
+@media (max-width: 768px) {
+  .agent-runtime-mode-toggle {
+    grid-template-columns: 1fr;
+  }
 }
 

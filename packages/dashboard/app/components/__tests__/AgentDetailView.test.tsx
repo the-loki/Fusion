@@ -32,6 +32,7 @@ vi.mock("../../api", () => ({
   saveWorkspaceFileContent: vi.fn(),
   fetchDiscoveredSkills: vi.fn(),
   fetchModels: vi.fn(),
+  fetchPluginRuntimes: vi.fn(),
 }));
 
 vi.mock("../AgentLogViewer", () => ({
@@ -89,7 +90,7 @@ vi.mock("../SkillMultiselect", () => ({
   ),
 }));
 
-import { fetchAgent, fetchAgents, updateAgent, updateAgentState, deleteAgent, fetchAgentChildren, fetchAgentRunLogs, fetchAgentRuns, fetchAgentRunDetail, fetchAgentTasks, fetchChainOfCommand, fetchAgentBudgetStatus, resetAgentBudget, updateAgentInstructions, updateAgentSoul, updateAgentMemory, fetchWorkspaceFileContent, saveWorkspaceFileContent, fetchDiscoveredSkills, fetchModels, fetchAgentLogsWithMeta } from "../../api";
+import { fetchAgent, fetchAgents, updateAgent, updateAgentState, deleteAgent, fetchAgentChildren, fetchAgentRunLogs, fetchAgentRuns, fetchAgentRunDetail, fetchAgentTasks, fetchChainOfCommand, fetchAgentBudgetStatus, resetAgentBudget, updateAgentInstructions, updateAgentSoul, updateAgentMemory, fetchWorkspaceFileContent, saveWorkspaceFileContent, fetchDiscoveredSkills, fetchModels, fetchPluginRuntimes, fetchAgentLogsWithMeta } from "../../api";
 
 const mockFetchAgent = vi.mocked(fetchAgent);
 const mockFetchAgents = vi.mocked(fetchAgents);
@@ -111,6 +112,7 @@ const mockFetchWorkspaceFileContent = vi.mocked(fetchWorkspaceFileContent);
 const mockSaveWorkspaceFileContent = vi.mocked(saveWorkspaceFileContent);
 const mockFetchDiscoveredSkills = vi.mocked(fetchDiscoveredSkills);
 const mockFetchModels = vi.mocked(fetchModels);
+const mockFetchPluginRuntimes = vi.mocked(fetchPluginRuntimes);
 const mockFetchAgentLogsWithMeta = vi.mocked(fetchAgentLogsWithMeta);
 
 const MOCK_SKILLS = [
@@ -206,6 +208,10 @@ describe("AgentDetailView", () => {
       favoriteProviders: [],
       favoriteModels: [],
     });
+    mockFetchPluginRuntimes.mockResolvedValue([
+      { pluginId: "fusion-plugin-openclaw-runtime", runtimeId: "openclaw", name: "OpenClaw", description: "OpenClaw runtime", version: "1.0.0" },
+      { pluginId: "fusion-plugin-hermes-runtime", runtimeId: "hermes", name: "Hermes", description: "Hermes runtime", version: "1.1.0" },
+    ]);
   });
 
   it("shows loading state initially", () => {
@@ -822,6 +828,27 @@ describe("AgentDetailView", () => {
     });
   });
 
+  it("shows runtime name in Agent Information when runtimeHint is set", async () => {
+    mockFetchAgent.mockResolvedValue(createMockAgent({
+      runtimeConfig: {
+        runtimeHint: "openclaw",
+      },
+    }));
+
+    render(
+      <AgentDetailView
+        agentId="agent-001"
+        onClose={vi.fn()}
+        addToast={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Runtime")).toBeInTheDocument();
+      expect(screen.getByText("OpenClaw")).toBeInTheDocument();
+    });
+  });
+
   describe("Chain of Command", () => {
     it("renders chain-of-command section and displays agents in order", async () => {
       mockFetchChainOfCommand.mockResolvedValue([
@@ -1356,6 +1383,30 @@ describe("AgentDetailView", () => {
       expect(modelSelect.value).toBe("openai/gpt-4o");
     });
 
+    it("shows runtime mode selected when agent runtimeConfig has runtimeHint", async () => {
+      mockFetchAgent.mockResolvedValue(createMockAgent({
+        runtimeConfig: {
+          runtimeHint: "openclaw",
+        },
+      }));
+
+      const user = userEvent.setup();
+      render(
+        <AgentDetailView
+          agentId="agent-001"
+          onClose={vi.fn()}
+          addToast={vi.fn()}
+        />
+      );
+
+      await navigateToSettings(user);
+
+      const runtimeRadio = screen.getByRole("radio", { name: "Plugin Runtime" }) as HTMLInputElement;
+      expect(runtimeRadio.checked).toBe(true);
+      expect(screen.queryByLabelText("Agent Model")).toBeNull();
+      expect((screen.getByLabelText("Runtime") as HTMLSelectElement).value).toBe("openclaw");
+    });
+
     it("saves selected model override as modelProvider/modelId/model in runtimeConfig", async () => {
       mockUpdateAgent.mockResolvedValue(createMockAgent() as any);
 
@@ -1388,6 +1439,41 @@ describe("AgentDetailView", () => {
           undefined,
         );
       });
+    });
+
+    it("saves selected plugin runtime as runtimeHint", async () => {
+      mockUpdateAgent.mockResolvedValue(createMockAgent() as any);
+
+      const user = userEvent.setup();
+      render(
+        <AgentDetailView
+          agentId="agent-001"
+          onClose={vi.fn()}
+          addToast={vi.fn()}
+        />
+      );
+
+      await navigateToSettings(user);
+      await user.click(screen.getByText("Plugin Runtime"));
+      await user.selectOptions(screen.getByLabelText("Runtime"), "hermes");
+      await user.click(screen.getByText("Save Settings"));
+
+      await waitFor(() => {
+        expect(mockUpdateAgent).toHaveBeenCalledWith(
+          "agent-001",
+          expect.objectContaining({
+            runtimeConfig: expect.objectContaining({
+              runtimeHint: "hermes",
+            }),
+          }),
+          undefined,
+        );
+      });
+
+      const payload = mockUpdateAgent.mock.calls[0][1] as { runtimeConfig: Record<string, unknown> };
+      expect(payload.runtimeConfig.modelProvider).toBeUndefined();
+      expect(payload.runtimeConfig.modelId).toBeUndefined();
+      expect(payload.runtimeConfig.model).toBeUndefined();
     });
 
     it("clears model override from runtimeConfig when selecting global default", async () => {

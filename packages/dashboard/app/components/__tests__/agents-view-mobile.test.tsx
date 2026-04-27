@@ -42,6 +42,7 @@ vi.mock("../../api", () => ({
   updateAgentState: vi.fn(),
   deleteAgent: vi.fn(),
   startAgentRun: vi.fn(),
+  fetchPluginRuntimes: vi.fn(() => Promise.resolve([])),
   fetchModels: vi.fn(() => Promise.resolve({ models: [] })),
   fetchOrgTree: vi.fn(),
   fetchSettings: vi.fn(() => Promise.resolve({ heartbeatMultiplier: 1 })),

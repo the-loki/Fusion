@@ -6732,9 +6732,23 @@ export interface PluginUiSlotEntry {
   slot: PluginUiSlotDefinition;
 }
 
+/** Plugin runtime metadata returned by GET /api/plugins/runtimes */
+export interface PluginRuntimeInfo {
+  pluginId: string;
+  runtimeId: string;
+  name: string;
+  description?: string;
+  version?: string;
+}
+
 /** Fetch all UI slot definitions from active plugins */
 export async function fetchPluginUiSlots(projectId?: string): Promise<PluginUiSlotEntry[]> {
   return api<PluginUiSlotEntry[]>(withProjectId("/plugins/ui-slots", projectId));
+}
+
+/** Fetch all plugin runtime metadata from active plugins */
+export async function fetchPluginRuntimes(projectId?: string): Promise<PluginRuntimeInfo[]> {
+  return api<PluginRuntimeInfo[]>(withProjectId("/plugins/runtimes", projectId));
 }
 
 // ── Skills Management ─────────────────────────────────────────────────────────

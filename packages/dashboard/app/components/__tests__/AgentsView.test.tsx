@@ -18,6 +18,7 @@ vi.mock("../../api", () => ({
   fetchSettings: vi.fn().mockResolvedValue({ heartbeatMultiplier: 1 }),
   updateSettings: vi.fn().mockResolvedValue({}),
   fetchModels: vi.fn().mockResolvedValue({ models: [] }),
+  fetchPluginRuntimes: vi.fn().mockResolvedValue([]),
   fetchDiscoveredSkills: vi.fn().mockResolvedValue([]),
 }));
 

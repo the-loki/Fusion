@@ -33,6 +33,7 @@ vi.mock("../../api", () => ({
   fetchWorkspaceFileContent: vi.fn(),
   saveWorkspaceFileContent: vi.fn(),
   fetchModels: vi.fn(),
+  fetchPluginRuntimes: vi.fn(() => Promise.resolve([])),
   fetchAgents: vi.fn(),
   createAgent: vi.fn(),
   startAgentGeneration: vi.fn(),
