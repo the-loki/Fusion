@@ -27,6 +27,12 @@ process.on("exit", killAllProcesses);
 const PROVIDER_ID = "pi-claude-cli";
 
 let cachedMcpConfig: { hash: string; configPath: string } | undefined;
+const DEBUG_MCP = process.env.PI_CLAUDE_CLI_DEBUG === "1";
+
+function debugMcp(message: string): void {
+  if (!DEBUG_MCP) return;
+  console.error(`[pi-claude-cli] ${message}`);
+}
 
 /**
  * Resolve the MCP config path for the current request, regenerating it when
@@ -61,6 +67,11 @@ function ensureMcpConfig(
 ): string | undefined {
   try {
     let toolDefs: McpToolDef[] = toolsFromContext(contextTools);
+    if (contextTools && contextTools.length > 0) {
+      debugMcp(
+        `MCP config from context.tools: ${contextTools.map((tool) => tool.name).join(", ")}`,
+      );
+    }
 
     // Fallback to the pi runtime registry if the context didn't carry tools.
     // (Older agent-loop versions don't populate Context.tools for streamSimple.)
@@ -83,6 +94,7 @@ function ensureMcpConfig(
       .slice(0, 12);
 
     if (cachedMcpConfig?.hash === hash) {
+      debugMcp(`MCP config cache hit (hash=${hash})`);
       return cachedMcpConfig.configPath;
     }
 

@@ -425,7 +425,6 @@ const BUILT_IN_PI_TOOLS = new Set([
   "bash",
   "grep",
   "find",
-  "ls",
 ]);
 
 /**
@@ -469,10 +468,10 @@ function rewriteCustomToolReferences(
 
 /**
  * Build a system-prompt addendum that maps each custom pi tool to its
- * MCP-exposed name (`mcp__custom-tools__<name>`) and explains Claude Code's
- * deferred-tool protocol. Without this, the model sees instructions like
- * "call fn_review_spec()" but only finds `mcp__custom-tools__fn_review_spec`
- * via ToolSearch — and may report "tool not found" or skip the call.
+ * MCP-exposed name (`mcp__custom-tools__<name>`) and tells Claude to call
+ * those names directly. We intentionally avoid a ToolSearch prerequisite:
+ * requiring an internal discovery step can send the model into long internal
+ * tool loops before it emits actionable pi tool calls.
  *
  * Returns an empty string when there are no custom tools so the addendum
  * doesn't pollute prompts on plain chat sessions with only built-ins.
@@ -491,13 +490,11 @@ function buildCustomToolsAddendum(
     .map((name) => `- \`${name}\` is exposed as \`mcp__custom-tools__${name}\``);
 
   return [
-    "## Custom tool naming (Claude Code deferred-tools protocol)",
+    "## Custom tool naming (MCP)",
     "",
-    "The following pi extension tools are available, but Claude Code exposes",
-    "them under MCP-prefixed names. When a system prompt or task instruction",
-    "asks you to call one of these by its short name, use the MCP-prefixed",
-    "name instead. Their schemas are deferred — call `ToolSearch` with",
-    '`select:mcp__custom-tools__<name>` first, then call the tool directly.',
+    "The following pi extension tools are available under MCP-prefixed",
+    "names. When a system prompt or task instruction asks you to call one",
+    "of these by its short name, call the MCP-prefixed name directly.",
     "",
     ...lines,
   ].join("\n");

@@ -970,6 +970,46 @@ describe("createEventBridge", () => {
       // Custom tool args pass through unchanged (no argument renames for MCP tools)
       expect(event.toolCall.arguments).toEqual({ target: "prod" });
     });
+
+    it("handles MCP-prefixed triage tool names", () => {
+      const bridge = createBridgeWithStart();
+      bridge.handleEvent({
+        type: "content_block_start",
+        index: 0,
+        content_block: {
+          type: "tool_use",
+          id: "toolu_triage1",
+          name: "mcp__custom-tools__fn_task_list",
+        },
+      });
+      bridge.handleEvent({
+        type: "content_block_stop",
+        index: 0,
+      });
+
+      bridge.handleEvent({
+        type: "content_block_start",
+        index: 1,
+        content_block: {
+          type: "tool_use",
+          id: "toolu_triage2",
+          name: "mcp__custom-tools__fn_review_spec",
+        },
+      });
+      bridge.handleEvent({
+        type: "content_block_stop",
+        index: 1,
+      });
+
+      const output = bridge.getOutput();
+      const calls = output.content.filter((c: any) => c.type === "toolCall") as any[];
+      expect(calls.map((call) => call.name)).toEqual([
+        "fn_task_list",
+        "fn_review_spec",
+      ]);
+      expect(calls[0].arguments).toEqual({});
+      expect(calls[1].arguments).toEqual({});
+    });
   });
 
   describe("internal Claude Code tools are filtered", () => {

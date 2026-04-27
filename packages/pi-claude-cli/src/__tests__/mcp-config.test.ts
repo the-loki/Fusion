@@ -16,7 +16,7 @@ vi.mock("node:os", () => ({
   tmpdir: mocks.tmpdir,
 }));
 
-import { getCustomToolDefs, writeMcpConfig } from "../mcp-config";
+import { getCustomToolDefs, writeMcpConfig, toolsFromContext } from "../mcp-config";
 import type { McpToolDef } from "../mcp-config";
 
 describe("getCustomToolDefs", () => {
@@ -168,6 +168,22 @@ describe("getCustomToolDefs", () => {
 
     const result = getCustomToolDefs(mockPi);
     expect(result).toEqual([]);
+  });
+});
+
+describe("toolsFromContext", () => {
+  it("keeps ls as a custom tool (not filtered as built-in)", () => {
+    const defs = toolsFromContext([
+      { name: "read", description: "builtin", parameters: { type: "object" } },
+      { name: "ls", description: "list files", parameters: { type: "object" } },
+      {
+        name: "fn_task_list",
+        description: "list tasks",
+        parameters: { type: "object", properties: {} },
+      },
+    ]);
+
+    expect(defs.map((d) => d.name)).toEqual(["ls", "fn_task_list"]);
   });
 });
 

@@ -949,6 +949,47 @@ describe("buildSystemPrompt", () => {
     expect(result).toContain("mcp__custom-tools__fn_review_spec");
   });
 
+  it("treats ls as custom and rewrites to mcp__custom-tools__ls", async () => {
+    vi.resetModules();
+    vi.doMock("node:fs", () => ({
+      existsSync: () => false,
+      readFileSync: () => "",
+    }));
+
+    const { buildSystemPrompt: bsp } = await import("../prompt-builder");
+    const context = {
+      systemPrompt: "List files with ls, then continue.",
+      messages: [],
+      tools: [
+        { name: "ls", description: "list directory", parameters: {} },
+        { name: "read", description: "builtin", parameters: {} },
+      ],
+    } as unknown as any;
+
+    const result = bsp(context, "/some/project");
+    expect(result).toContain("mcp__custom-tools__ls");
+    expect(result).not.toContain("mcp__custom-tools__read");
+  });
+
+  it("custom tools addendum instructs direct MCP calls without ToolSearch prerequisite", async () => {
+    vi.resetModules();
+    vi.doMock("node:fs", () => ({
+      existsSync: () => false,
+      readFileSync: () => "",
+    }));
+
+    const { buildSystemPrompt: bsp } = await import("../prompt-builder");
+    const context = {
+      systemPrompt: "Use tools as needed.",
+      messages: [],
+      tools: [{ name: "fn_task_list", description: "list", parameters: {} }],
+    } as unknown as any;
+
+    const result = bsp(context, "/some/project");
+    expect(result).toContain("mcp__custom-tools__fn_task_list");
+    expect(result).not.toContain("ToolSearch");
+  });
+
   it("does not rewrite identifier substrings that happen to overlap a tool name", async () => {
     vi.resetModules();
     vi.doMock("node:fs", () => ({

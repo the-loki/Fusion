@@ -61,6 +61,12 @@ import { isPiKnownClaudeTool } from "./tool-mapping.js";
  * arrives (e.g. someone embeds pi-claude-cli without a stuck detector).
  */
 const INACTIVITY_TIMEOUT_MS = 30 * 60_000;
+const DEBUG_STREAM = process.env.PI_CLAUDE_CLI_DEBUG === "1";
+
+function debugLog(message: string): void {
+  if (!DEBUG_STREAM) return;
+  console.error(`[pi-claude-cli] ${message}`);
+}
 
 /** Extended stream options: pi's SimpleStreamOptions plus optional cwd and mcpConfigPath */
 type StreamViaCLiOptions = SimpleStreamOptions & {
@@ -267,10 +273,16 @@ export function streamViaCli(
             msg.event.content_block?.type === "tool_use"
           ) {
             const toolName = msg.event.content_block.name;
-            if (toolName && isPiKnownClaudeTool(toolName)) {
-              // Built-in tool (Read/Write/etc.) OR custom MCP tool (mcp__custom-tools__*)
-              // Internal Claude Code tools (ToolSearch, Task, etc.) are excluded
-              sawBuiltInOrCustomTool = true;
+            if (toolName) {
+              const piKnownTool = isPiKnownClaudeTool(toolName);
+              debugLog(
+                `top-level tool_use seen: ${toolName} (piKnown=${piKnownTool ? "yes" : "no"})`,
+              );
+              if (piKnownTool) {
+                // Built-in tool (Read/Write/etc.) OR custom MCP tool (mcp__custom-tools__*)
+                // Internal Claude Code tools (ToolSearch, Task, etc.) are excluded
+                sawBuiltInOrCustomTool = true;
+              }
             }
           }
 
@@ -281,6 +293,7 @@ export function streamViaCli(
             msg.event.type === "message_stop" &&
             sawBuiltInOrCustomTool
           ) {
+            debugLog("break-early triggered at message_stop after pi-known tool_use");
             broken = true; // Set guard BEFORE rl.close() to prevent buffered lines
             clearTimeout(inactivityTimer);
             // Pi will execute these tools. Kill subprocess to prevent CLI from executing them.

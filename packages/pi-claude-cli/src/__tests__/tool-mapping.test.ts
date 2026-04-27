@@ -228,6 +228,7 @@ describe("tool-mapping", () => {
     it("returns true for custom tool names", () => {
       expect(isCustomToolName("myTool")).toBe(true);
       expect(isCustomToolName("deploy")).toBe(true);
+      expect(isCustomToolName("ls")).toBe(true);
     });
 
     it("returns false for all 6 built-in tool names", () => {
