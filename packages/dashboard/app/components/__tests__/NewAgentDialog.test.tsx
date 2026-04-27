@@ -486,6 +486,104 @@ describe("NewAgentDialog", () => {
     });
   });
 
+  describe("runtime mode toggle on step 0 custom tab", () => {
+    it("shows runtime source toggle on custom tab before advancing to step 1", async () => {
+      const user = userEvent.setup();
+      render(
+        <NewAgentDialog isOpen={true} onClose={mockOnClose} onCreated={mockOnCreated} />,
+      );
+
+      await waitFor(() => expect(mockFetchModels).toHaveBeenCalledOnce());
+
+      await openCustomTab(user);
+
+      expect(screen.getByRole("radiogroup", { name: "Runtime Source" })).toBeInTheDocument();
+      expect(screen.getByText("Built-in Model")).toBeInTheDocument();
+      expect(screen.getByText("Plugin Runtime")).toBeInTheDocument();
+    });
+
+    it("switching to plugin runtime on step 0 custom tab hides model dropdown and shows runtime selector", async () => {
+      const user = userEvent.setup();
+      render(
+        <NewAgentDialog isOpen={true} onClose={mockOnClose} onCreated={mockOnCreated} />,
+      );
+
+      await waitFor(() => expect(mockFetchModels).toHaveBeenCalledOnce());
+
+      await openCustomTab(user);
+      expect(screen.getByRole("button", { name: "Model" })).toBeInTheDocument();
+
+      await user.click(screen.getByText("Plugin Runtime"));
+
+      expect(screen.queryByRole("button", { name: "Model" })).toBeNull();
+      expect(screen.getByLabelText("Runtime")).toBeInTheDocument();
+    });
+
+    it("switching back to built-in model on step 0 custom tab restores model dropdown and clears runtime selection", async () => {
+      const user = userEvent.setup();
+      render(
+        <NewAgentDialog isOpen={true} onClose={mockOnClose} onCreated={mockOnCreated} />,
+      );
+
+      await waitFor(() => expect(mockFetchModels).toHaveBeenCalledOnce());
+
+      await openCustomTab(user);
+      await user.click(screen.getByText("Plugin Runtime"));
+      await user.selectOptions(screen.getByLabelText("Runtime"), "openclaw");
+
+      await user.click(screen.getByText("Built-in Model"));
+      expect(screen.getByRole("button", { name: "Model" })).toBeInTheDocument();
+
+      await user.click(screen.getByText("Plugin Runtime"));
+      expect((screen.getByLabelText("Runtime") as HTMLSelectElement).value).toBe("");
+    });
+
+    it("preserves model selection from step 0 custom tab when advancing to step 1", async () => {
+      const user = userEvent.setup();
+      render(
+        <NewAgentDialog isOpen={true} onClose={mockOnClose} onCreated={mockOnCreated} />,
+      );
+
+      await waitFor(() => expect(mockFetchModels).toHaveBeenCalledOnce());
+
+      await openCustomTab(user);
+      await user.type(screen.getByLabelText(/Name/), "Preserved Model Agent");
+
+      const portal = await openModelDropdown();
+      clickModelOption(portal, /Claude Sonnet 4.5/i);
+
+      await user.click(screen.getByText("Next"));
+
+      expect(screen.getByRole("button", { name: "Model" }).textContent).toContain("Claude Sonnet 4.5");
+    });
+
+    it("creates custom agent with runtimeHint when plugin runtime is selected on step 0", async () => {
+      const user = userEvent.setup();
+      render(
+        <NewAgentDialog isOpen={true} onClose={mockOnClose} onCreated={mockOnCreated} />,
+      );
+
+      await waitFor(() => expect(mockFetchModels).toHaveBeenCalledOnce());
+
+      await openCustomTab(user);
+      await user.type(screen.getByLabelText(/Name/), "Step Zero Runtime Agent");
+      await user.click(screen.getByText("Plugin Runtime"));
+      await user.selectOptions(screen.getByLabelText("Runtime"), "openclaw");
+
+      await user.click(screen.getByText("Next"));
+      await user.click(screen.getByText("Next"));
+      await user.click(screen.getByText("Create"));
+
+      await waitFor(() => {
+        expect(mockCreateAgent).toHaveBeenCalledOnce();
+      });
+
+      expect(mockCreateAgent.mock.calls[0][0].runtimeConfig).toEqual({
+        runtimeHint: "openclaw",
+      });
+    });
+  });
+
   describe("summary display", () => {
     it("shows 'default' in summary when no model selected", async () => {
       const user = userEvent.setup();
