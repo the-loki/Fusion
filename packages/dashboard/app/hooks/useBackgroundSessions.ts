@@ -272,20 +272,20 @@ export function useBackgroundSessions(projectId?: string): UseBackgroundSessions
     const sessionType = session?.type;
     const sessionTabId = getSessionTabId();
 
-    // Cancel the session based on its type to ensure proper cleanup
-    // Pass tabId for lock-aware cancellation - if locked by another tab, the API returns 409
+    // Cancel the session based on its type to ensure proper cleanup.
+    // Pass tabId for lock-aware cancellation; if locked by another tab the API
+    // returns 409 — we still proceed to DELETE below, which has no lock check,
+    // because the user explicitly chose to dismiss. The dismissal tombstone
+    // recorded below prevents stale sync/SSE updates from resurrecting it.
     let cancelFailed = false;
-    let lockConflict = false;
 
     if (sessionType === "planning") {
       try {
         await cancelPlanning(id, projectId, sessionTabId);
       } catch (err: unknown) {
         cancelFailed = true;
-        // Check if this was a lock conflict (409)
         if (err instanceof Error && err.message.includes("locked")) {
-          lockConflict = true;
-          console.warn(`[useBackgroundSessions] Cannot dismiss planning session ${id}: locked by another tab`);
+          console.warn(`[useBackgroundSessions] Forcing dismiss of planning session ${id} despite lock by another tab`);
         }
       }
     } else if (sessionType === "subtask") {
@@ -294,8 +294,7 @@ export function useBackgroundSessions(projectId?: string): UseBackgroundSessions
       } catch (err: unknown) {
         cancelFailed = true;
         if (err instanceof Error && err.message.includes("locked")) {
-          lockConflict = true;
-          console.warn(`[useBackgroundSessions] Cannot dismiss subtask session ${id}: locked by another tab`);
+          console.warn(`[useBackgroundSessions] Forcing dismiss of subtask session ${id} despite lock by another tab`);
         }
       }
     } else if (sessionType === "mission_interview") {
@@ -304,20 +303,12 @@ export function useBackgroundSessions(projectId?: string): UseBackgroundSessions
       } catch (err: unknown) {
         cancelFailed = true;
         if (err instanceof Error && err.message.includes("locked")) {
-          lockConflict = true;
-          console.warn(`[useBackgroundSessions] Cannot dismiss mission interview session ${id}: locked by another tab`);
+          console.warn(`[useBackgroundSessions] Forcing dismiss of mission interview session ${id} despite lock by another tab`);
         }
       }
     }
 
-    // If another tab owns the lock, local dismiss must not pretend success.
-    if (lockConflict) {
-      return;
-    }
-
-    // Only proceed with deletion if cancellation succeeded or wasn't needed
     if (cancelFailed) {
-      // Non-lock cancellation failure: still try to delete
       console.warn(`[useBackgroundSessions] Cancellation failed for session ${id}, attempting delete anyway`);
     }
 

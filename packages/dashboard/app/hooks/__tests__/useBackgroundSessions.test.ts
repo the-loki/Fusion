@@ -298,7 +298,7 @@ describe("useBackgroundSessions", () => {
     expect(mockDeleteAiSession).toHaveBeenCalledWith("planning-session");
   });
 
-  it("does not dismiss planning session when cancellation is lock-conflicted", async () => {
+  it("force-dismisses a planning session even when cancellation is lock-conflicted", async () => {
     mockFetchAiSessions.mockResolvedValueOnce([
       makeSession({ id: "planning-locked", status: "generating", type: "planning" }),
     ]);
@@ -314,9 +314,8 @@ describe("useBackgroundSessions", () => {
       await result.current.dismissSession("planning-locked");
     });
 
-    expect(mockDeleteAiSession).not.toHaveBeenCalled();
-    expect(result.current.sessions.map((session) => session.id)).toEqual(["planning-locked"]);
-    expect(result.current.generating).toBe(1);
+    expect(mockDeleteAiSession).toHaveBeenCalledWith("planning-locked");
+    expect(result.current.sessions).toEqual([]);
   });
 
   it("keeps a dismissed planning session hidden when stale sync update arrives", async () => {
