@@ -1200,6 +1200,24 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
     }
   });
 
+  const getVitestProcessIds = async (): Promise<number[]> => {
+    const { execSync } = await import("node:child_process");
+
+    try {
+      const output = execSync("pgrep -f vitest", {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+
+      return output
+        .split(/\r?\n/)
+        .map((line) => Number.parseInt(line.trim(), 10))
+        .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
+    } catch {
+      return [];
+    }
+  };
+
   /**
    * GET /api/system-stats
    * Returns process/system metrics plus task and agent aggregates.
@@ -1210,6 +1228,17 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
       const mem = process.memoryUsage();
       const heapStats = v8.getHeapStatistics();
       const load = os.loadavg();
+      const vitestProcessIds = await getVitestProcessIds();
+
+      let vitestLastAutoKillAt: string | null = null;
+      const globalSettingsStore = scopedStore.getGlobalSettingsStore?.();
+      if (globalSettingsStore?.getSettings) {
+        const globalSettings = await globalSettingsStore.getSettings();
+        const candidate = (globalSettings as Record<string, unknown>).vitestLastAutoKillAt;
+        if (typeof candidate === "string" && candidate.length > 0) {
+          vitestLastAutoKillAt = candidate;
+        }
+      }
 
       const tasks = await scopedStore.listTasks({ slim: true, includeArchived: false });
       const byColumn: Record<string, number> = {
@@ -1259,12 +1288,44 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
           active: tasks.filter((task) => task.column === "in-progress" || task.column === "in-review").length,
           agents: agentCounts,
         },
+        vitestProcessCount: vitestProcessIds.length,
+        vitestLastAutoKillAt,
       });
     } catch (err: unknown) {
       if (err instanceof ApiError) {
         throw err;
       }
       rethrowAsApiError(err);
+    }
+  });
+
+  /**
+   * POST /api/kill-vitest
+   * Kill all running vitest processes (excluding this process).
+   */
+  router.post("/kill-vitest", async (_req, res) => {
+    try {
+      const vitestProcessIds = await getVitestProcessIds();
+      const killedPids: number[] = [];
+
+      for (const pid of vitestProcessIds) {
+        try {
+          process.kill(pid, "SIGKILL");
+          killedPids.push(pid);
+        } catch {
+          // Process may have exited before kill.
+        }
+      }
+
+      res.json({
+        killed: killedPids.length,
+        pids: killedPids,
+      });
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        throw err;
+      }
+      rethrowAsApiError(err, "Failed to kill vitest processes");
     }
   });
 

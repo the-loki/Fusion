@@ -41,9 +41,10 @@ const mockCentralListProjects = vi.fn().mockResolvedValue([]);
 const mockCentralInit = vi.fn().mockResolvedValue(undefined);
 const mockCentralClose = vi.fn().mockResolvedValue(undefined);
 const mockCentralReconcileProjectStatuses = vi.fn().mockResolvedValue(undefined);
-const { mockPerformUpdateCheck, mockClearUpdateCheckCache } = vi.hoisted(() => ({
+const { mockPerformUpdateCheck, mockClearUpdateCheckCache, mockExecSync } = vi.hoisted(() => ({
   mockPerformUpdateCheck: vi.fn(),
   mockClearUpdateCheckCache: vi.fn(),
+  mockExecSync: vi.fn(),
 }));
 
 vi.mock("../update-check.js", async () => {
@@ -52,6 +53,15 @@ vi.mock("../update-check.js", async () => {
     ...actual,
     performUpdateCheck: mockPerformUpdateCheck,
     clearUpdateCheckCache: mockClearUpdateCheckCache,
+  };
+});
+
+vi.mock("node:child_process", async () => {
+  const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+  mockExecSync.mockImplementation(((...args: Parameters<typeof actual.execSync>) => actual.execSync(...args)) as typeof actual.execSync);
+  return {
+    ...actual,
+    execSync: mockExecSync,
   };
 });
 
@@ -290,6 +300,8 @@ describe("GET /api/system-stats", () => {
       getFusionDir: vi.fn().mockReturnValue("/fake/default"),
     });
 
+    mockExecSync.mockReturnValue(`${process.pid}\n111\n222\n` as never);
+
     vi.spyOn(AgentStore.prototype, "init").mockResolvedValue(undefined);
     vi.spyOn(AgentStore.prototype, "listAgents").mockResolvedValue([
       { id: "agent-1", state: "idle" },
@@ -337,6 +349,27 @@ describe("GET /api/system-stats", () => {
         error: 1,
       },
     });
+    expect(res.body.vitestProcessCount).toBe(2);
+    expect(res.body.vitestLastAutoKillAt).toBeNull();
+    mockExecSync.mockReset();
+  });
+
+  it("includes last auto-kill timestamp when available in global settings", async () => {
+    const store = createMockStore({
+      listTasks: vi.fn().mockResolvedValue([]),
+      getFusionDir: vi.fn().mockReturnValue("/fake/default"),
+      getGlobalSettingsStore: vi.fn().mockReturnValue({
+        getSettings: vi.fn().mockResolvedValue({ vitestLastAutoKillAt: "2026-04-27T12:00:00.000Z" }),
+      }),
+    });
+
+    vi.spyOn(AgentStore.prototype, "init").mockResolvedValue(undefined);
+    vi.spyOn(AgentStore.prototype, "listAgents").mockResolvedValue([]);
+
+    const res = await GET(buildApp(store), "/api/system-stats");
+
+    expect(res.status).toBe(200);
+    expect(res.body.vitestLastAutoKillAt).toBe("2026-04-27T12:00:00.000Z");
   });
 
   it("uses project-scoped store when projectId query param is provided", async () => {
@@ -360,6 +393,56 @@ describe("GET /api/system-stats", () => {
     expect(scopedStore.listTasks).toHaveBeenCalledTimes(1);
     expect(defaultStore.listTasks).not.toHaveBeenCalled();
     expect(res.body.taskStats.byColumn.todo).toBe(1);
+  });
+});
+
+describe("POST /api/kill-vitest", () => {
+  function buildApp(store: TaskStore) {
+    const app = express();
+    app.use(express.json());
+    app.use("/api", createApiRoutes(store));
+    return app;
+  }
+
+  it("returns killed: 0 when no vitest processes are found", async () => {
+    const store = createMockStore();
+    mockExecSync.mockReturnValue("" as never);
+
+    const res = await REQUEST(buildApp(store), "POST", "/api/kill-vitest");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ killed: 0, pids: [] });
+    mockExecSync.mockReset();
+  });
+
+  it("kills all matched vitest pids except the current dashboard process", async () => {
+    const store = createMockStore();
+    mockExecSync.mockReturnValue(`${process.pid}\n1001\n1002\nnot-a-pid\n` as never);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+
+    const res = await REQUEST(buildApp(store), "POST", "/api/kill-vitest");
+
+    expect(res.status).toBe(200);
+    expect(killSpy).toHaveBeenCalledTimes(2);
+    expect(killSpy).toHaveBeenNthCalledWith(1, 1001, "SIGKILL");
+    expect(killSpy).toHaveBeenNthCalledWith(2, 1002, "SIGKILL");
+    expect(res.body).toEqual({ killed: 2, pids: [1001, 1002] });
+
+    killSpy.mockRestore();
+    mockExecSync.mockReset();
+  });
+
+  it("returns killed: 0 when pgrep exits with no matches", async () => {
+    const store = createMockStore();
+    mockExecSync.mockImplementation(() => {
+      throw new Error("pgrep exited 1");
+    });
+
+    const res = await REQUEST(buildApp(store), "POST", "/api/kill-vitest");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ killed: 0, pids: [] });
+    mockExecSync.mockReset();
   });
 });
 

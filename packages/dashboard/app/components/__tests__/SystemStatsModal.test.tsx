@@ -1,17 +1,25 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SystemStatsModal } from "../SystemStatsModal";
 
 vi.mock("lucide-react", () => ({
   Monitor: () => <span data-testid="icon-monitor" />,
   RefreshCw: () => <span data-testid="icon-refresh" />,
+  ShieldAlert: () => <span data-testid="icon-shield-alert" />,
+  Skull: () => <span data-testid="icon-skull" />,
   X: () => <span data-testid="icon-x" />,
 }));
 
 const mockFetchSystemStats = vi.fn();
+const mockFetchGlobalSettings = vi.fn();
+const mockKillVitestProcesses = vi.fn();
+const mockUpdateGlobalSettings = vi.fn();
 
 vi.mock("../../api", () => ({
   fetchSystemStats: (...args: unknown[]) => mockFetchSystemStats(...args),
+  fetchGlobalSettings: (...args: unknown[]) => mockFetchGlobalSettings(...args),
+  killVitestProcesses: (...args: unknown[]) => mockKillVitestProcesses(...args),
+  updateGlobalSettings: (...args: unknown[]) => mockUpdateGlobalSettings(...args),
 }));
 
 const sampleStats = {
@@ -49,11 +57,20 @@ const sampleStats = {
       error: 1,
     },
   },
+  vitestProcessCount: 2,
+  vitestLastAutoKillAt: "2026-04-27T12:00:00.000Z",
 };
 
 describe("SystemStatsModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFetchSystemStats.mockResolvedValue(sampleStats);
+    mockFetchGlobalSettings.mockResolvedValue({
+      vitestAutoKillEnabled: true,
+      vitestKillThresholdPct: 90,
+    });
+    mockKillVitestProcesses.mockResolvedValue({ killed: 2, pids: [111, 222] });
+    mockUpdateGlobalSettings.mockResolvedValue({});
   });
 
   afterEach(() => {
@@ -69,12 +86,11 @@ describe("SystemStatsModal", () => {
   });
 
   it("renders fetched metrics across all sections", async () => {
-    mockFetchSystemStats.mockResolvedValue(sampleStats);
-
     render(<SystemStatsModal isOpen={true} onClose={vi.fn()} projectId="proj-1" />);
 
     await waitFor(() => {
       expect(mockFetchSystemStats).toHaveBeenCalledWith("proj-1");
+      expect(mockFetchGlobalSettings).toHaveBeenCalledTimes(1);
     });
 
     expect(screen.getByText("System Stats")).toBeDefined();
@@ -83,12 +99,15 @@ describe("SystemStatsModal", () => {
     expect(screen.getByText("System")).toBeDefined();
     expect(screen.getByText("Tasks")).toBeDefined();
     expect(screen.getByText("Agents")).toBeDefined();
+    expect(screen.getByText("Vitest Controls")).toBeDefined();
 
     expect(screen.getByText("5.00 GB")).toBeDefined();
     expect(screen.getByText("900 MB")).toBeDefined();
     expect(screen.getByText("9.00 GB")).toBeDefined();
     expect(screen.getByText("90.0% of 10.00 GB")).toBeDefined();
     expect(screen.getByText("1.20 0.80 0.50")).toBeDefined();
+    expect(screen.getByText("Vitest Processes")).toBeDefined();
+    expect(screen.getByText(/Last auto-kill:/)).toBeDefined();
 
     const criticalValues = document.querySelectorAll(".system-stats-modal__value--critical");
     expect(criticalValues.length).toBeGreaterThan(0);
@@ -102,9 +121,76 @@ describe("SystemStatsModal", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("stats unavailable");
   });
 
+  it("requires a confirmation click before killing vitest processes", async () => {
+    render(<SystemStatsModal isOpen={true} onClose={vi.fn()} projectId="proj-1" />);
+
+    const killButton = await screen.findByRole("button", { name: /Kill Vitest Processes/i });
+
+    fireEvent.click(killButton);
+    expect(mockKillVitestProcesses).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /Confirm Kill\?/i })).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /Confirm Kill\?/i }));
+
+    await waitFor(() => {
+      expect(mockKillVitestProcesses).toHaveBeenCalledWith("proj-1");
+      expect(screen.getByText("Killed 2 processes")).toBeDefined();
+    });
+  });
+
+  it("persists auto-kill toggle changes", async () => {
+    render(<SystemStatsModal isOpen={true} onClose={vi.fn()} />);
+
+    const toggle = (await screen.findByLabelText("Auto-kill vitest on memory pressure")) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(mockUpdateGlobalSettings).toHaveBeenCalledWith({ vitestAutoKillEnabled: false });
+    });
+  });
+
+  it("clamps threshold input to allowed range", async () => {
+    render(<SystemStatsModal isOpen={true} onClose={vi.fn()} />);
+
+    const thresholdInput = (await screen.findByLabelText("Kill threshold (%)")) as HTMLInputElement;
+
+    fireEvent.change(thresholdInput, { target: { value: "20" } });
+    await waitFor(() => {
+      expect(mockUpdateGlobalSettings).toHaveBeenCalledWith({ vitestKillThresholdPct: 50 });
+    });
+
+    fireEvent.change(thresholdInput, { target: { value: "120" } });
+    await waitFor(() => {
+      expect(mockUpdateGlobalSettings).toHaveBeenCalledWith({ vitestKillThresholdPct: 99 });
+    });
+  });
+
+  it("persists threshold changes from the slider control", async () => {
+    render(<SystemStatsModal isOpen={true} onClose={vi.fn()} />);
+
+    const thresholdSlider = (await screen.findByLabelText("Kill threshold slider (%)")) as HTMLInputElement;
+    fireEvent.change(thresholdSlider, { target: { value: "95" } });
+
+    await waitFor(() => {
+      expect(mockUpdateGlobalSettings).toHaveBeenCalledWith({ vitestKillThresholdPct: 95 });
+    });
+  });
+
+  it("shows fallback text when last auto-kill timestamp is unavailable", async () => {
+    mockFetchSystemStats.mockResolvedValue({
+      ...sampleStats,
+      vitestLastAutoKillAt: null,
+    });
+
+    render(<SystemStatsModal isOpen={true} onClose={vi.fn()} />);
+
+    expect(await screen.findByText("Last auto-kill: Not yet")).toBeDefined();
+  });
+
   it("refreshes every 5 seconds while open and stops when closed", async () => {
     vi.useFakeTimers();
-    mockFetchSystemStats.mockResolvedValue(sampleStats);
 
     const { rerender } = render(<SystemStatsModal isOpen={true} onClose={vi.fn()} />);
 

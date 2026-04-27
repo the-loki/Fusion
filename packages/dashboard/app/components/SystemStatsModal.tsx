@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Monitor, RefreshCw, X } from "lucide-react";
-import { fetchSystemStats, type SystemStatsResponse } from "../api";
+import { Monitor, RefreshCw, ShieldAlert, Skull, X } from "lucide-react";
+import {
+  fetchGlobalSettings,
+  fetchSystemStats,
+  killVitestProcesses,
+  updateGlobalSettings,
+  type KillVitestResponse,
+  type SystemStatsResponse,
+} from "../api";
 import "./SystemStatsModal.css";
 
 interface SystemStatsModalProps {
@@ -53,6 +60,13 @@ function severityClassName(severity: Severity): string {
   return "";
 }
 
+function formatTimestamp(value: string | null | undefined): string {
+  if (!value) return "Not yet";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Not yet";
+  return parsed.toLocaleString();
+}
+
 /**
  * SystemStatsModal groups dashboard runtime telemetry into five sections:
  * process memory metrics, CPU/load information, host memory usage, task counts
@@ -62,13 +76,22 @@ export function SystemStatsModal({ isOpen, onClose, projectId }: SystemStatsModa
   const [stats, setStats] = useState<SystemStatsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoKillEnabled, setAutoKillEnabled] = useState(true);
+  const [killThreshold, setKillThreshold] = useState(90);
+  const [isKilling, setIsKilling] = useState(false);
+  const [confirmKill, setConfirmKill] = useState(false);
+  const [killResult, setKillResult] = useState<KillVitestResponse | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
-  const loadStats = useCallback(async () => {
+  const loadStats = useCallback(async (options?: { preserveKillResult?: boolean }) => {
     setLoading(true);
     try {
       const response = await fetchSystemStats(projectId);
       setStats(response);
       setError(null);
+      if (!options?.preserveKillResult) {
+        setKillResult(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load system stats");
     } finally {
@@ -88,6 +111,23 @@ export function SystemStatsModal({ isOpen, onClose, projectId }: SystemStatsModa
       window.clearInterval(timer);
     };
   }, [isOpen, loadStats]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const loadSettings = async () => {
+      try {
+        const settings = await fetchGlobalSettings();
+        setAutoKillEnabled(settings.vitestAutoKillEnabled ?? true);
+        setKillThreshold(settings.vitestKillThresholdPct ?? 90);
+        setSettingsError(null);
+      } catch (err) {
+        setSettingsError(err instanceof Error ? err.message : "Failed to load vitest settings");
+      }
+    };
+
+    void loadSettings();
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -112,6 +152,48 @@ export function SystemStatsModal({ isOpen, onClose, projectId }: SystemStatsModa
     ];
   }, [stats]);
 
+  const persistAutoKill = useCallback(async (enabled: boolean) => {
+    setAutoKillEnabled(enabled);
+    try {
+      await updateGlobalSettings({ vitestAutoKillEnabled: enabled });
+      setSettingsError(null);
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "Failed to save vitest settings");
+    }
+  }, []);
+
+  const persistKillThreshold = useCallback(async (nextThreshold: number) => {
+    const clamped = Math.min(99, Math.max(50, Number.isFinite(nextThreshold) ? Math.round(nextThreshold) : 90));
+    setKillThreshold(clamped);
+
+    try {
+      await updateGlobalSettings({ vitestKillThresholdPct: clamped });
+      setSettingsError(null);
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "Failed to save vitest settings");
+    }
+  }, []);
+
+  const handleKillVitest = useCallback(async () => {
+    if (isKilling) return;
+    if (!confirmKill) {
+      setConfirmKill(true);
+      return;
+    }
+
+    setIsKilling(true);
+    try {
+      const result = await killVitestProcesses(projectId);
+      setKillResult(result);
+      setConfirmKill(false);
+      await loadStats({ preserveKillResult: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to kill vitest processes");
+    } finally {
+      setIsKilling(false);
+    }
+  }, [confirmKill, isKilling, loadStats, projectId]);
+
   if (!isOpen) return null;
 
   const system = stats?.systemStats;
@@ -120,6 +202,13 @@ export function SystemStatsModal({ isOpen, onClose, projectId }: SystemStatsModa
   const usedSystemClassName = system
     ? severityClassName(systemMemSeverity(usedSystemMem, system.systemTotalMem))
     : "";
+  const vitestProcessCount = stats?.vitestProcessCount;
+  const killResultClassName = killResult
+    ? killResult.killed > 0
+      ? "system-stats-modal__kill-result system-stats-modal__kill-result--success"
+      : "system-stats-modal__kill-result system-stats-modal__kill-result--error"
+    : "";
+  const lastAutoKillLabel = formatTimestamp(stats?.vitestLastAutoKillAt);
 
   return (
     <div
@@ -262,6 +351,82 @@ export function SystemStatsModal({ isOpen, onClose, projectId }: SystemStatsModa
                   <dd>{taskStats?.agents.error ?? 0}</dd>
                 </div>
               </dl>
+            </section>
+
+            <section className="system-stats-modal__section" aria-label="Vitest controls">
+              <h3 className="system-stats-modal__section-title system-stats-modal__section-title--with-icon">
+                <ShieldAlert />
+                <span>Vitest Controls</span>
+              </h3>
+              <dl className="system-stats-modal__grid system-stats-modal__vitest-controls">
+                <div className="system-stats-modal__row">
+                  <dt>Vitest Processes</dt>
+                  <dd>{vitestProcessCount ?? "—"}</dd>
+                </div>
+              </dl>
+
+              <div className="system-stats-modal__vitest-controls">
+                <div className="system-stats-modal__kill-row">
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    onClick={() => void handleKillVitest()}
+                    disabled={isKilling || vitestProcessCount === 0}
+                  >
+                    <Skull />
+                    <span>{confirmKill ? "Confirm Kill?" : "Kill Vitest Processes"}</span>
+                  </button>
+                </div>
+
+                <label className="system-stats-modal__toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={autoKillEnabled}
+                    onChange={(event) => {
+                      void persistAutoKill(event.target.checked);
+                    }}
+                  />
+                  <span>Auto-kill vitest on memory pressure</span>
+                </label>
+
+                <div className="system-stats-modal__threshold-row">
+                  <label htmlFor="vitest-threshold-number">Kill threshold (%)</label>
+                  <div className="system-stats-modal__threshold-controls">
+                    <input
+                      id="vitest-threshold-range"
+                      type="range"
+                      min={50}
+                      max={99}
+                      value={killThreshold}
+                      aria-label="Kill threshold slider (%)"
+                      onChange={(event) => {
+                        const nextValue = Number.parseInt(event.target.value, 10);
+                        void persistKillThreshold(Number.isNaN(nextValue) ? 90 : nextValue);
+                      }}
+                    />
+                    <input
+                      id="vitest-threshold-number"
+                      type="number"
+                      className="input"
+                      min={50}
+                      max={99}
+                      value={killThreshold}
+                      aria-label="Kill threshold (%)"
+                      onChange={(event) => {
+                        const nextValue = Number.parseInt(event.target.value, 10);
+                        void persistKillThreshold(Number.isNaN(nextValue) ? 90 : nextValue);
+                      }}
+                      onBlur={() => {
+                        void persistKillThreshold(killThreshold);
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {killResult && <p className={killResultClassName}>Killed {killResult.killed} processes</p>}
+                <p className="system-stats-modal__last-kill">Last auto-kill: {lastAutoKillLabel}</p>
+                {settingsError && <p className="system-stats-modal__kill-result system-stats-modal__kill-result--error">{settingsError}</p>}
+              </div>
             </section>
           </div>
         )}

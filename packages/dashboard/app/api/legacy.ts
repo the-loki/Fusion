@@ -4896,10 +4896,23 @@ export interface TaskStatsSnapshot {
 export interface SystemStatsResponse {
   systemStats: SystemStatsSnapshot;
   taskStats: TaskStatsSnapshot;
+  vitestProcessCount?: number;
+  vitestLastAutoKillAt?: string | null;
+}
+
+export interface KillVitestResponse {
+  killed: number;
+  pids: number[];
 }
 
 export function fetchSystemStats(projectId?: string): Promise<SystemStatsResponse> {
   return api<SystemStatsResponse>(withProjectId("/system-stats", projectId));
+}
+
+export function killVitestProcesses(projectId?: string): Promise<KillVitestResponse> {
+  return api<KillVitestResponse>(withProjectId("/kill-vitest", projectId), {
+    method: "POST",
+  });
 }
 
 /** Fetch unified activity feed */
