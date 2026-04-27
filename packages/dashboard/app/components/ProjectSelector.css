@@ -5,6 +5,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
+  margin-top: var(--space-xs);
   overflow: visible;
   min-width: 0;
   max-width: min(32ch, 24vw);
