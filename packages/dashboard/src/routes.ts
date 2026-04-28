@@ -1202,9 +1202,8 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
   });
 
   /**
-   * POST /api/settings/test-ntfy
-   * Send a test notification to verify ntfy configuration.
-   * Returns: { success: true } on success, { error: string } on failure.
+   * GET /api/executor/stats
+   * Returns executor status metadata for dashboard status surfaces.
    */
   router.get("/executor/stats", async (req, res) => {
     try {

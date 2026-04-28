@@ -1529,6 +1529,143 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
     }
   });
 
+  router.post("/settings/test-notification", async (req, res) => {
+    const normalizeHttpUrl = (value: string, fieldName: string): string => {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        throw badRequest(`${fieldName} cannot be empty`);
+      }
+
+      let parsed: URL;
+      try {
+        parsed = new URL(trimmed);
+      } catch {
+        throw badRequest(`${fieldName} must be a valid URL`);
+      }
+
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        throw badRequest(`${fieldName} must use http:// or https://`);
+      }
+
+      return trimmed;
+    };
+
+    const normalizeNtfyBaseUrl = (value: string, source: "request" | "settings"): string => {
+      const normalized = normalizeHttpUrl(value, `ntfy server URL from ${source}`);
+      return normalized.replace(/\/+$/, "");
+    };
+
+    try {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const providerId = body.providerId;
+      if (typeof providerId !== "string" || !providerId.trim()) {
+        throw badRequest("providerId is required and must be a string");
+      }
+
+      const configValue = body.config;
+      if (configValue !== undefined && (typeof configValue !== "object" || configValue === null || Array.isArray(configValue))) {
+        throw badRequest("config must be an object when provided");
+      }
+      const config = (configValue ?? {}) as Record<string, unknown>;
+
+      const { store: scopedStore } = await getProjectContext(req);
+      const settings = await scopedStore.getSettings();
+
+      if (providerId === "ntfy") {
+        if (!settings.ntfyEnabled) {
+          throw badRequest("ntfy notifications are not enabled");
+        }
+
+        const topic = settings.ntfyTopic;
+        if (!topic || !/^[a-zA-Z0-9_-]{1,64}$/.test(topic)) {
+          throw badRequest("ntfy topic is not configured or invalid");
+        }
+
+        const overrideValue = config.ntfyBaseUrl ?? body.ntfyBaseUrl;
+        if (overrideValue !== undefined && overrideValue !== null && typeof overrideValue !== "string") {
+          throw badRequest("ntfy server URL must be a string");
+        }
+
+        const requestOverride = typeof overrideValue === "string" && overrideValue.trim()
+          ? normalizeNtfyBaseUrl(overrideValue, "request")
+          : undefined;
+        const storedServer = typeof settings.ntfyBaseUrl === "string" && settings.ntfyBaseUrl.trim()
+          ? normalizeNtfyBaseUrl(settings.ntfyBaseUrl, "settings")
+          : undefined;
+        const ntfyBaseUrl = requestOverride ?? storedServer ?? "https://ntfy.sh";
+        const url = `${ntfyBaseUrl}/${topic}`;
+
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Title": "Fusion test notification",
+            "Priority": "default",
+            "Content-Type": "text/plain",
+          },
+          body: "Fusion test notification — your notifications are working!",
+        });
+
+        if (!response.ok) {
+          throw new ApiError(502, `ntfy server returned ${response.status}: ${response.statusText}`);
+        }
+
+        res.json({ success: true });
+        return;
+      }
+
+      if (providerId === "webhook") {
+        if (!settings.webhookEnabled) {
+          throw badRequest("webhook notifications are not enabled");
+        }
+
+        if (typeof settings.webhookUrl !== "string" || !settings.webhookUrl.trim()) {
+          throw badRequest("webhook URL is not configured");
+        }
+
+        const webhookUrl = normalizeHttpUrl(settings.webhookUrl, "webhook URL");
+        const formatOverride = config.webhookFormat ?? body.webhookFormat;
+        const resolvedFormat = typeof formatOverride === "string" && formatOverride
+          ? formatOverride
+          : settings.webhookFormat ?? "generic";
+
+        let payload: Record<string, unknown>;
+        if (resolvedFormat === "slack") {
+          payload = { text: "Fusion test notification — your webhook notifications are working!" };
+        } else if (resolvedFormat === "discord") {
+          payload = { content: "Fusion test notification — your webhook notifications are working!" };
+        } else {
+          payload = {
+            event: "test",
+            message: "Fusion test notification",
+            timestamp: new Date().toISOString(),
+          };
+        }
+
+        const response = await fetch(webhookUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          throw new ApiError(502, `webhook server returned ${response.status}: ${response.statusText}`);
+        }
+
+        res.json({ success: true });
+        return;
+      }
+
+      throw badRequest(`Unknown notification provider: ${providerId}. Supported providers: ntfy, webhook`);
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        throw err;
+      }
+      rethrowAsApiError(err, "Failed to send test notification");
+    }
+  });
+
   // ── Settings Export/Import Routes ─────────────────────────────────
 
   /**

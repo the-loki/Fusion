@@ -14739,6 +14739,252 @@ describe("GET /api/memory", () => {
   });
 });
 
+describe("POST /settings/test-notification", () => {
+  let store: TaskStore;
+  let fetchSpy: ReturnType<typeof vi.spyOn<any, any>>;
+
+  beforeEach(() => {
+    store = createMockStore();
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }));
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  function buildApp() {
+    const app = express();
+    app.use(express.json());
+    app.use("/api", createApiRoutes(store));
+    return app;
+  }
+
+  it("ntfy provider sends Fusion-branded test notification", async () => {
+    (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ntfyEnabled: true,
+      ntfyTopic: "test-topic",
+    });
+
+    const res = await REQUEST(buildApp(), "POST", "/api/settings/test-notification", JSON.stringify({ providerId: "ntfy" }), {
+      "content-type": "application/json",
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://ntfy.sh/test-topic",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Title: "Fusion test notification",
+        }),
+      }),
+    );
+  });
+
+  it("ntfy provider uses config override for baseUrl", async () => {
+    (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ntfyEnabled: true,
+      ntfyTopic: "my-topic",
+      ntfyBaseUrl: "https://ntfy.saved.example",
+    });
+
+    const res = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/settings/test-notification",
+      JSON.stringify({ providerId: "ntfy", ntfyBaseUrl: "https://ntfy.override.example//" }),
+      { "content-type": "application/json" },
+    );
+
+    expect(res.status).toBe(200);
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe("https://ntfy.override.example/my-topic");
+  });
+
+  it("ntfy provider returns 400 when ntfy not enabled", async () => {
+    (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({ ntfyEnabled: false });
+
+    const res = await REQUEST(buildApp(), "POST", "/api/settings/test-notification", JSON.stringify({ providerId: "ntfy" }), {
+      "content-type": "application/json",
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("not enabled");
+  });
+
+  it("ntfy provider returns 400 when topic missing", async () => {
+    (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({ ntfyEnabled: true, ntfyTopic: undefined });
+
+    const res = await REQUEST(buildApp(), "POST", "/api/settings/test-notification", JSON.stringify({ providerId: "ntfy" }), {
+      "content-type": "application/json",
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("webhook provider sends test notification (generic format)", async () => {
+    (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      webhookEnabled: true,
+      webhookUrl: "https://hooks.example.com/test",
+    });
+
+    const res = await REQUEST(buildApp(), "POST", "/api/settings/test-notification", JSON.stringify({ providerId: "webhook" }), {
+      "content-type": "application/json",
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+    const options = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe("https://hooks.example.com/test");
+    const payload = JSON.parse(String(options.body)) as Record<string, string>;
+    expect(payload.event).toBe("test");
+    expect(payload.message).toBe("Fusion test notification");
+    expect(payload.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("webhook provider sends Slack format", async () => {
+    (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      webhookEnabled: true,
+      webhookUrl: "https://hooks.slack.com/test",
+      webhookFormat: "slack",
+    });
+
+    const res = await REQUEST(buildApp(), "POST", "/api/settings/test-notification", JSON.stringify({ providerId: "webhook" }), {
+      "content-type": "application/json",
+    });
+
+    expect(res.status).toBe(200);
+    const options = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(options.body))).toEqual({
+      text: "Fusion test notification — your webhook notifications are working!",
+    });
+  });
+
+  it("webhook provider sends Discord format", async () => {
+    (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      webhookEnabled: true,
+      webhookUrl: "https://discord.com/api/webhooks/test",
+      webhookFormat: "discord",
+    });
+
+    const res = await REQUEST(buildApp(), "POST", "/api/settings/test-notification", JSON.stringify({ providerId: "webhook" }), {
+      "content-type": "application/json",
+    });
+
+    expect(res.status).toBe(200);
+    const options = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(options.body))).toEqual({
+      content: "Fusion test notification — your webhook notifications are working!",
+    });
+  });
+
+  it("webhook provider uses config override for format", async () => {
+    (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      webhookEnabled: true,
+      webhookUrl: "https://hooks.example.com/test",
+      webhookFormat: "generic",
+    });
+
+    const res = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/settings/test-notification",
+      JSON.stringify({ providerId: "webhook", webhookFormat: "slack" }),
+      { "content-type": "application/json" },
+    );
+
+    expect(res.status).toBe(200);
+    const options = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(options.body))).toEqual({
+      text: "Fusion test notification — your webhook notifications are working!",
+    });
+  });
+
+  it("webhook provider returns 400 when not enabled", async () => {
+    (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({ webhookEnabled: false });
+
+    const res = await REQUEST(buildApp(), "POST", "/api/settings/test-notification", JSON.stringify({ providerId: "webhook" }), {
+      "content-type": "application/json",
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("not enabled");
+  });
+
+  it("webhook provider returns 400 when URL missing", async () => {
+    (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({ webhookEnabled: true, webhookUrl: undefined });
+
+    const res = await REQUEST(buildApp(), "POST", "/api/settings/test-notification", JSON.stringify({ providerId: "webhook" }), {
+      "content-type": "application/json",
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("not configured");
+  });
+
+  it("webhook provider returns 502 on server error", async () => {
+    (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      webhookEnabled: true,
+      webhookUrl: "https://hooks.example.com/test",
+    });
+    fetchSpy.mockResolvedValueOnce(new Response(null, { status: 500, statusText: "Internal Server Error" }));
+
+    const res = await REQUEST(buildApp(), "POST", "/api/settings/test-notification", JSON.stringify({ providerId: "webhook" }), {
+      "content-type": "application/json",
+    });
+
+    expect(res.status).toBe(502);
+  });
+
+  it("unknown provider returns 400", async () => {
+    const res = await REQUEST(buildApp(), "POST", "/api/settings/test-notification", JSON.stringify({ providerId: "email" }), {
+      "content-type": "application/json",
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("Unknown notification provider: email");
+  });
+
+  it("missing providerId returns 400", async () => {
+    const res = await REQUEST(buildApp(), "POST", "/api/settings/test-notification", JSON.stringify({}), {
+      "content-type": "application/json",
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("providerId");
+  });
+
+  it("backward compat — test-ntfy still works", async () => {
+    (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ntfyEnabled: true,
+      ntfyTopic: "compat-topic",
+    });
+
+    const res = await REQUEST(buildApp(), "POST", "/api/settings/test-ntfy");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+  });
+
+  it("client→server contract for ntfy override via testNotification pattern", async () => {
+    (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ntfyEnabled: true,
+      ntfyTopic: "my-topic",
+      ntfyBaseUrl: "https://ntfy.saved.example",
+    });
+
+    const res = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/settings/test-notification",
+      JSON.stringify({ providerId: "ntfy", ntfyBaseUrl: "https://ntfy.override.example/" }),
+      { "content-type": "application/json" },
+    );
+
+    expect(res.status).toBe(200);
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe("https://ntfy.override.example/my-topic");
+  });
+});
+
 describe("GET /api/memory/backend", () => {
   let store: TaskStore;
 

@@ -861,11 +861,23 @@ export function updatePiExtensions(disabledIds: string[], projectId?: string): P
   });
 }
 
-export function testNtfyNotification(config?: { ntfyEnabled?: boolean; ntfyTopic?: string; ntfyBaseUrl?: string }, projectId?: string): Promise<{ success: boolean }> {
-  return api<{ success: boolean }>(withProjectId("/settings/test-ntfy", projectId), {
+/**
+ * Test a notification provider by sending a test notification.
+ * Supports "ntfy" and "webhook" provider IDs.
+ */
+export function testNotification(providerId: string, config?: Record<string, unknown>, projectId?: string): Promise<{ success: boolean }> {
+  return api<{ success: boolean }>(withProjectId("/settings/test-notification", projectId), {
     method: "POST",
-    body: config ? JSON.stringify(config) : undefined,
+    body: JSON.stringify({ providerId, ...(config ?? {}) }),
   });
+}
+
+/**
+ * Backward-compatible ntfy test helper.
+ * Wraps testNotification() while preserving the legacy function signature.
+ */
+export function testNtfyNotification(config?: { ntfyEnabled?: boolean; ntfyTopic?: string; ntfyBaseUrl?: string }, projectId?: string): Promise<{ success: boolean }> {
+  return testNotification("ntfy", config as Record<string, unknown> | undefined, projectId);
 }
 
 /** Pi extension settings from ~/.pi/agent/settings.json (global scope) */
