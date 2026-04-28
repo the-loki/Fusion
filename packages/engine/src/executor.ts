@@ -216,6 +216,10 @@ export interface WorkflowStepOutcome {
   revisionRequested?: boolean;
   output?: string;
   error?: string;
+  /** Set when the call exceeded `settings.workflowStepTimeoutMs`. Signals the
+   *  caller to escalate to the fallback model rather than treat the failure
+   *  as a generic revision request. */
+  timedOut?: boolean;
 }
 
 /**
@@ -3962,12 +3966,30 @@ and show an appropriate message to the user.\`
       },
     });
 
-    try {
-      // Determine model: prefer workflow step override, fall back to global settings
-      const stepProvider = workflowStep.modelProvider || settings.defaultProvider;
-      const stepModelId = workflowStep.modelId || settings.defaultModelId;
-      const useOverride = !!(workflowStep.modelProvider && workflowStep.modelId);
+    // Determine primary model and an explicit fallback. The workflow step's
+    // own override takes precedence; otherwise we use the global default. The
+    // fallback is the per-step override's missing-counterpart settings, then
+    // the global validator/fallback pair, then the executor's `fallbackProvider`.
+    const primaryProvider = workflowStep.modelProvider || settings.defaultProvider;
+    const primaryModelId = workflowStep.modelId || settings.defaultModelId;
+    const useOverride = !!(workflowStep.modelProvider && workflowStep.modelId);
 
+    type ModelTuple = { provider?: string; modelId?: string };
+    const fallbackCandidates: Array<ModelTuple & { label: string }> = [
+      { provider: settings.validatorFallbackProvider, modelId: settings.validatorFallbackModelId, label: "validatorFallback" },
+      { provider: settings.fallbackProvider, modelId: settings.fallbackModelId, label: "globalFallback" },
+    ];
+    const fallback = fallbackCandidates.find(
+      (c) => c.provider && c.modelId && (c.provider !== primaryProvider || c.modelId !== primaryModelId),
+    );
+
+    const timeoutMs = Math.max(60_000, settings.workflowStepTimeoutMs ?? 360_000);
+
+    const runOnce = async (
+      provider: string | undefined,
+      modelId: string | undefined,
+      attemptLabel: string,
+    ): Promise<WorkflowStepOutcome> => {
       // Workflow step agents inherit executor instructions
       const stepInstructions = await this.resolveInstructionsForRole("executor");
       const stepSystemPrompt = buildSystemPromptWithInstructions(systemPrompt, stepInstructions);
@@ -3992,8 +4014,8 @@ and show an appropriate message to the user.\`
         cwd: worktreePath,
         systemPrompt: stepSystemPrompt,
         tools: toolMode,
-        defaultProvider: stepProvider,
-        defaultModelId: stepModelId,
+        defaultProvider: provider,
+        defaultModelId: modelId,
         fallbackProvider: settings.fallbackProvider,
         fallbackModelId: settings.fallbackModelId,
         defaultThinkingLevel: settings.defaultThinkingLevel,
@@ -4001,8 +4023,11 @@ and show an appropriate message to the user.\`
         ...(skillContext.skillSelectionContext ? { skillSelection: skillContext.skillSelectionContext } : {}),
       });
 
-      executorLog.log(`${task.id}: workflow step '${workflowStep.name}' using model ${describeModel(session)}${useOverride ? " (workflow step override)" : ""}`);
-      await this.store.logEntry(task.id, `Workflow step '${workflowStep.name}' using model: ${describeModel(session)}${useOverride ? " (workflow step override)" : ""}`);
+      executorLog.log(`${task.id}: workflow step '${workflowStep.name}' using model ${describeModel(session)}${useOverride && attemptLabel === "primary" ? " (workflow step override)" : ""}${attemptLabel === "fallback" ? " (fallback after timeout)" : ""}`);
+      await this.store.logEntry(
+        task.id,
+        `Workflow step '${workflowStep.name}' using model: ${describeModel(session)}${useOverride && attemptLabel === "primary" ? " (workflow step override)" : ""}${attemptLabel === "fallback" ? " (fallback after timeout)" : ""}`,
+      );
 
       let output = "";
       session.subscribe((event) => {
@@ -4023,37 +4048,78 @@ and show an appropriate message to the user.\`
         }
       });
 
-      await promptWithFallback(
-        session,
-        `Execute the workflow step "${workflowStep.name}" for task ${task.id}.\n\n` +
-        `Review the work done in this worktree and evaluate it against the criteria in your instructions.`,
-      );
+      let timedOut = false;
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+      const timeoutPromise = new Promise<"timeout">((resolveTimeout) => {
+        timeoutHandle = setTimeout(() => {
+          timedOut = true;
+          resolveTimeout("timeout");
+        }, timeoutMs);
+      });
 
-      checkSessionError(session);
-      await accumulateSessionTokenUsage(this.store, task.id, session);
-      session.dispose();
-      await agentLogger.flush();
+      try {
+        const promptPromise = promptWithFallback(
+          session,
+          `Execute the workflow step "${workflowStep.name}" for task ${task.id}.\n\n` +
+          `Review the work done in this worktree and evaluate it against the criteria in your instructions.`,
+        );
 
-      // Check if the output contains a revision request
-      const trimmedOutput = output.trim();
-      const revisionMatch = trimmedOutput.match(/^REQUEST REVISION\s*\n*/i);
-      if (revisionMatch) {
-        // Extract the feedback after "REQUEST REVISION"
-        const feedbackStart = revisionMatch[0].length;
-        const feedback = trimmedOutput.slice(feedbackStart).trim();
-        return {
-          success: false,
-          revisionRequested: true,
-          output: feedback,
-        };
+        const outcome = await Promise.race([
+          promptPromise.then(() => "completed" as const),
+          timeoutPromise,
+        ]);
+
+        if (outcome === "timeout") {
+          executorLog.warn(`${task.id}: workflow step '${workflowStep.name}' (${attemptLabel}) timed out after ${timeoutMs}ms — disposing session`);
+          await this.store.logEntry(
+            task.id,
+            `Workflow step '${workflowStep.name}' ${attemptLabel === "primary" ? "primary" : "fallback"} model timed out after ${Math.round(timeoutMs / 1000)}s — aborting session`,
+          );
+          try { session.dispose(); } catch { /* best-effort */ }
+          await agentLogger.flush();
+          return { success: false, error: `workflow step timed out after ${timeoutMs}ms`, timedOut: true };
+        }
+
+        // Completed within the timeout — let any post-completion errors surface.
+        checkSessionError(session);
+        await accumulateSessionTokenUsage(this.store, task.id, session);
+        session.dispose();
+        await agentLogger.flush();
+
+        const trimmedOutput = output.trim();
+        const revisionMatch = trimmedOutput.match(/^REQUEST REVISION\s*\n*/i);
+        if (revisionMatch) {
+          const feedbackStart = revisionMatch[0].length;
+          const feedback = trimmedOutput.slice(feedbackStart).trim();
+          return { success: false, revisionRequested: true, output: feedback };
+        }
+        return { success: true, output };
+      } catch (err: unknown) {
+        await agentLogger.flush();
+        try { session.dispose(); } catch { /* best-effort */ }
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        return { success: false, error: errorMessage };
+      } finally {
+        if (timeoutHandle) clearTimeout(timeoutHandle);
+        // Suppress unused-variable warning; `timedOut` documents intent.
+        void timedOut;
       }
+    };
 
-      return { success: true, output };
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      await agentLogger.flush();
-      return { success: false, error: errorMessage };
+    const primaryOutcome = await runOnce(primaryProvider, primaryModelId, "primary");
+    if (!primaryOutcome.timedOut) return primaryOutcome;
+
+    if (!fallback) {
+      executorLog.warn(`${task.id}: workflow step '${workflowStep.name}' timed out and no fallback model is configured`);
+      await this.store.logEntry(
+        task.id,
+        `Workflow step '${workflowStep.name}' timed out — no fallback model configured (set settings.validatorFallbackProvider/Id or fallbackProvider/Id)`,
+      );
+      return primaryOutcome;
     }
+
+    executorLog.log(`${task.id}: retrying workflow step '${workflowStep.name}' with fallback ${fallback.provider}/${fallback.modelId} (label=${fallback.label})`);
+    return runOnce(fallback.provider, fallback.modelId, "fallback");
   }
 
   private MAX_WORKTREE_RETRIES = 3;
@@ -5160,6 +5226,12 @@ and show an appropriate message to the user.\`
           const childRuntimeHint = extractRuntimeHint(agent.runtimeConfig)
             ?? extractRuntimeHint(parentAgent?.runtimeConfig);
 
+          // Resolve executor model via canonical lane hierarchy so child agents
+          // honor project executionProvider/executionModelId overrides (parity
+          // with main executor at the top of agentWork()).
+          const { provider: childExecutorProvider, modelId: childExecutorModelId } =
+            resolveExecutorModelPair(undefined, undefined, settings);
+
           // Create child agent session
           const { session: childSession } = await createResolvedAgentSession({
             sessionPurpose: "executor",
@@ -5168,8 +5240,8 @@ and show an appropriate message to the user.\`
             cwd: childWorktreePath,
             systemPrompt: childSystemPrompt,
             tools: "coding",
-            defaultProvider: settings.defaultProvider,
-            defaultModelId: settings.defaultModelId,
+            defaultProvider: childExecutorProvider,
+            defaultModelId: childExecutorModelId,
             fallbackProvider: settings.fallbackProvider,
             fallbackModelId: settings.fallbackModelId,
             // Skill selection: use assigned agent skills if available, otherwise role fallback

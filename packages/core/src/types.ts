@@ -1500,6 +1500,11 @@ export interface ProjectSettings {
    *  (typically `origin`). Exposed as a dropdown in the dashboard's
    *  Worktrees settings. */
   worktreeRebaseRemote?: string;
+  /** Wall-clock timeout (ms) for a single pre-merge workflow step's AI call.
+   *  When a step exceeds this, the session is aborted and the executor is
+   *  given one shot to retry with the configured fallback model before the
+   *  step is reported as failed. Default: 360_000 (6 minutes). */
+  workflowStepTimeoutMs?: number;
   /** When true, out-of-scope file changes block merge instead of just logging warnings.
    *  Useful for teams that want strict enforcement of declared File Scope.
    *  Default: false (soft guardrail — warnings only). */

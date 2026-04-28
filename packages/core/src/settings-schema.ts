@@ -114,6 +114,7 @@ export const DEFAULT_PROJECT_SETTINGS = {
   smartConflictResolution: true,
   worktreeRebaseBeforeMerge: true,
   worktreeRebaseRemote: "",
+  workflowStepTimeoutMs: 360_000,
   strictScopeEnforcement: false,
   buildRetryCount: 0,
   verificationFixRetries: 3,
