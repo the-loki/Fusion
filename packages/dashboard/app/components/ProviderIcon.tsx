@@ -571,6 +571,7 @@ const providerConfig: Record<
   "opencode-go": { component: OpencodeIcon, color: "var(--provider-opencode)", label: "Opencode (Go)" },
 
   qwen: { component: QwenIcon, color: "var(--provider-qwen)" },
+  "qwen-ai": { component: QwenIcon, color: "var(--provider-qwen)", label: "Qwen" },
   "qwen-coder": { component: QwenIcon, color: "var(--provider-qwen)", label: "Qwen Coder" },
   alibaba: { component: QwenIcon, color: "var(--provider-qwen)", label: "Qwen" },
   tongyi: { component: QwenIcon, color: "var(--provider-qwen)", label: "Qwen" },
@@ -591,6 +592,7 @@ const providerConfig: Record<
 
   fireworks: { component: FireworksIcon, color: "var(--provider-fireworks)", label: "Fireworks AI" },
   "fireworks-ai": { component: FireworksIcon, color: "var(--provider-fireworks)", label: "Fireworks AI" },
+  fireworksai: { component: FireworksIcon, color: "var(--provider-fireworks)", label: "Fireworks AI" },
 
   cerebras: { component: CerebrasIcon, color: "var(--provider-cerebras)" },
 

@@ -508,7 +508,7 @@ describe("ProviderIcon", () => {
   // and additional Gemini-mapped Google product aliases.
 
   it("renders Qwen icon for qwen and its aliases", () => {
-    for (const provider of ["qwen", "qwen-coder", "alibaba", "tongyi"]) {
+    for (const provider of ["qwen", "qwen-ai", "qwen-coder", "alibaba", "tongyi"]) {
       const { unmount } = render(<ProviderIcon provider={provider} />);
       expect(screen.getByTestId("qwen-icon")).toBeInTheDocument();
       unmount();
@@ -552,8 +552,8 @@ describe("ProviderIcon", () => {
     }
   });
 
-  it("renders Fireworks icon for fireworks and fireworks-ai", () => {
-    for (const provider of ["fireworks", "fireworks-ai"]) {
+  it("renders Fireworks icon for fireworks, fireworks-ai, and fireworksai", () => {
+    for (const provider of ["fireworks", "fireworks-ai", "fireworksai"]) {
       const { unmount } = render(<ProviderIcon provider={provider} />);
       expect(screen.getByTestId("fireworks-icon")).toBeInTheDocument();
       expect(screen.getByLabelText("Fireworks AI")).toBeInTheDocument();
