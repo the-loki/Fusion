@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef, lazy, Suspense, type MouseEve
 import { Globe, Folder, RefreshCw, Star, HelpCircle, Loader2 } from "lucide-react";
 import { THINKING_LEVELS, isGlobalSettingsKey, isProjectSettingsKey, getErrorMessage } from "@fusion/core";
 import type { Settings, GlobalSettings, ThemeMode, ColorTheme, ModelPreset, NtfyNotificationEvent, AgentPromptsConfig, ThinkingLevel } from "@fusion/core";
-import { fetchSettings, fetchSettingsByScope, updateSettings, updateGlobalSettings, fetchAuthStatus, loginProvider, logoutProvider, saveApiKey, clearApiKey, fetchModels, testNtfyNotification, fetchBackups, createBackup, exportSettings, importSettings, fetchMemoryFile, fetchMemoryFiles, saveMemoryFile, compactMemory, fetchGlobalConcurrency, updateGlobalConcurrency, installQmd, testMemoryRetrieval, triggerMemoryDreams, fetchGitRemotesDetailed, fetchDashboardHealth, checkForUpdates, fetchRemoteSettings, updateRemoteSettings, fetchRemoteStatus, startRemoteTunnel, stopRemoteTunnel, regenerateRemotePersistentToken, generateShortLivedRemoteToken, fetchRemoteQr, fetchRemoteUrl } from "../api";import type { AuthProvider, ModelInfo, BackupListResponse, SettingsExportData, MemoryFileInfo, MemoryRetrievalTestResult, GitRemoteDetailed, RemoteSettings, RemoteStatus, UpdateCheckResponse } from "../api";
+import { fetchSettings, fetchSettingsByScope, updateSettings, updateGlobalSettings, fetchAuthStatus, loginProvider, logoutProvider, saveApiKey, clearApiKey, fetchModels, testNotification, fetchBackups, createBackup, exportSettings, importSettings, fetchMemoryFile, fetchMemoryFiles, saveMemoryFile, compactMemory, fetchGlobalConcurrency, updateGlobalConcurrency, installQmd, testMemoryRetrieval, triggerMemoryDreams, fetchGitRemotesDetailed, fetchDashboardHealth, checkForUpdates, fetchRemoteSettings, updateRemoteSettings, fetchRemoteStatus, startRemoteTunnel, stopRemoteTunnel, regenerateRemotePersistentToken, generateShortLivedRemoteToken, fetchRemoteQr, fetchRemoteUrl } from "../api";
+import type { AuthProvider, ModelInfo, BackupListResponse, SettingsExportData, MemoryFileInfo, MemoryRetrievalTestResult, GitRemoteDetailed, RemoteSettings, RemoteStatus, UpdateCheckResponse } from "../api";
 import { useMemoryBackendStatus } from "../hooks/useMemoryBackendStatus";
 import { useOverlayDismiss } from "../hooks/useOverlayDismiss";
 import type { ToastType } from "../hooks/useToast";
@@ -213,6 +214,16 @@ const DEFAULT_NTFY_EVENTS: NtfyNotificationEvent[] = [
   "gridlock",
 ];
 
+const NOTIFICATION_EVENT_OPTIONS: Array<{ event: NtfyNotificationEvent; label: string; description: string }> = [
+  { event: "in-review", label: "Task completed (in-review)", description: "When a task moves to In Review (ready for review)" },
+  { event: "merged", label: "Task merged", description: "When a task is successfully merged to main" },
+  { event: "failed", label: "Task failed", description: "When a task fails during execution (high priority)" },
+  { event: "awaiting-approval", label: "Plan needs approval", description: "When a task specification needs manual approval before execution" },
+  { event: "awaiting-user-review", label: "User review needed", description: "When an agent hands off a task for human review (high priority)" },
+  { event: "planning-awaiting-input", label: "Planning needs input", description: "When planning mode is waiting for your response to continue" },
+  { event: "gridlock", label: "Pipeline gridlocked", description: "When all schedulable todo tasks are blocked and work cannot advance" },
+];
+
 /** Well-known experimental feature flags with display labels.
  *  These always appear in the Experimental Features settings tab,
  *  regardless of whether they exist in the project's settings blob.
@@ -322,6 +333,10 @@ export function SettingsModal({
     worktreeInitCommand: "",
     ntfyEnabled: false,
     ntfyTopic: undefined,
+    webhookEnabled: false,
+    webhookUrl: undefined,
+    webhookFormat: "generic",
+    webhookEvents: undefined,
   });
   const [loading, setLoading] = useState(true);
   // Track initial values to detect explicit clears for null-as-delete semantics
@@ -396,7 +411,7 @@ export function SettingsModal({
   const [favoriteModels, setFavoriteModels] = useState<string[]>([]);
 
   // Test notification state
-  const [testNotificationLoading, setTestNotificationLoading] = useState(false);
+  const [testNotificationLoading, setTestNotificationLoading] = useState<Record<string, boolean>>({});
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [presetDraft, setPresetDraft] = useState<ModelPreset | null>(null);
 
@@ -853,31 +868,52 @@ export function SettingsModal({
     }
   }, [addToast, loadAuthStatus]);
 
-  const handleTestNotification = useCallback(async () => {
-    // Validate ntfy is enabled and topic is valid
-    if (!form.ntfyEnabled || !form.ntfyTopic || !/^[a-zA-Z0-9_-]{1,64}$/.test(form.ntfyTopic)) {
-      return;
+  const handleTestProviderNotification = useCallback(async (providerId: "ntfy" | "webhook") => {
+    if (providerId === "ntfy") {
+      if (!form.ntfyEnabled || !form.ntfyTopic || !/^[a-zA-Z0-9_-]{1,64}$/.test(form.ntfyTopic)) {
+        return;
+      }
     }
 
-    setTestNotificationLoading(true);
+    if (providerId === "webhook") {
+      if (!form.webhookEnabled || !form.webhookUrl?.trim()) {
+        return;
+      }
+      try {
+        const parsed = new URL(form.webhookUrl.trim());
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          return;
+        }
+      } catch {
+        return;
+      }
+    }
+
+    setTestNotificationLoading((prev) => ({ ...prev, [providerId]: true }));
     try {
-      const ntfyBaseUrl = form.ntfyBaseUrl?.trim();
-      const result = await testNtfyNotification({
-        ntfyEnabled: form.ntfyEnabled,
-        ntfyTopic: form.ntfyTopic,
-        ...(ntfyBaseUrl ? { ntfyBaseUrl } : {}),
-      }, projectId);
+      const config = providerId === "ntfy"
+        ? {
+          ntfyEnabled: form.ntfyEnabled,
+          ntfyTopic: form.ntfyTopic,
+          ...(form.ntfyBaseUrl?.trim() ? { ntfyBaseUrl: form.ntfyBaseUrl.trim() } : {}),
+        }
+        : {
+          webhookUrl: form.webhookUrl,
+          webhookFormat: form.webhookFormat || "generic",
+        };
+      const result = await testNotification(providerId, config, projectId);
       if (result.success) {
-        addToast("Test notification sent — check your ntfy app!", "success");
+        const providerName = providerId === "ntfy" ? "ntfy app" : "webhook endpoint";
+        addToast(`Test notification sent — check your ${providerName}!`, "success");
       } else {
         addToast("Failed to send test notification", "error");
       }
     } catch (err) {
       addToast(getErrorMessage(err) || "Failed to send test notification", "error");
     } finally {
-      setTestNotificationLoading(false);
+      setTestNotificationLoading((prev) => ({ ...prev, [providerId]: false }));
     }
-  }, [addToast, form.ntfyBaseUrl, form.ntfyEnabled, form.ntfyTopic, projectId]);
+  }, [addToast, form.ntfyBaseUrl, form.ntfyEnabled, form.ntfyTopic, form.webhookEnabled, form.webhookFormat, form.webhookUrl, projectId]);
 
   const handleBackupNow = useCallback(async () => {
     setBackupLoading(true);
@@ -3534,222 +3570,225 @@ export function SettingsModal({
           <>
             {renderScopeBanner()}
             <h4 className="settings-section-heading">Notifications</h4>
-            <div className="form-group">
-              <label htmlFor="ntfyEnabled" className="checkbox-label">
-                <input
-                  id="ntfyEnabled"
-                  type="checkbox"
-                  checked={form.ntfyEnabled || false}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, ntfyEnabled: e.target.checked }))
-                  }
-                />
-                Enable ntfy.sh notifications
-              </label>
-              <small>Receive push notifications when tasks complete or fail via ntfy.sh</small>
-            </div>
-            {form.ntfyEnabled && (
-              <>
-              <div className="form-group">
-                <label htmlFor="ntfyTopic">ntfy Topic</label>
-                <input
-                  id="ntfyTopic"
-                  type="text"
-                  placeholder="my-topic-name"
-                  value={form.ntfyTopic || ""}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setForm((f) => ({ ...f, ntfyTopic: val || undefined }));
-                  }}
-                />
-                <small>
-                  Your ntfy.sh topic name (1–64 alphanumeric/hyphen/underscore characters).{" "}
-                  <a
-                    href="https://ntfy.sh"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="settings-inline-link"
-                  >
-                    Learn more about ntfy.sh
-                  </a>
-                </small>
-                {form.ntfyTopic && !/^[a-zA-Z0-9_-]{1,64}$/.test(form.ntfyTopic) && (
-                  <small className="field-error">
-                    Topic must be 1–64 alphanumeric, hyphen, or underscore characters
-                  </small>
-                )}
-                <details className="ntfy-advanced-disclosure">
-                  <summary>Advanced</summary>
-                  <div className="ntfy-advanced-content">
-                    <label htmlFor="ntfyBaseUrl">Custom ntfy server URL (optional)</label>
+
+            <div className="notification-provider-card">
+              <div className="notification-provider-header">
+                <strong>ntfy</strong>
+                <label htmlFor="ntfyEnabled" className="checkbox-label">
+                  <input
+                    id="ntfyEnabled"
+                    type="checkbox"
+                    checked={form.ntfyEnabled || false}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, ntfyEnabled: e.target.checked }))
+                    }
+                  />
+                  Enable
+                </label>
+              </div>
+              {form.ntfyEnabled && (
+                <div className="notification-provider-body">
+                  <div className="form-group">
+                    <label htmlFor="ntfyTopic">ntfy Topic</label>
                     <input
-                      id="ntfyBaseUrl"
-                      type="url"
-                      placeholder="https://ntfy.sh"
-                      value={form.ntfyBaseUrl || ""}
+                      id="ntfyTopic"
+                      type="text"
+                      placeholder="my-topic-name"
+                      value={form.ntfyTopic || ""}
                       onChange={(e) => {
-                        const value = e.target.value;
-                        setForm((f) => ({ ...f, ntfyBaseUrl: value || undefined }));
+                        const val = e.target.value;
+                        setForm((f) => ({ ...f, ntfyTopic: val || undefined }));
                       }}
                     />
                     <small>
-                      Leave blank to keep the default server: https://ntfy.sh. Custom servers must use http:// or https://.
+                      Your ntfy.sh topic name (1–64 alphanumeric/hyphen/underscore characters).{" "}
+                      <a
+                        href="https://ntfy.sh"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="settings-inline-link"
+                      >
+                        Learn more about ntfy.sh
+                      </a>
                     </small>
+                    {form.ntfyTopic && !/^[a-zA-Z0-9_-]{1,64}$/.test(form.ntfyTopic) && (
+                      <small className="field-error">
+                        Topic must be 1–64 alphanumeric, hyphen, or underscore characters
+                      </small>
+                    )}
+                    <details className="ntfy-advanced-disclosure">
+                      <summary>Advanced</summary>
+                      <div className="ntfy-advanced-content">
+                        <label htmlFor="ntfyBaseUrl">Custom ntfy server URL (optional)</label>
+                        <input
+                          id="ntfyBaseUrl"
+                          type="url"
+                          placeholder="https://ntfy.sh"
+                          value={form.ntfyBaseUrl || ""}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setForm((f) => ({ ...f, ntfyBaseUrl: value || undefined }));
+                          }}
+                        />
+                        <small>
+                          Leave blank to keep the default server: https://ntfy.sh. Custom servers must use http:// or https://.
+                        </small>
+                      </div>
+                    </details>
                   </div>
-                </details>
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  onClick={handleTestNotification}
-                  disabled={
-                    testNotificationLoading ||
-                    !form.ntfyTopic ||
-                    !/^[a-zA-Z0-9_-]{1,64}$/.test(form.ntfyTopic)
-                  }
-                >
-                  {testNotificationLoading ? "Sending…" : "Test notification"}
-                </button>
-              </div>
-              <div className="form-group">
-                <label>Notify on events</label>
-                <div className="ntfy-events-list">
-                  <label className="checkbox-label">
+                  <div className="form-group">
+                    <label>Notify on events</label>
+                    <div className="ntfy-events-list">
+                      {NOTIFICATION_EVENT_OPTIONS.map(({ event, label, description }) => {
+                        const checked = form.ntfyEvents?.includes(event) ?? true;
+                        return (
+                          <div key={`ntfy-${event}`}>
+                            <label className="checkbox-label">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) => {
+                                  const current = form.ntfyEvents ?? [...DEFAULT_NTFY_EVENTS];
+                                  const newEvents = e.target.checked
+                                    ? (current.includes(event) ? current : [...current, event])
+                                    : current.filter((ev): ev is NtfyNotificationEvent => ev !== event);
+                                  setForm((f) => ({ ...f, ntfyEvents: newEvents.length > 0 ? newEvents : undefined }));
+                                }}
+                              />
+                              {label}
+                            </label>
+                            <small>{description}</small>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="ntfyDashboardHost">Dashboard Hostname</label>
                     <input
-                      type="checkbox"
-                      checked={form.ntfyEvents?.includes("in-review") ?? true}
+                      id="ntfyDashboardHost"
+                      type="text"
+                      placeholder="http://localhost:3000"
+                      value={form.ntfyDashboardHost || ""}
                       onChange={(e) => {
-                        const current = form.ntfyEvents ?? [...DEFAULT_NTFY_EVENTS];
-                        const newEvents = e.target.checked
-                          ? (current.includes("in-review") ? current : [...current, "in-review" as NtfyNotificationEvent])
-                          : current.filter((ev): ev is NtfyNotificationEvent => ev !== "in-review");
-                        setForm((f) => ({ ...f, ntfyEvents: newEvents.length > 0 ? newEvents : undefined }));
+                        const val = e.target.value;
+                        setForm((f) => ({ ...f, ntfyDashboardHost: val || undefined }));
                       }}
                     />
-                    Task completed (in-review)
-                  </label>
-                  <small>When a task moves to In Review (ready for review)</small>
-
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={form.ntfyEvents?.includes("merged") ?? true}
-                      onChange={(e) => {
-                        const current = form.ntfyEvents ?? [...DEFAULT_NTFY_EVENTS];
-                        const newEvents = e.target.checked
-                          ? (current.includes("merged") ? current : [...current, "merged" as NtfyNotificationEvent])
-                          : current.filter((ev): ev is NtfyNotificationEvent => ev !== "merged");
-                        setForm((f) => ({ ...f, ntfyEvents: newEvents.length > 0 ? newEvents : undefined }));
-                      }}
-                    />
-                    Task merged
-                  </label>
-                  <small>When a task is successfully merged to main</small>
-
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={form.ntfyEvents?.includes("failed") ?? true}
-                      onChange={(e) => {
-                        const current = form.ntfyEvents ?? [...DEFAULT_NTFY_EVENTS];
-                        const newEvents = e.target.checked
-                          ? (current.includes("failed") ? current : [...current, "failed" as NtfyNotificationEvent])
-                          : current.filter((ev): ev is NtfyNotificationEvent => ev !== "failed");
-                        setForm((f) => ({ ...f, ntfyEvents: newEvents.length > 0 ? newEvents : undefined }));
-                      }}
-                    />
-                    Task failed
-                  </label>
-                  <small>When a task fails during execution (high priority)</small>
-
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={form.ntfyEvents?.includes("awaiting-approval") ?? true}
-                      onChange={(e) => {
-                        const current = form.ntfyEvents ?? [...DEFAULT_NTFY_EVENTS];
-                        const newEvents = e.target.checked
-                          ? (current.includes("awaiting-approval") ? current : [...current, "awaiting-approval" as NtfyNotificationEvent])
-                          : current.filter((ev): ev is NtfyNotificationEvent => ev !== "awaiting-approval");
-                        setForm((f) => ({ ...f, ntfyEvents: newEvents.length > 0 ? newEvents : undefined }));
-                      }}
-                    />
-                    Plan needs approval
-                  </label>
-                  <small>When a task specification needs manual approval before execution</small>
-
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={form.ntfyEvents?.includes("awaiting-user-review") ?? true}
-                      onChange={(e) => {
-                        const current = form.ntfyEvents ?? [...DEFAULT_NTFY_EVENTS];
-                        const newEvents = e.target.checked
-                          ? (current.includes("awaiting-user-review") ? current : [...current, "awaiting-user-review" as NtfyNotificationEvent])
-                          : current.filter((ev): ev is NtfyNotificationEvent => ev !== "awaiting-user-review");
-                        setForm((f) => ({ ...f, ntfyEvents: newEvents.length > 0 ? newEvents : undefined }));
-                      }}
-                    />
-                    User review needed
-                  </label>
-                  <small>When an agent hands off a task for human review (high priority)</small>
-
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={form.ntfyEvents?.includes("planning-awaiting-input") ?? true}
-                      onChange={(e) => {
-                        const current = form.ntfyEvents ?? [...DEFAULT_NTFY_EVENTS];
-                        const newEvents = e.target.checked
-                          ? (current.includes("planning-awaiting-input") ? current : [...current, "planning-awaiting-input" as NtfyNotificationEvent])
-                          : current.filter((ev): ev is NtfyNotificationEvent => ev !== "planning-awaiting-input");
-                        setForm((f) => ({ ...f, ntfyEvents: newEvents.length > 0 ? newEvents : undefined }));
-                      }}
-                    />
-                    Planning needs input
-                  </label>
-                  <small>When planning mode is waiting for your response to continue</small>
-
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={form.ntfyEvents?.includes("gridlock") ?? true}
-                      onChange={(e) => {
-                        const current = form.ntfyEvents ?? [...DEFAULT_NTFY_EVENTS];
-                        const newEvents = e.target.checked
-                          ? (current.includes("gridlock") ? current : [...current, "gridlock" as NtfyNotificationEvent])
-                          : current.filter((ev): ev is NtfyNotificationEvent => ev !== "gridlock");
-                        setForm((f) => ({ ...f, ntfyEvents: newEvents.length > 0 ? newEvents : undefined }));
-                      }}
-                    />
-                    Pipeline gridlocked
-                  </label>
-                  <small>When all schedulable todo tasks are blocked and work cannot advance</small>
+                    <small>
+                      Base URL for deep links in notifications. When set, clicking a notification
+                      opens the dashboard directly to the task.
+                    </small>
+                    {form.ntfyDashboardHost && !/^https?:\/\/.+/.test(form.ntfyDashboardHost) && (
+                      <small className="field-error">
+                        Must be a valid URL starting with http:// or https://
+                      </small>
+                    )}
+                  </div>
+                  <div className="notification-provider-actions">
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => handleTestProviderNotification("ntfy")}
+                      disabled={
+                        testNotificationLoading["ntfy"] ||
+                        !form.ntfyTopic ||
+                        !/^[a-zA-Z0-9_-]{1,64}$/.test(form.ntfyTopic)
+                      }
+                    >
+                      {testNotificationLoading["ntfy"] ? "Sending…" : "Test notification"}
+                    </button>
+                  </div>
                 </div>
+              )}
+            </div>
+
+            <div className="notification-provider-card">
+              <div className="notification-provider-header">
+                <strong>Webhook</strong>
+                <label htmlFor="webhookEnabled" className="checkbox-label">
+                  <input
+                    id="webhookEnabled"
+                    type="checkbox"
+                    checked={form.webhookEnabled || false}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, webhookEnabled: e.target.checked }))
+                    }
+                  />
+                  Webhook notifications
+                </label>
               </div>
-              <div className="form-group">
-                <label htmlFor="ntfyDashboardHost">Dashboard Hostname</label>
-                <input
-                  id="ntfyDashboardHost"
-                  type="text"
-                  placeholder="http://localhost:3000"
-                  value={form.ntfyDashboardHost || ""}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setForm((f) => ({ ...f, ntfyDashboardHost: val || undefined }));
-                  }}
-                />
-                <small>
-                  Base URL for deep links in notifications. When set, clicking a notification
-                  opens the dashboard directly to the task.
-                </small>
-                {form.ntfyDashboardHost && !/^https?:\/\/.+/.test(form.ntfyDashboardHost) && (
-                  <small className="field-error">
-                    Must be a valid URL starting with http:// or https://
-                  </small>
-                )}
-              </div>
-              </>
-            )}
+              {form.webhookEnabled && (
+                <div className="notification-provider-body">
+                  <div className="form-group">
+                    <label htmlFor="webhookUrl">Webhook URL</label>
+                    <input
+                      id="webhookUrl"
+                      type="text"
+                      placeholder="https://hooks.example.com/..."
+                      value={form.webhookUrl || ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setForm((f) => ({ ...f, webhookUrl: val || undefined }));
+                      }}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="webhookFormat">Format</label>
+                    <select
+                      id="webhookFormat"
+                      value={form.webhookFormat || "generic"}
+                      onChange={(e) => {
+                        const val = e.target.value as "slack" | "discord" | "generic";
+                        setForm((f) => ({ ...f, webhookFormat: val }));
+                      }}
+                    >
+                      <option value="slack">Slack</option>
+                      <option value="discord">Discord</option>
+                      <option value="generic">Generic</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Notify on events</label>
+                    <div className="ntfy-events-list">
+                      {NOTIFICATION_EVENT_OPTIONS.map(({ event, label, description }) => {
+                        const currentEvents = form.webhookEvents ?? [...DEFAULT_NTFY_EVENTS];
+                        const checked = currentEvents.includes(event);
+                        return (
+                          <div key={`webhook-${event}`}>
+                            <label className="checkbox-label">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) => {
+                                  const current = form.webhookEvents ?? [...DEFAULT_NTFY_EVENTS];
+                                  const newEvents = e.target.checked
+                                    ? (current.includes(event) ? current : [...current, event])
+                                    : current.filter((ev) => ev !== event);
+                                  setForm((f) => ({ ...f, webhookEvents: newEvents.length > 0 ? newEvents : undefined }));
+                                }}
+                              />
+                              {label}
+                            </label>
+                            <small>{description}</small>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="notification-provider-actions">
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => handleTestProviderNotification("webhook")}
+                      disabled={testNotificationLoading["webhook"] || !form.webhookUrl}
+                    >
+                      {testNotificationLoading["webhook"] ? "Sending…" : "Test notification"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </>
         );
       case "node-sync":

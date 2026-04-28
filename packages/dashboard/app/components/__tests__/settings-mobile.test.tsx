@@ -29,6 +29,10 @@ const defaultSettings = {
   ntfyEnabled: false,
   ntfyTopic: undefined,
   ntfyEvents: ["in-review", "merged", "failed", "awaiting-approval", "awaiting-user-review"],
+  webhookEnabled: false,
+  webhookUrl: undefined,
+  webhookFormat: undefined,
+  webhookEvents: undefined,
   taskStuckTimeoutMs: undefined,
   maxStuckKills: 6,
   runStepsInNewSessions: false,
@@ -47,6 +51,7 @@ vi.mock("../../api", () => ({
   clearApiKey: vi.fn(() => Promise.resolve({ success: true })),
   fetchModels: vi.fn(() => Promise.resolve({ models: [], favoriteProviders: [], favoriteModels: [] })),
   testNtfyNotification: vi.fn(() => Promise.resolve({ success: true })),
+  testNotification: vi.fn(() => Promise.resolve({ success: true })),
   fetchBackups: vi.fn(() => Promise.resolve({ count: 0, totalSize: 0, backups: [] })),
   createBackup: vi.fn(() => Promise.resolve({ success: true })),
   exportSettings: vi.fn(() => Promise.resolve({ version: 1, exportedAt: new Date().toISOString(), global: undefined, project: {} })),
@@ -246,6 +251,20 @@ describe("SettingsModal mobile adaptations", () => {
     expect(getByText("These settings are shared across all your Fusion projects.")).toBeTruthy();
   });
 
+  it("renders notification provider cards responsively on mobile", async () => {
+    mockSettingsViewport(true);
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 375 });
+    const user = userEvent.setup();
+    const { getByLabelText, findByText, container } = render(<SettingsModal onClose={vi.fn()} addToast={vi.fn()} />);
+    await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
+
+    await user.selectOptions(getByLabelText("Settings Section"), "notifications");
+
+    expect(await findByText("ntfy")).toBeTruthy();
+    expect(await findByText("Webhook")).toBeTruthy();
+    expect(container.querySelectorAll(".notification-provider-card").length).toBeGreaterThan(1);
+  });
+
   it("contains required mobile settings CSS overrides", () => {
     const css = loadAllAppCss();
 
@@ -269,6 +288,8 @@ describe("SettingsModal mobile adaptations", () => {
     expectMobileRule(css, ".auth-apikey-section", "align-items: flex-end;");
     expectMobileRule(css, ".auth-apikey-input-row", "justify-content: flex-end;");
     expectMobileRule(css, ".auth-apikey-input-row .btn", "margin-left: auto;");
+    expectMobileRule(css, ".notification-provider-header", "padding: var(--space-sm) var(--space-md);");
+    expectMobileRule(css, ".notification-provider-body", "padding: var(--space-md);");
   });
 
   it("styles settings scrollbar rules for sidebar and content", () => {

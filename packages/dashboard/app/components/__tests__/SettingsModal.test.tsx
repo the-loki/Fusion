@@ -15,6 +15,7 @@ const mockLoginProvider = vi.fn();
 const mockLogoutProvider = vi.fn();
 const mockFetchModels = vi.fn();
 const mockTestNtfyNotification = vi.fn();
+const mockTestNotification = vi.fn();
 const mockFetchBackups = vi.fn();
 const mockCreateBackup = vi.fn();
 const mockImportSettings = vi.fn();
@@ -54,6 +55,7 @@ vi.mock("../../api", () => ({
   logoutProvider: (...args: unknown[]) => mockLogoutProvider(...args),
   fetchModels: (...args: unknown[]) => mockFetchModels(...args),
   testNtfyNotification: (...args: unknown[]) => mockTestNtfyNotification(...args),
+  testNotification: (...args: unknown[]) => mockTestNotification(...args),
   fetchBackups: (...args: unknown[]) => mockFetchBackups(...args),
   createBackup: (...args: unknown[]) => mockCreateBackup(...args),
   fetchMemoryFiles: (...args: unknown[]) => mockFetchMemoryFiles(...args),
@@ -141,6 +143,10 @@ const defaultSettings = {
   worktreeInitCommand: "",
   ntfyEnabled: false,
   ntfyTopic: undefined,
+  webhookEnabled: false,
+  webhookUrl: undefined,
+  webhookFormat: undefined,
+  webhookEvents: undefined,
 };
 
 function renderModal(props = {}) {
@@ -167,6 +173,7 @@ describe("SettingsModal", () => {
     mockFetchSettingsByScope.mockResolvedValue({ global: defaultSettings, project: {} });
     mockFetchAuthStatus.mockResolvedValue({ providers: [] });
     mockFetchModels.mockResolvedValue({ models: [], favoriteProviders: [], favoriteModels: [] });
+    mockTestNotification.mockResolvedValue({ success: true });
     mockFetchBackups.mockResolvedValue({ backups: [], totalSize: 0 });
     mockFetchMemoryFiles.mockResolvedValue({
       files: [
@@ -1757,54 +1764,112 @@ describe("SettingsModal", () => {
   });
 
 
-  describe("memory dream trigger", () => {
-    const openMemorySection = async () => {
-      const [memorySectionButton] = await screen.findAllByRole("button", { name: /^Memory$/i });
-      await userEvent.click(memorySectionButton);
+  describe("Notifications provider cards", () => {
+    const openNotificationsSection = async () => {
+      await userEvent.click(await screen.findByRole("button", { name: /Notifications/ }));
     };
 
-    it("shows Dream Now button when dreams are enabled", async () => {
-      mockFetchSettings.mockResolvedValueOnce({
-        ...defaultSettings,
-        memoryEnabled: true,
-        memoryDreamsEnabled: true,
-        memoryDreamsSchedule: "0 4 * * *",
-      });
-
+    it("shows ntfy and webhook provider cards in notifications section", async () => {
       renderModal();
       await waitForSettingsModalReady();
-      await openMemorySection();
+      await openNotificationsSection();
 
-      expect(await screen.findByRole("button", { name: "Dream Now" })).toBeInTheDocument();
+      expect(screen.getByText("ntfy")).toBeInTheDocument();
+      expect(screen.getByText("Webhook")).toBeInTheDocument();
     });
 
-    it("triggers dream processing from Dream Now button", async () => {
-      const addToast = vi.fn();
-      mockFetchSettings.mockResolvedValueOnce({
-        ...defaultSettings,
-        memoryEnabled: true,
-        memoryDreamsEnabled: true,
-      });
-      mockTriggerMemoryDreams.mockResolvedValueOnce({ success: true, summary: "done" });
-
-      renderModal({ addToast });
+    it("shows ntfy fields when ntfy provider is enabled", async () => {
+      mockFetchSettings.mockResolvedValueOnce({ ...defaultSettings, ntfyEnabled: true, ntfyTopic: "test-topic" });
+      renderModal();
       await waitForSettingsModalReady();
-      await openMemorySection();
+      await openNotificationsSection();
 
-      await userEvent.click(await screen.findByRole("button", { name: "Dream Now" }));
+      expect(screen.getByLabelText("ntfy Topic")).toBeInTheDocument();
+      expect(screen.getByLabelText("Dashboard Hostname")).toBeInTheDocument();
+      expect(screen.getByText("Notify on events")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Test notification/ })).toBeInTheDocument();
+    });
+
+    it("shows webhook fields when webhook provider is enabled", async () => {
+      renderModal();
+      await waitForSettingsModalReady();
+      await openNotificationsSection();
+      await userEvent.click(screen.getByLabelText("Webhook notifications"));
+
+      expect(screen.getByLabelText("Webhook URL")).toBeInTheDocument();
+      expect(screen.getByLabelText("Format")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Test notification/ })).toBeInTheDocument();
+    });
+
+    it("hides ntfy body when ntfy is disabled", async () => {
+      renderModal();
+      await waitForSettingsModalReady();
+      await openNotificationsSection();
+      expect(screen.queryByLabelText("ntfy Topic")).not.toBeInTheDocument();
+    });
+
+    it("hides webhook body when webhook is disabled", async () => {
+      renderModal();
+      await waitForSettingsModalReady();
+      await openNotificationsSection();
+      expect(screen.queryByLabelText("Webhook URL")).not.toBeInTheDocument();
+    });
+
+    it("calls testNotification with ntfy provider ID when ntfy test button clicked", async () => {
+      mockFetchSettings.mockResolvedValueOnce({ ...defaultSettings, ntfyEnabled: true, ntfyTopic: "test-topic" });
+      renderModal();
+      await waitForSettingsModalReady();
+      await openNotificationsSection();
+
+      await userEvent.click(screen.getByRole("button", { name: /Test notification/ }));
 
       await waitFor(() => {
-        expect(mockTriggerMemoryDreams).toHaveBeenCalledWith(undefined);
+        expect(mockTestNotification).toHaveBeenCalledWith(
+          "ntfy",
+          expect.objectContaining({ ntfyEnabled: true, ntfyTopic: "test-topic" }),
+          undefined,
+        );
       });
-      expect(addToast).toHaveBeenCalledWith("Dream processing completed", "success");
     });
 
-    it("hides Dream Now button when dreams are disabled", async () => {
+    it("calls testNotification with webhook provider ID when webhook test button clicked", async () => {
       renderModal();
       await waitForSettingsModalReady();
-      await openMemorySection();
+      await openNotificationsSection();
+      await userEvent.click(screen.getByLabelText("Webhook notifications"));
+      await userEvent.type(screen.getByLabelText("Webhook URL"), "https://hooks.example.com/test");
 
-      expect(screen.queryByRole("button", { name: "Dream Now" })).not.toBeInTheDocument();
+      const webhookCard = screen.getByText("Webhook").closest(".notification-provider-card") as HTMLElement;
+      await userEvent.click(within(webhookCard).getByRole("button", { name: /Test notification/ }));
+
+      await waitFor(() => {
+        expect(mockTestNotification).toHaveBeenCalledWith(
+          "webhook",
+          expect.objectContaining({ webhookUrl: "https://hooks.example.com/test" }),
+          undefined,
+        );
+      });
+    });
+
+    it("preserves existing ntfy settings in backward compat", async () => {
+      mockFetchSettings.mockResolvedValueOnce({
+        ...defaultSettings,
+        ntfyEnabled: true,
+        ntfyTopic: "my-existing-topic",
+        ntfyEvents: ["in-review", "failed"],
+      });
+
+      renderModal();
+      await waitForSettingsModalReady();
+      await openNotificationsSection();
+
+      expect(screen.getByLabelText("ntfy Topic")).toHaveValue("my-existing-topic");
+      const inReview = screen.getByLabelText("Task completed (in-review)") as HTMLInputElement;
+      const failed = screen.getByLabelText("Task failed") as HTMLInputElement;
+      const merged = screen.getByLabelText("Task merged") as HTMLInputElement;
+      expect(inReview.checked).toBe(true);
+      expect(failed.checked).toBe(true);
+      expect(merged.checked).toBe(false);
     });
   });
 
