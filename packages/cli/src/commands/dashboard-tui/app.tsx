@@ -705,22 +705,27 @@ function StatusModeGrid({
   const { stdout } = useStdout();
   const rows = stdout?.rows ?? 24;
   const cols = stdout?.columns ?? 80;
-  // Middle area = rows - header(1) - body marginTop(1) - statusbar(1) = rows-3.
-  // Top of middle: System (short, intrinsic) + Logs (fills).
-  // Bottom of middle: Stats + Utilities + Settings, equal-width.
-  const middleHeight = Math.max(1, rows - 3);
+  // Middle area = rows - header(1) - statusbar(1) = rows-2 (no top spacer).
+  // System fixed at 4 rows. Bottom row scales with available space.
+  // Logs fills what remains.
+  const middleHeight = Math.max(1, rows - 2);
+  const SYSTEM_HEIGHT = 4;
   const bottomShare = Math.min(10, Math.max(6, Math.floor(middleHeight * 0.35)));
-  const topShare = Math.max(1, middleHeight - bottomShare);
+  const logsShare = Math.max(1, middleHeight - SYSTEM_HEIGHT - bottomShare);
   // LogsPanel chrome: border 2 + title 1 + filter 1 = 4.
-  const logsAvailableRows = Math.max(1, topShare - 4);
-  tuiDebug("StatusModeGrid", { cols, rows, middleHeight, topShare, bottomShare, focused });
+  const logsAvailableRows = Math.max(1, logsShare - 4);
+  tuiDebug("StatusModeGrid", { cols, rows, middleHeight, logsShare, bottomShare, focused });
 
   return (
     <Box flexDirection="column" flexGrow={1}>
+      {/* No top spacer — saves a row. System panel's top border sits at the
+          same terminal row as the header overlay (covered by it), same
+          tradeoff as StatusModeSingle. */}
       <Box flexDirection="column" flexGrow={1} overflow="hidden">
-        {/* System: full width, short height. flexShrink=2 so it collapses
-            faster than Logs when vertical space is tight. */}
-        <Box flexShrink={2} overflow="hidden">
+        {/* System: full width, pinned to 4 rows tall (border 2 + 2 content
+            rows so the chips always have room to wrap to a second line if
+            needed). flexShrink=0 so it never shrinks below this height. */}
+        <Box height={4} flexShrink={0} overflow="hidden">
           <SystemPanel state={state} isFocused={focused === "system"} />
         </Box>
         {/* Logs: fills remaining vertical space. flexShrink=0 so System and
@@ -765,12 +770,12 @@ function StatusModeSingle({
   const { stdout } = useStdout();
   const rows = stdout?.rows ?? 24;
   const cols = stdout?.columns ?? 80;
-  // LogsPanel's row budget — an explicit cap so it doesn't try to render
-  // more entries than will fit. Chrome accounting:
-  //   header(1) + body marginTop(1) + statusbar(1) +
+  // LogsPanel's row budget — explicit cap so it doesn't render more
+  // entries than fit. Chrome accounting (chrome=6 base, +1 if narrow spacer):
+  //   header(1) + statusbar(1) +
   //   panel border top(1) + panel title(1) + panel border bottom(1) +
-  //   filter row(1) = 7.
-  const logsAvailableRows = Math.max(1, rows - 7);
+  //   filter row(1) = 6, plus 1 if cols<68 spacer is present.
+  const logsAvailableRows = Math.max(1, rows - (cols < 68 ? 7 : 6));
   tuiDebug("StatusModeSingle", { cols, rows, logsAvailableRows, focused });
 
   const activePanel = () => {
@@ -783,8 +788,15 @@ function StatusModeSingle({
     }
   };
 
+  // Below cols=68 the layout shifts up by 1 (Yoga edge case at very narrow
+  // widths) and the panel's top line ends up under the header overlay. A
+  // 1-row spacer compensates ONLY for those widths. From 68 onwards the
+  // panel sits in the right place naturally and the spacer is just dead
+  // space the user explicitly asked us to remove.
+  const needsSpacer = cols < 68;
   return (
     <Box flexDirection="column" flexGrow={1}>
+      {needsSpacer && <Box height={1} flexShrink={0} />}
       <Box flexGrow={1} flexDirection="column" overflow="hidden">
         {activePanel()}
       </Box>
@@ -830,6 +842,64 @@ function StatusBar({ state, controller: _controller }: { state: DashboardState; 
 // ── Interactive mode ──────────────────────────────────────────────────────────
 
 // ── Unified main header — used by both status and interactive modes ──────────
+
+// Build a one-row ANSI string for the header, exactly `cols` printable chars
+// wide. Used by the controller as a stdout-overlay failsafe so the header
+// is always present at terminal row 1 regardless of any log-update tracking
+// drift in real terminals (notably tmux). This is independent of the Ink
+// flow layout — the React-rendered <MainHeader> is the primary rendering;
+// the overlay is just a defensive write-after-Ink-frame.
+const HEADER_TABS_DEF: Array<{ key: string; label: string; kind: "main" | "interactive"; view?: InteractiveView }> = [
+  { key: "m", label: "Main", kind: "main" },
+  { key: "b", label: "Board", kind: "interactive", view: "board" },
+  { key: "a", label: "Agents", kind: "interactive", view: "agents" },
+  { key: "g", label: "Settings", kind: "interactive", view: "settings" },
+  { key: "t", label: "Git", kind: "interactive", view: "git" },
+  { key: "f", label: "Files", kind: "interactive", view: "files" },
+];
+export function buildHeaderAnsiLine(state: DashboardState, cols: number): string {
+  const inInteractive = state.mode === "interactive";
+  const interactiveView = state.interactiveView;
+  const isActive = (t: typeof HEADER_TABS_DEF[number]) =>
+    t.kind === "main" ? !inInteractive : inInteractive && t.view === interactiveView;
+  const tiny = cols < 50;
+  const fullLabels = cols >= 90;
+  const compact = !fullLabels && !tiny;
+  const FG_CYAN_BRIGHT = "\x1b[1;96m";
+  const DIM = "\x1b[2m";
+  const RESET = "\x1b[0m";
+  const PILL_ON = "\x1b[1;30;46m";
+  const SEP_TXT = "\x1b[2m│\x1b[0m";
+  let visibleLen = 0;
+  const out: string[] = [];
+  const push = (visible: string, ansi: string) => {
+    out.push(ansi);
+    visibleLen += visible.length;
+  };
+  push(" ", " ");
+  push("FUSION", `${FG_CYAN_BRIGHT}FUSION${RESET}`);
+  if (tiny) {
+    const active = HEADER_TABS_DEF.find(isActive);
+    if (active) {
+      push(" ", " ");
+      const txt = ` ${active.key} ${active.label} `;
+      push(txt, `${PILL_ON}${txt}${RESET}`);
+    }
+  } else {
+    push(" ", " ");
+    push("│", SEP_TXT);
+    for (const t of HEADER_TABS_DEF) {
+      push(" ", " ");
+      const active = isActive(t);
+      const label = compact
+        ? (active ? ` ${t.key} ` : `[${t.key}]`)
+        : (active ? ` [${t.key}] ${t.label} ` : `[${t.key}] ${t.label}`);
+      push(label, active ? `${PILL_ON}${label}${RESET}` : `${DIM}${label}${RESET}`);
+    }
+  }
+  if (visibleLen < cols) out.push(" ".repeat(cols - visibleLen));
+  return out.join("") + "\x1b[K";
+}
 
 function MainHeader({ state }: { state: DashboardState }) {
   const inInteractive = state.mode === "interactive";
@@ -4054,32 +4124,13 @@ export function DashboardApp({ controller }: DashboardAppProps) {
     hasSystemInfo: Boolean(state.systemInfo),
   });
 
-  // Use flex-column natural placement (matches what Board/InteractiveMode
-  // does — that layout has always worked). Header takes its intrinsic 1
-  // row; body fills the rest via flexGrow=1.
-  //
-  // CRITICAL: marginTop={1} on the body. At narrow widths with Logs or
-  // Utilities active, Yoga's flex-column was placing the panel border at
-  // y=0 (same row as the header), causing the body to overdraw the header.
-  // The 1-row top margin guarantees panel content starts on row 1
-  // regardless of any Yoga edge-case at certain widths. Net cost: 1 row
-  // of vertical space (so the panel area is rows-2 instead of rows-1),
-  // but the header is always visible.
   return (
     <Box key={layoutKey} flexDirection="column" height={rows} width={cols} overflow="hidden">
-      {/* Header: explicit height={1} so the wrapper always reserves row 0,
-          even at narrow widths where MainHeader's intrinsic height could
-          (in some Yoga edge cases) collapse to 0. */}
+      {/* Header: explicit height={1} so the wrapper always reserves row 0. */}
       <Box height={1} width={cols} flexShrink={0} flexGrow={0} flexDirection="row" overflow="hidden">
         <MainHeader state={state} />
       </Box>
-      <Box
-        flexGrow={1}
-        flexShrink={1}
-        marginTop={1}
-        flexDirection="column"
-        overflow="hidden"
-      >
+      <Box flexGrow={1} flexShrink={1} flexDirection="column" overflow="hidden">
         {state.mode === "interactive" ? (
           <InteractiveMode state={state} controller={controller} />
         ) : isNarrow ? (

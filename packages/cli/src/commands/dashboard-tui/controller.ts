@@ -93,6 +93,9 @@ export class DashboardTUI {
   } & Record<string, unknown> | null = null;
   // Resize listener attached at start(), detached at stop().
   private resizeListener: (() => void) | null = null;
+  // Original process.stdout.write before we patch it for the header overlay.
+  // Stored so stop() can restore it.
+  private originalStdoutWrite: typeof process.stdout.write | null = null;
   // Debounce timer for resize handling — coalesces tmux/ssh resize bursts.
   private resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   // Last observed terminal dims, used by the dim-poll fallback to detect
@@ -536,7 +539,7 @@ export class DashboardTUI {
     // that only exercise pure logic).
     const { render } = await import("ink");
     const { createElement } = await import("react");
-    const { DashboardApp } = await import("./app.js");
+    const { DashboardApp, buildHeaderAnsiLine } = await import("./app.js");
 
     // Enter the terminal's alternate-screen buffer before mounting Ink so
     // the TUI gets a dedicated fullscreen surface that doesn't share
@@ -548,6 +551,45 @@ export class DashboardTUI {
     if (process.stdout?.isTTY && typeof process.stdout.write === "function") {
       // \x1b[?1049h = enter alt-screen, \x1b[H = home cursor.
       process.stdout.write("\x1b[?1049h\x1b[H");
+    }
+
+    // Header overlay failsafe — paint the header at terminal row 1 after
+    // every Ink frame write. The Ink/Yoga layout is correct in synthetic
+    // tests, but in real tmux at narrow widths the header still goes
+    // missing — likely log-update line-tracking drift over many state
+    // updates. The overlay is a guaranteed-paint-on-top write that's
+    // independent of Ink's output, with cursor save/restore so log-update
+    // tracking is preserved.
+    if (process.stdout?.isTTY && typeof process.stdout.write === "function") {
+      const original = process.stdout.write.bind(process.stdout) as
+        ((...args: unknown[]) => boolean);
+      this.originalStdoutWrite = process.stdout.write;
+      let inOverlay = false;
+      const overlay = (text: string): void => {
+        if (inOverlay) return;
+        if (typeof text !== "string" || text.length < 200) return;
+        const snapshot = this.getSnapshot();
+        // Skip overlay during splash/loading (before systemInfo arrives) so
+        // the splash screen has clean unobstructed real estate.
+        if (!snapshot.systemInfo) return;
+        const cols = process.stdout.columns ?? 0;
+        if (cols <= 0) return;
+        try {
+          inOverlay = true;
+          const headerLine = buildHeaderAnsiLine(snapshot, cols);
+          // \x1b7 = DECSC (save cursor + attrs), \x1b[1;1H = move to terminal
+          // row 1 col 1, header, \x1b8 = DECRC (restore cursor + attrs).
+          original(`\x1b7\x1b[1;1H${headerLine}\x1b8`);
+        } finally {
+          inOverlay = false;
+        }
+      };
+      const patched = (...args: unknown[]): boolean => {
+        const result = original(...args);
+        overlay(args[0] as string);
+        return result;
+      };
+      (process.stdout as unknown as { write: unknown }).write = patched;
     }
 
     this.inkInstance = render(
@@ -707,6 +749,12 @@ export class DashboardTUI {
     if (this.inkInstance) {
       this.inkInstance.unmount();
       this.inkInstance = null;
+    }
+    // Restore original stdout.write (undo the header-overlay patch).
+    if (this.originalStdoutWrite) {
+      (process.stdout as unknown as { write: typeof process.stdout.write }).write =
+        this.originalStdoutWrite;
+      this.originalStdoutWrite = null;
     }
     // Leave the alt-screen buffer last so the user's shell scrollback
     // is restored cleanly. \x1b[?1049l = leave alt-screen.
