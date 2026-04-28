@@ -719,7 +719,7 @@ function TaskCardComponent({
       return null;
     }
 
-    if (task.column === "in-progress" || task.column === "in-review") {
+    if (task.column === "in-progress") {
       const elapsedLabel = formatElapsedDuration(instrumentedMs);
       if (!elapsedLabel) {
         return null;

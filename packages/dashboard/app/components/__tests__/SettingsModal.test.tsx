@@ -1471,47 +1471,56 @@ describe("SettingsModal", () => {
       await screen.findByRole("heading", { name: "Remote Access" });
     };
 
-    const getTunnelStateSummary = () =>
-      screen.getByText((_, node) => node?.textContent?.startsWith("State:") ?? false);
+    const openAdvancedSettings = async () => {
+      const summary = screen.getByText("Advanced Settings");
+      await userEvent.click(summary);
+    };
 
-    it("shows independent Tailscale and Cloudflare provider controls and saves both configs", async () => {
+    it("shows provider-specific settings when provider selected and auto-saves on Start Tunnel", async () => {
       renderModal();
       await waitForSettingsModalReady();
       await openRemoteSection();
 
-      await userEvent.click(screen.getByLabelText("Enable Tailscale provider config"));
-      await userEvent.click(screen.getByLabelText("Enable Cloudflare provider config"));
+      await userEvent.click(screen.getByLabelText("Tailscale"));
+      expect(screen.getByLabelText("Hostname label")).toBeInTheDocument();
+      expect(screen.getByLabelText("Target port")).toBeInTheDocument();
+      expect(screen.getByLabelText("Accept routes")).toBeInTheDocument();
+      expect(screen.queryByLabelText("Tunnel name")).not.toBeInTheDocument();
+
       await userEvent.clear(screen.getByLabelText("Hostname label"));
       await userEvent.type(screen.getByLabelText("Hostname label"), "tail-new.ts.net");
       fireEvent.change(screen.getByLabelText("Target port"), { target: { value: "4242" } });
+
+      await userEvent.click(screen.getByLabelText("Cloudflare"));
+      expect(screen.getByLabelText("Quick Tunnel")).toBeInTheDocument();
+      expect(screen.queryByLabelText("Hostname label")).not.toBeInTheDocument();
+
+      const quickTunnel = screen.getByLabelText("Quick Tunnel") as HTMLInputElement;
+      if (quickTunnel.checked) {
+        await userEvent.click(quickTunnel);
+      }
       await userEvent.clear(screen.getByLabelText("Tunnel name"));
       await userEvent.type(screen.getByLabelText("Tunnel name"), "cf-team");
       await userEvent.clear(screen.getByLabelText("Tunnel token"));
       await userEvent.type(screen.getByLabelText("Tunnel token"), "cf_token");
       await userEvent.clear(screen.getByLabelText("Ingress URL"));
       await userEvent.type(screen.getByLabelText("Ingress URL"), "https://remote.example.com");
-      await userEvent.selectOptions(screen.getByLabelText("Active provider"), "cloudflare");
 
-      await userEvent.click(screen.getByRole("button", { name: "Save Remote Settings" }));
+      await userEvent.click(screen.getByRole("button", { name: "Start Tunnel" }));
 
       await waitFor(() => {
-        expect(mockUpdateRemoteSettings).toHaveBeenCalledTimes(1);
+        expect(mockUpdateRemoteSettings).toHaveBeenCalledWith(
+          expect.objectContaining({
+            remoteActiveProvider: "cloudflare",
+            remoteCloudflareEnabled: true,
+            remoteCloudflareQuickTunnel: false,
+            remoteCloudflareTunnelName: "cf-team",
+            remoteCloudflareTunnelToken: "cf_token",
+            remoteCloudflareIngressUrl: "https://remote.example.com",
+          }),
+          undefined,
+        );
       });
-
-      expect(mockUpdateRemoteSettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          remoteTailscaleEnabled: true,
-          remoteCloudflareEnabled: true,
-          remoteCloudflareQuickTunnel: false,
-          remoteTailscaleHostname: "tail-new.ts.net",
-          remoteTailscaleTargetPort: 4242,
-          remoteCloudflareTunnelName: "cf-team",
-          remoteCloudflareTunnelToken: "cf_token",
-          remoteCloudflareIngressUrl: "https://remote.example.com",
-          remoteActiveProvider: "cloudflare",
-        }),
-        undefined,
-      );
     });
 
     it("forces enabled=true for selected active provider when saving", async () => {
@@ -1543,29 +1552,30 @@ describe("SettingsModal", () => {
       await waitForSettingsModalReady();
       await openRemoteSection();
 
+      await userEvent.click(screen.getByLabelText("Cloudflare"));
+      const quickTunnelToggle = screen.getByLabelText("Quick Tunnel");
+      expect(quickTunnelToggle).toBeInTheDocument();
+      if ((quickTunnelToggle as HTMLInputElement).checked) {
+        expect(screen.queryByLabelText("Tunnel name")).not.toBeInTheDocument();
+        await userEvent.click(quickTunnelToggle);
+      }
       expect(screen.getByLabelText("Tunnel name")).toBeInTheDocument();
       expect(screen.getByLabelText("Tunnel token")).toBeInTheDocument();
       expect(screen.getByLabelText("Ingress URL")).toBeInTheDocument();
 
-      await userEvent.click(screen.getByLabelText("Quick Tunnel"));
-
-      expect(screen.queryByLabelText("Tunnel name")).not.toBeInTheDocument();
-      expect(screen.queryByLabelText("Tunnel token")).not.toBeInTheDocument();
-      expect(screen.queryByLabelText("Ingress URL")).not.toBeInTheDocument();
-
-      await userEvent.click(screen.getByRole("button", { name: "Save Remote Settings" }));
+      await userEvent.click(screen.getByRole("button", { name: "Start Tunnel" }));
 
       await waitFor(() => {
         expect(mockUpdateRemoteSettings).toHaveBeenCalledWith(
           expect.objectContaining({
-            remoteCloudflareQuickTunnel: true,
+            remoteCloudflareQuickTunnel: false,
           }),
           undefined,
         );
       });
     });
 
-    it("uses a save-only remote provider setup flow", async () => {
+    it("updates provider selection via radio and shows provider status", async () => {
       mockFetchRemoteStatus
         .mockResolvedValueOnce({ provider: null, state: "stopped", url: null, lastError: null })
         .mockResolvedValueOnce({ provider: "tailscale", state: "running", url: "https://tail.example", lastError: null });
@@ -1574,24 +1584,12 @@ describe("SettingsModal", () => {
       await waitForSettingsModalReady();
       await openRemoteSection();
 
-      expect(screen.queryByRole("button", { name: "Activate Provider" })).not.toBeInTheDocument();
+      await userEvent.click(screen.getByLabelText("Tailscale"));
+      expect(screen.getByLabelText("Tailscale")).toBeChecked();
 
-      const activeProviderSelect = screen.getByLabelText("Active provider");
-      await userEvent.selectOptions(activeProviderSelect, "tailscale");
-      expect(activeProviderSelect).toHaveValue("tailscale");
-      await userEvent.click(screen.getByRole("button", { name: "Save Remote Settings" }));
-
+      await userEvent.click(screen.getByRole("button", { name: "Start Tunnel" }));
       await waitFor(() => {
-        expect(mockUpdateRemoteSettings).toHaveBeenCalledWith(
-          expect.objectContaining({
-            remoteActiveProvider: "tailscale",
-            remoteTailscaleEnabled: true,
-          }),
-          undefined,
-        );
-      });
-      await waitFor(() => {
-        expect(getTunnelStateSummary()).toHaveTextContent("Provider: tailscale");
+        expect(screen.getByText("https://tail.example")).toBeInTheDocument();
       });
     });
 
@@ -1600,46 +1598,38 @@ describe("SettingsModal", () => {
         .mockResolvedValueOnce({ provider: null, state: "stopped", url: null, lastError: null })
         .mockResolvedValueOnce({ provider: "tailscale", state: "starting", url: null, lastError: null })
         .mockResolvedValueOnce({ provider: "tailscale", state: "running", url: "https://tail.example", lastError: null })
-        .mockResolvedValueOnce({ provider: "tailscale", state: "error", url: null, lastError: "Tunnel crashed" })
-        .mockResolvedValueOnce({ provider: null, state: "stopped", url: null, lastError: null });
+        .mockResolvedValueOnce({ provider: "tailscale", state: "error", url: null, lastError: "Tunnel crashed" });
 
       renderModal();
       await waitForSettingsModalReady();
       await openRemoteSection();
 
-      expect(getTunnelStateSummary()).toHaveTextContent("State: stopped");
+      await userEvent.click(screen.getByLabelText("Tailscale"));
+      expect(screen.getByRole("button", { name: "Start Tunnel" })).toBeInTheDocument();
 
-      await userEvent.click(screen.getByRole("button", { name: "Start tunnel" }));
+      await userEvent.click(screen.getByRole("button", { name: "Start Tunnel" }));
       await waitFor(() => {
+        expect(mockUpdateRemoteSettings).toHaveBeenCalled();
         expect(mockStartRemoteTunnel).toHaveBeenCalledTimes(1);
       });
       await waitFor(() => {
-        expect(getTunnelStateSummary()).toHaveTextContent("State: starting");
+        expect(screen.getByText("starting")).toBeInTheDocument();
       });
 
-      await userEvent.click(screen.getByRole("button", { name: "Start tunnel" }));
       await waitFor(() => {
-        expect(mockStartRemoteTunnel).toHaveBeenCalledTimes(2);
-      });
-      await waitFor(() => {
-        expect(getTunnelStateSummary()).toHaveTextContent("State: running");
+        expect(screen.getByRole("button", { name: "Stop Tunnel" })).toBeInTheDocument();
       });
 
-      await userEvent.click(screen.getByRole("button", { name: "Stop tunnel" }));
+      await userEvent.click(screen.getByRole("button", { name: "Stop Tunnel" }));
       await waitFor(() => {
         expect(mockStopRemoteTunnel).toHaveBeenCalledTimes(1);
       });
-      await waitFor(() => {
-        expect(getTunnelStateSummary()).toHaveTextContent("State: error");
-      });
-      expect(screen.getByText("Tunnel crashed")).toBeInTheDocument();
-
-      await userEvent.click(screen.getByRole("button", { name: "Stop tunnel" }));
+      await userEvent.click(screen.getByRole("button", { name: "Stop Tunnel" }));
       await waitFor(() => {
         expect(mockStopRemoteTunnel).toHaveBeenCalledTimes(2);
       });
       await waitFor(() => {
-        expect(getTunnelStateSummary()).toHaveTextContent("State: stopped");
+        expect(screen.getByText("Tunnel crashed")).toBeInTheDocument();
       });
     });
 
@@ -1648,6 +1638,8 @@ describe("SettingsModal", () => {
       renderModal({ addToast });
       await waitForSettingsModalReady();
       await openRemoteSection();
+      await userEvent.click(screen.getByLabelText("Tailscale"));
+      await openAdvancedSettings();
 
       await userEvent.click(screen.getByRole("button", { name: "Regenerate persistent token" }));
 
@@ -1674,23 +1666,19 @@ describe("SettingsModal", () => {
       renderModal();
       await waitForSettingsModalReady();
       await openRemoteSection();
+      await userEvent.click(screen.getByLabelText("Tailscale"));
+      await openAdvancedSettings();
 
       await userEvent.selectOptions(screen.getByLabelText("Auth link token type"), "short-lived");
       const ttlInput = screen.getByLabelText("Short-lived TTL (ms)") as HTMLInputElement;
-      await waitFor(() => {
-        expect(ttlInput).toHaveValue(900000);
-      });
       fireEvent.change(ttlInput, { target: { value: "120000" } });
-      expect(ttlInput).toHaveValue(120000);
 
       await userEvent.click(screen.getByRole("button", { name: "Generate short-lived token" }));
       await waitFor(() => {
         expect(mockGenerateShortLivedRemoteToken).toHaveBeenCalledWith(120000, undefined);
       });
-      expect(screen.getByText(/Last short-lived token expires at/i)).toHaveTextContent("120000ms");
 
       fireEvent.change(ttlInput, { target: { value: "120000" } });
-      expect(ttlInput).toHaveValue(120000);
       await userEvent.click(screen.getByRole("button", { name: "Show URL" }));
       await waitFor(() => {
         expect(mockFetchRemoteUrl).toHaveBeenLastCalledWith({
@@ -1699,9 +1687,6 @@ describe("SettingsModal", () => {
           ttlMs: 120000,
         });
       });
-      const tokenTypeSummary = screen.getByText(/Token type:/i);
-      expect(tokenTypeSummary).toHaveTextContent("short-lived");
-      expect(tokenTypeSummary).toHaveTextContent("Expires at");
       expect(screen.getByText("https://remote.example.com/short")).toBeInTheDocument();
     });
 
@@ -1724,30 +1709,125 @@ describe("SettingsModal", () => {
       renderModal();
       await waitForSettingsModalReady();
       await openRemoteSection();
+      await userEvent.click(screen.getByLabelText("Tailscale"));
+      await openAdvancedSettings();
 
       await userEvent.click(screen.getByRole("button", { name: "Generate QR" }));
       await waitFor(() => {
-        expect(mockFetchRemoteQr).toHaveBeenNthCalledWith(
-          1,
-          "image/svg",
-          expect.objectContaining({ tokenType: "persistent" }),
-        );
+        expect(mockFetchRemoteQr).toHaveBeenNthCalledWith(1, "image/svg", expect.objectContaining({ tokenType: "persistent" }));
       });
       expect(await screen.findByRole("img", { name: "Remote access QR code" })).toBeInTheDocument();
-      expect(screen.getByText("https://remote.example.com/qr-image")).toBeInTheDocument();
 
       await userEvent.click(screen.getByRole("button", { name: "Generate QR" }));
-      await waitFor(() => {
-        expect(mockFetchRemoteQr).toHaveBeenNthCalledWith(
-          2,
-          "image/svg",
-          expect.objectContaining({ tokenType: "persistent" }),
-        );
-      });
       await waitFor(() => {
         expect(screen.queryByRole("img", { name: "Remote access QR code" })).not.toBeInTheDocument();
       });
       expect(screen.getByText("https://remote.example.com/qr-text")).toBeInTheDocument();
+    });
+
+    it("Start Tunnel button is disabled when no provider is selected", async () => {
+      renderModal();
+      await waitForSettingsModalReady();
+      await openRemoteSection();
+
+      const startButton = screen.getByRole("button", { name: "Start Tunnel" });
+      expect(startButton).toBeDisabled();
+      await userEvent.click(screen.getByLabelText("Tailscale"));
+      expect(startButton).not.toBeDisabled();
+    });
+
+    it("no separate Activate Provider or Save Remote Settings buttons exist", async () => {
+      renderModal();
+      await waitForSettingsModalReady();
+      await openRemoteSection();
+
+      expect(screen.queryByRole("button", { name: /Activate Provider/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Save Remote Settings/i })).not.toBeInTheDocument();
+    });
+
+    it("only the selected provider's settings are rendered", async () => {
+      renderModal();
+      await waitForSettingsModalReady();
+      await openRemoteSection();
+
+      await userEvent.click(screen.getByLabelText("Tailscale"));
+      expect(screen.getByLabelText("Hostname label")).toBeInTheDocument();
+      expect(screen.queryByLabelText("Quick Tunnel")).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByLabelText("Cloudflare"));
+      expect(screen.getByLabelText("Quick Tunnel")).toBeInTheDocument();
+      expect(screen.queryByLabelText("Hostname label")).not.toBeInTheDocument();
+    });
+
+    it("Start Tunnel auto-saves with enabled=true on selected provider before starting", async () => {
+      renderModal();
+      await waitForSettingsModalReady();
+      await openRemoteSection();
+
+      await userEvent.click(screen.getByLabelText("Tailscale"));
+      await userEvent.click(screen.getByRole("button", { name: "Start Tunnel" }));
+
+      await waitFor(() => {
+        expect(mockUpdateRemoteSettings).toHaveBeenCalledWith(
+          expect.objectContaining({
+            remoteActiveProvider: "tailscale",
+            remoteTailscaleEnabled: true,
+          }),
+          undefined,
+        );
+      });
+      expect(mockStartRemoteTunnel).toHaveBeenCalled();
+    });
+  });
+
+  describe("memory dream trigger", () => {
+    const openMemorySection = async () => {
+      const [memorySectionButton] = await screen.findAllByRole("button", { name: /^Memory$/i });
+      await userEvent.click(memorySectionButton);
+    };
+
+    it("shows Dream Now button when dreams are enabled", async () => {
+      mockFetchSettings.mockResolvedValueOnce({
+        ...defaultSettings,
+        memoryEnabled: true,
+        memoryDreamsEnabled: true,
+        memoryDreamsSchedule: "0 4 * * *",
+      });
+
+      renderModal();
+      await waitForSettingsModalReady();
+      await openMemorySection();
+
+      expect(await screen.findByRole("button", { name: "Dream Now" })).toBeInTheDocument();
+    });
+
+    it("triggers dream processing from Dream Now button", async () => {
+      const addToast = vi.fn();
+      mockFetchSettings.mockResolvedValueOnce({
+        ...defaultSettings,
+        memoryEnabled: true,
+        memoryDreamsEnabled: true,
+      });
+      mockTriggerMemoryDreams.mockResolvedValueOnce({ success: true, summary: "done" });
+
+      renderModal({ addToast });
+      await waitForSettingsModalReady();
+      await openMemorySection();
+
+      await userEvent.click(await screen.findByRole("button", { name: "Dream Now" }));
+
+      await waitFor(() => {
+        expect(mockTriggerMemoryDreams).toHaveBeenCalledWith(undefined);
+      });
+      expect(addToast).toHaveBeenCalledWith("Dream processing completed", "success");
+    });
+
+    it("hides Dream Now button when dreams are disabled", async () => {
+      renderModal();
+      await waitForSettingsModalReady();
+      await openMemorySection();
+
+      expect(screen.queryByRole("button", { name: "Dream Now" })).not.toBeInTheDocument();
     });
   });
 

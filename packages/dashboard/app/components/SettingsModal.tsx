@@ -1450,40 +1450,6 @@ export function SettingsModal({
     setPresetDraft(null);
   };
 
-  const handleSaveRemoteSettings = useCallback(async () => {
-    const activeProvider = ((form as Record<string, unknown>).remoteActiveProvider as "tailscale" | "cloudflare" | null) ?? null;
-    const nextSettings: Partial<RemoteSettings> = {
-      remoteActiveProvider: activeProvider,
-      remoteTailscaleEnabled: activeProvider === "tailscale"
-        ? true
-        : Boolean((form as Record<string, unknown>).remoteTailscaleEnabled),
-      remoteTailscaleHostname: String((form as Record<string, unknown>).remoteTailscaleHostname ?? ""),
-      remoteTailscaleTargetPort: Number((form as Record<string, unknown>).remoteTailscaleTargetPort ?? 4040),
-      remoteTailscaleAcceptRoutes: Boolean((form as Record<string, unknown>).remoteTailscaleAcceptRoutes),
-      remoteCloudflareEnabled: activeProvider === "cloudflare"
-        ? true
-        : Boolean((form as Record<string, unknown>).remoteCloudflareEnabled),
-      remoteCloudflareQuickTunnel: Boolean((form as Record<string, unknown>).remoteCloudflareQuickTunnel),
-      remoteCloudflareTunnelName: String((form as Record<string, unknown>).remoteCloudflareTunnelName ?? ""),
-      remoteCloudflareTunnelToken: (((form as Record<string, unknown>).remoteCloudflareTunnelToken as string | null) || null),
-      remoteCloudflareIngressUrl: String((form as Record<string, unknown>).remoteCloudflareIngressUrl ?? ""),
-      remoteShortLivedEnabled: Boolean((form as Record<string, unknown>).remoteShortLivedEnabled),
-      remoteShortLivedTtlMs: Number((form as Record<string, unknown>).remoteShortLivedTtlMs ?? 900000),
-      remoteRememberLastRunning: Boolean((form as Record<string, unknown>).remoteRememberLastRunning),
-    };
-
-    setRemoteBusyAction("save");
-    try {
-      await updateRemoteSettings(nextSettings, projectId);
-      addToast("Remote settings saved", "success");
-      await loadRemoteData();
-    } catch (err) {
-      addToast(getErrorMessage(err) || "Failed to save remote settings", "error");
-    } finally {
-      setRemoteBusyAction(null);
-    }
-  }, [form, projectId, loadRemoteData, addToast]);
-
   const runRemoteAction = useCallback(async (label: string, action: () => Promise<void>) => {
     setRemoteBusyAction(label);
     try {
@@ -2648,7 +2614,8 @@ export function SettingsModal({
           <>
             {renderScopeBanner()}
             <h4 className="settings-section-heading">Node Routing</h4>
-            <p className="settings-description">Configure how tasks are routed to execution nodes. The default node determines where tasks run when no per-task override is set. The policy controls what happens when that node is unavailable.</p>
+            <p className="settings-section-description">Configure how tasks are routed to execution nodes.</p>
+            <p className="settings-node-routing-note">These settings apply at the project level.</p>
             <div className="form-group">
               <label htmlFor="defaultNodeId">Default Execution Node</label>
               <select
@@ -2697,10 +2664,6 @@ export function SettingsModal({
                 <option value="block">Block execution</option>
                 <option value="fallback-local">Fall back to local</option>
               </select>
-              <small>Controls what happens when the selected node is offline or unhealthy. "Block execution" keeps tasks waiting until the node recovers. "Fall back to local" runs tasks on the local node instead.</small>
-            </div>
-            <div className="settings-node-routing-note">
-              These settings apply at the project level. Individual tasks can override the default node from the task detail modal.
             </div>
           </>
         );
@@ -3830,281 +3793,187 @@ export function SettingsModal({
       case "remote": {
         const remoteForm = form as Record<string, unknown>;
         const activeProvider = (remoteForm.remoteActiveProvider as "tailscale" | "cloudflare" | null) ?? null;
-        const tunnelState = remoteStatus?.state ?? "stopped";
+        const tunnelState = (remoteStatus?.state as RemoteStatus["state"] | "error" | undefined) ?? "stopped";
+        const statusColor = tunnelState === "running"
+          ? "running"
+          : tunnelState === "starting"
+            ? "starting"
+            : tunnelState === "failed" || tunnelState === "error"
+              ? "error"
+              : "stopped";
 
         return (
           <>
             {renderScopeBanner()}
             <h4 className="settings-section-heading">Remote Access</h4>
+            <div className={`remote-status-bar remote-status-bar--${statusColor}`}>
+              <span className={`remote-status-dot remote-status-dot--${statusColor}`} />
+              <strong>{tunnelState}</strong>
+              {remoteStatus?.provider && <span> · {remoteStatus.provider}</span>}
+              {remoteStatus?.url && <code className="remote-status-url">{remoteStatus.url}</code>}
+              {remoteStatus?.lastError && <span className="field-error">{remoteStatus.lastError}</span>}
+            </div>
 
             <div className="form-group">
-              <label htmlFor="remoteActiveProvider">Active provider</label>
-              <select
-                id="remoteActiveProvider"
-                className="select"
-                value={activeProvider ?? ""}
-                onChange={(e) => setForm((f) => ({ ...f, remoteActiveProvider: (e.target.value || null) as "tailscale" | "cloudflare" | null } as SettingsFormState))}
-              >
-                <option value="">Not selected</option>
-                <option value="tailscale">Tailscale Serve</option>
-                <option value="cloudflare">Cloudflare Tunnel</option>
-              </select>
-              <div className="settings-button-row">
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  disabled={remoteBusyAction !== null}
-                  onClick={() => void handleSaveRemoteSettings()}
-                >
-                  {remoteBusyAction === "save" ? "Saving…" : "Save Remote Settings"}
-                </button>
+              <div className="remote-provider-selector" role="radiogroup" aria-label="Remote provider">
+                <label className="remote-provider-option">
+                  <input type="radio" name="remoteProvider" value="tailscale" checked={activeProvider === "tailscale"} onChange={() => setForm((f) => ({ ...f, remoteActiveProvider: "tailscale" } as SettingsFormState))} />
+                  <span>Tailscale</span>
+                </label>
+                <label className="remote-provider-option">
+                  <input type="radio" name="remoteProvider" value="cloudflare" checked={activeProvider === "cloudflare"} onChange={() => setForm((f) => ({ ...f, remoteActiveProvider: "cloudflare" } as SettingsFormState))} />
+                  <span>Cloudflare</span>
+                </label>
               </div>
+              {!activeProvider && <small>Select a provider above to configure remote access.</small>}
             </div>
 
-            <div className="form-group">
-              <label>Tailscale</label>
-              <label htmlFor="remoteTailscaleEnabled" className="checkbox-label">
-                <input
-                  id="remoteTailscaleEnabled"
-                  type="checkbox"
-                  checked={Boolean(remoteForm.remoteTailscaleEnabled)}
-                  onChange={(e) => setForm((f) => ({ ...f, remoteTailscaleEnabled: e.target.checked } as SettingsFormState))}
-                />
-                Enable Tailscale provider config
-              </label>
-              <label htmlFor="remoteTailscaleHostname">Hostname label</label>
-              <input
-                id="remoteTailscaleHostname"
-                type="text"
-                placeholder="tailnet label (optional)"
-                value={String(remoteForm.remoteTailscaleHostname ?? "")}
-                onChange={(e) => setForm((f) => ({ ...f, remoteTailscaleHostname: e.target.value } as SettingsFormState))}
-              />
-              <label htmlFor="remoteTailscaleTargetPort">Target port</label>
-              <input
-                id="remoteTailscaleTargetPort"
-                type="number"
-                min={1}
-                max={65535}
-                value={Number(remoteForm.remoteTailscaleTargetPort ?? 4040)}
-                onChange={(e) => setForm((f) => ({ ...f, remoteTailscaleTargetPort: Number(e.target.value || 4040) } as SettingsFormState))}
-              />
-            </div>
+            {activeProvider && (
+              <div className="form-group remote-provider-settings">
+                {activeProvider === "tailscale" ? (
+                  <>
+                    <label htmlFor="remoteTailscaleHostname">Hostname label</label>
+                    <input id="remoteTailscaleHostname" type="text" placeholder="tailnet label (optional)" value={String(remoteForm.remoteTailscaleHostname ?? "")} onChange={(e) => setForm((f) => ({ ...f, remoteTailscaleHostname: e.target.value } as SettingsFormState))} />
+                    <label htmlFor="remoteTailscaleTargetPort">Target port</label>
+                    <input id="remoteTailscaleTargetPort" type="number" min={1} max={65535} value={Number(remoteForm.remoteTailscaleTargetPort ?? 4040)} onChange={(e) => setForm((f) => ({ ...f, remoteTailscaleTargetPort: Number(e.target.value || 4040) } as SettingsFormState))} />
+                    <label htmlFor="remoteTailscaleAcceptRoutes" className="checkbox-label">
+                      <input id="remoteTailscaleAcceptRoutes" type="checkbox" checked={Boolean(remoteForm.remoteTailscaleAcceptRoutes)} onChange={(e) => setForm((f) => ({ ...f, remoteTailscaleAcceptRoutes: e.target.checked } as SettingsFormState))} />
+                      Accept routes
+                    </label>
+                  </>
+                ) : (
+                  <>
+                    <label htmlFor="remoteCloudflareQuickTunnel" className="checkbox-label">
+                      <input id="remoteCloudflareQuickTunnel" type="checkbox" checked={Boolean(remoteForm.remoteCloudflareQuickTunnel ?? true)} onChange={(e) => setForm((f) => ({ ...f, remoteCloudflareQuickTunnel: e.target.checked } as SettingsFormState))} />
+                      Quick Tunnel
+                    </label>
+                    <small>Automatically creates a random trycloudflare.com URL — no account or token needed.</small>
+                    {!(remoteForm.remoteCloudflareQuickTunnel ?? true) && (
+                      <>
+                        <label htmlFor="remoteCloudflareTunnelName">Tunnel name</label>
+                        <input id="remoteCloudflareTunnelName" type="text" placeholder="Tunnel name" value={String(remoteForm.remoteCloudflareTunnelName ?? "")} onChange={(e) => setForm((f) => ({ ...f, remoteCloudflareTunnelName: e.target.value } as SettingsFormState))} />
+                        <label htmlFor="remoteCloudflareTunnelToken">Tunnel token</label>
+                        <input id="remoteCloudflareTunnelToken" type="password" placeholder="Tunnel token" value={String(remoteForm.remoteCloudflareTunnelToken ?? "")} onChange={(e) => setForm((f) => ({ ...f, remoteCloudflareTunnelToken: e.target.value } as SettingsFormState))} />
+                        <label htmlFor="remoteCloudflareIngressUrl">Ingress URL</label>
+                        <input id="remoteCloudflareIngressUrl" type="text" placeholder="https://your-domain.example" value={String(remoteForm.remoteCloudflareIngressUrl ?? "")} onChange={(e) => setForm((f) => ({ ...f, remoteCloudflareIngressUrl: e.target.value } as SettingsFormState))} />
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
 
-            <div className="form-group">
-              <label>Cloudflare</label>
-              <label htmlFor="remoteCloudflareEnabled" className="checkbox-label">
-                <input
-                  id="remoteCloudflareEnabled"
-                  type="checkbox"
-                  checked={Boolean(remoteForm.remoteCloudflareEnabled)}
-                  onChange={(e) => setForm((f) => ({ ...f, remoteCloudflareEnabled: e.target.checked } as SettingsFormState))}
-                />
-                Enable Cloudflare provider config
-              </label>
-              <label htmlFor="remoteCloudflareQuickTunnel" className="checkbox-label">
-                <input
-                  id="remoteCloudflareQuickTunnel"
-                  type="checkbox"
-                  checked={Boolean(remoteForm.remoteCloudflareQuickTunnel)}
-                  onChange={(e) => setForm((f) => ({ ...f, remoteCloudflareQuickTunnel: e.target.checked } as SettingsFormState))}
-                />
-                Quick Tunnel
-              </label>
-              <small>Automatically creates a random trycloudflare.com URL — no account or token needed.</small>
-              {!remoteForm.remoteCloudflareQuickTunnel && (
-                <>
-                  <label htmlFor="remoteCloudflareTunnelName">Tunnel name</label>
-                  <input
-                    id="remoteCloudflareTunnelName"
-                    type="text"
-                    placeholder="Tunnel name"
-                    value={String(remoteForm.remoteCloudflareTunnelName ?? "")}
-                    onChange={(e) => setForm((f) => ({ ...f, remoteCloudflareTunnelName: e.target.value } as SettingsFormState))}
-                  />
-                  <label htmlFor="remoteCloudflareTunnelToken">Tunnel token</label>
-                  <input
-                    id="remoteCloudflareTunnelToken"
-                    type="password"
-                    placeholder="Tunnel token"
-                    value={String(remoteForm.remoteCloudflareTunnelToken ?? "")}
-                    onChange={(e) => setForm((f) => ({ ...f, remoteCloudflareTunnelToken: e.target.value } as SettingsFormState))}
-                  />
-                  <label htmlFor="remoteCloudflareIngressUrl">Ingress URL</label>
-                  <input
-                    id="remoteCloudflareIngressUrl"
-                    type="text"
-                    placeholder="https://your-domain.example"
-                    value={String(remoteForm.remoteCloudflareIngressUrl ?? "")}
-                    onChange={(e) => setForm((f) => ({ ...f, remoteCloudflareIngressUrl: e.target.value } as SettingsFormState))}
-                  />
-                </>
+            <div className="form-group remote-tunnel-actions">
+              {tunnelState === "running" || tunnelState === "starting" ? (
+                <button type="button" className="btn btn-danger" disabled={remoteBusyAction !== null} onClick={() => void runRemoteAction("stop", async () => {
+                  await stopRemoteTunnel(projectId);
+                  addToast("Remote tunnel stopped", "success");
+                })}>
+                  {remoteBusyAction === "stop" ? "Stopping…" : "Stop Tunnel"}
+                </button>
+              ) : (
+                <button type="button" className="btn btn-primary" disabled={!activeProvider || remoteBusyAction !== null} onClick={() => void runRemoteAction("start", async () => {
+                  const formState = form as Record<string, unknown>;
+                  const savePayload: Partial<RemoteSettings> = {
+                    remoteActiveProvider: activeProvider,
+                    remoteTailscaleEnabled: activeProvider === "tailscale",
+                    remoteTailscaleHostname: String(formState.remoteTailscaleHostname ?? ""),
+                    remoteTailscaleTargetPort: Number(formState.remoteTailscaleTargetPort ?? 4040),
+                    remoteTailscaleAcceptRoutes: Boolean(formState.remoteTailscaleAcceptRoutes),
+                    remoteCloudflareEnabled: activeProvider === "cloudflare",
+                    remoteCloudflareQuickTunnel: Boolean(formState.remoteCloudflareQuickTunnel ?? true),
+                    remoteCloudflareTunnelName: String(formState.remoteCloudflareTunnelName ?? ""),
+                    remoteCloudflareTunnelToken: (formState.remoteCloudflareTunnelToken as string | null) || null,
+                    remoteCloudflareIngressUrl: String(formState.remoteCloudflareIngressUrl ?? ""),
+                    remoteShortLivedEnabled: Boolean(formState.remoteShortLivedEnabled),
+                    remoteShortLivedTtlMs: Number(formState.remoteShortLivedTtlMs ?? 900000),
+                    remoteRememberLastRunning: Boolean(formState.remoteRememberLastRunning),
+                  };
+                  await updateRemoteSettings(savePayload, projectId);
+                  await startRemoteTunnel(projectId);
+                  addToast("Remote tunnel started", "success");
+                })}>
+                  {remoteBusyAction === "start" ? "Starting…" : "Start Tunnel"}
+                </button>
               )}
             </div>
 
-            <div className="form-group">
-              <label>Tunnel lifecycle</label>
-              <small>State: <strong>{tunnelState}</strong>{remoteStatus?.provider ? ` · Provider: ${remoteStatus.provider}` : ""}</small>
-              {remoteStatus?.url && (
-                <small>
-                  URL:
-                  <code className="settings-url-output">{remoteStatus.url}</code>
-                </small>
-              )}
-              {remoteStatus?.lastError && <small className="field-error">{remoteStatus.lastError}</small>}
-              <div className="settings-button-row">
-                <button
-                  type="button"
-                  className="btn btn-sm btn-primary"
-                  disabled={remoteBusyAction !== null}
-                  onClick={() => void runRemoteAction("start tunnel", async () => {
-                    await startRemoteTunnel(projectId);
-                    addToast("Remote tunnel start requested", "success");
-                  })}
-                >
-                  Start tunnel
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  disabled={remoteBusyAction !== null}
-                  onClick={() => void runRemoteAction("stop tunnel", async () => {
-                    await stopRemoteTunnel(projectId);
-                    addToast("Remote tunnel stopped", "success");
-                  })}
-                >
-                  Stop tunnel
-                </button>
+            <details className="remote-advanced-details">
+              <summary>Advanced Settings</summary>
+              <div className="form-group">
+                <label htmlFor="remoteShortLivedEnabled" className="checkbox-label">
+                  <input id="remoteShortLivedEnabled" type="checkbox" checked={Boolean(remoteForm.remoteShortLivedEnabled)} onChange={(e) => setForm((f) => ({ ...f, remoteShortLivedEnabled: e.target.checked } as SettingsFormState))} />
+                  Enable short-lived tokens
+                </label>
+                <label htmlFor="remoteShortLivedTtlMs">Short-lived TTL (ms)</label>
+                <input id="remoteShortLivedTtlMs" type="number" min={60000} max={86400000} value={Number(remoteForm.remoteShortLivedTtlMs ?? 900000)} onChange={(e) => setForm((f) => ({ ...f, remoteShortLivedTtlMs: Number(e.target.value || 900000) } as SettingsFormState))} />
+                {remoteShortLivedToken && <small>Last short-lived token expires at {new Date(remoteShortLivedToken.expiresAt).toLocaleString()} ({remoteShortLivedToken.ttlMs}ms)</small>}
               </div>
-            </div>
-
-            <div className="form-group">
-              <label>Auth links</label>
-              <div className="settings-button-row">
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  disabled={remoteBusyAction !== null}
-                  onClick={() => void runRemoteAction("regenerate persistent token", async () => {
+              <div className="form-group">
+                <label htmlFor="remoteRememberLastRunning" className="checkbox-label">
+                  <input id="remoteRememberLastRunning" type="checkbox" checked={Boolean(remoteForm.remoteRememberLastRunning)} onChange={(e) => setForm((f) => ({ ...f, remoteRememberLastRunning: e.target.checked } as SettingsFormState))} />
+                  Remember last running state
+                </label>
+                <small>Automatically restore tunnel on startup if it was running when last stopped.</small>
+              </div>
+              <div className="form-group">
+                <label>Auth Links</label>
+                <div className="settings-button-row">
+                  <button type="button" className="btn btn-sm" disabled={remoteBusyAction !== null} onClick={() => void runRemoteAction("regenerate persistent token", async () => {
                     await regenerateRemotePersistentToken(projectId);
                     addToast("Persistent token regenerated", "success");
-                  })}
-                >
-                  Regenerate persistent token
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  disabled={remoteBusyAction !== null}
-                  onClick={() => void runRemoteAction("generate short-lived token", async () => {
+                  })}>Regenerate persistent token</button>
+                  <button type="button" className="btn btn-sm" disabled={remoteBusyAction !== null} onClick={() => void runRemoteAction("generate short-lived token", async () => {
                     const ttlMs = Number(remoteForm.remoteShortLivedTtlMs ?? 900000);
                     const generated = await generateShortLivedRemoteToken(ttlMs, projectId);
                     setRemoteShortLivedToken(generated);
                     addToast("Short-lived token generated", "success");
-                  })}
-                >
-                  Generate short-lived token
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  disabled={remoteBusyAction !== null}
-                  onClick={() => void runRemoteAction("fetch remote url", async () => {
+                  })}>Generate short-lived token</button>
+                  <button type="button" className="btn btn-sm" disabled={remoteBusyAction !== null} onClick={() => void runRemoteAction("fetch remote url", async () => {
                     const ttlMs = Number(remoteForm.remoteShortLivedTtlMs ?? 900000);
-                    const nextUrl = await fetchRemoteUrl({
-                      projectId,
-                      tokenType: remoteAuthLinkTokenType,
-                      ttlMs: remoteAuthLinkTokenType === "short-lived" ? ttlMs : undefined,
-                    });
+                    const nextUrl = await fetchRemoteUrl({ projectId, tokenType: remoteAuthLinkTokenType, ttlMs: remoteAuthLinkTokenType === "short-lived" ? ttlMs : undefined });
                     setRemoteUrlPreview(nextUrl);
                     setRemoteQrSvg(null);
-                  })}
-                >
-                  Show URL
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  disabled={remoteBusyAction !== null}
-                  onClick={() => void runRemoteAction("generate QR", async () => {
+                  })}>Show URL</button>
+                  <button type="button" className="btn btn-sm" disabled={remoteBusyAction !== null} onClick={() => void runRemoteAction("generate QR", async () => {
                     const ttlMs = Number(remoteForm.remoteShortLivedTtlMs ?? 900000);
-                    const qr = await fetchRemoteQr("image/svg", {
-                      projectId,
-                      tokenType: remoteAuthLinkTokenType,
-                      ttlMs: remoteAuthLinkTokenType === "short-lived" ? ttlMs : undefined,
-                    });
+                    const qr = await fetchRemoteQr("image/svg", { projectId, tokenType: remoteAuthLinkTokenType, ttlMs: remoteAuthLinkTokenType === "short-lived" ? ttlMs : undefined });
                     setRemoteUrlPreview({ url: qr.url, expiresAt: qr.expiresAt, tokenType: qr.tokenType });
                     setRemoteQrSvg(qr.data ?? null);
-                  })}
-                >
-                  Generate QR
-                </button>
-              </div>
-              <label htmlFor="remoteAuthLinkTokenType">Auth link token type</label>
-              <select
-                id="remoteAuthLinkTokenType"
-                value={remoteAuthLinkTokenType}
-                onChange={(e) => setRemoteAuthLinkTokenType(e.target.value as "persistent" | "short-lived")}
-              >
-                <option value="persistent">Persistent token</option>
-                <option value="short-lived">Short-lived token</option>
-              </select>
-              <small>
-                URL and QR generation use the selected token type.
-                {remoteAuthLinkTokenType === "short-lived" ? ` TTL: ${Number(remoteForm.remoteShortLivedTtlMs ?? 900000)}ms.` : ""}
-              </small>
-              <label htmlFor="remoteShortLivedEnabled" className="checkbox-label">
-                <input
-                  id="remoteShortLivedEnabled"
-                  type="checkbox"
-                  checked={Boolean(remoteForm.remoteShortLivedEnabled)}
-                  onChange={(e) => setForm((f) => ({ ...f, remoteShortLivedEnabled: e.target.checked } as SettingsFormState))}
-                />
-                Enable short-lived tokens
-              </label>
-              <label htmlFor="remoteShortLivedTtlMs">Short-lived TTL (ms)</label>
-              <input
-                id="remoteShortLivedTtlMs"
-                type="number"
-                min={60000}
-                max={86400000}
-                value={Number(remoteForm.remoteShortLivedTtlMs ?? 900000)}
-                onChange={(e) => setForm((f) => ({ ...f, remoteShortLivedTtlMs: Number(e.target.value || 900000) } as SettingsFormState))}
-              />
-              {remoteShortLivedToken && (
-                <small>
-                  Last short-lived token expires at {new Date(remoteShortLivedToken.expiresAt).toLocaleString()} ({remoteShortLivedToken.ttlMs}ms)
-                </small>
-              )}
-              {remoteUrlPreview?.url && (
-                <>
-                  <small>
-                    Authenticated URL:
-                    <code className="settings-url-output">{remoteUrlPreview.url}</code>
-                  </small>
-                  <small>
-                    Token type: <strong>{remoteUrlPreview.tokenType}</strong>
-                    {remoteUrlPreview.expiresAt ? ` · Expires at ${new Date(remoteUrlPreview.expiresAt).toLocaleString()}` : " · No expiry"}
-                  </small>
-                </>
-              )}
-              {remoteQrSvg && (
-                <div className="settings-qr-preview" aria-live="polite">
-                  <p className="settings-qr-preview-label">Scan this QR code on your phone</p>
-                  <div className="settings-qr-preview-image-wrap">
-                    <img
-                      src={`data:image/svg+xml;utf8,${encodeURIComponent(remoteQrSvg)}`}
-                      alt="Remote access QR code"
-                      className="settings-qr-preview-image"
-                    />
-                  </div>
-                  <details>
-                    <summary>QR SVG markup</summary>
-                    <pre className="settings-raw-output">{remoteQrSvg}</pre>
-                  </details>
+                  })}>Generate QR</button>
                 </div>
-              )}
-            </div>
+                <label htmlFor="remoteAuthLinkTokenType">Auth link token type</label>
+                <select id="remoteAuthLinkTokenType" value={remoteAuthLinkTokenType} onChange={(e) => setRemoteAuthLinkTokenType(e.target.value as "persistent" | "short-lived")}>
+                  <option value="persistent">Persistent token</option>
+                  <option value="short-lived">Short-lived token</option>
+                </select>
+                <small>
+                  URL and QR generation use the selected token type.
+                  {remoteAuthLinkTokenType === "short-lived" ? ` TTL: ${Number(remoteForm.remoteShortLivedTtlMs ?? 900000)}ms.` : ""}
+                </small>
+                {remoteUrlPreview?.url && (
+                  <>
+                    <small>Authenticated URL:<code className="settings-url-output">{remoteUrlPreview.url}</code></small>
+                    <small>
+                      Token type: <strong>{remoteUrlPreview.tokenType}</strong>
+                      {remoteUrlPreview.expiresAt ? ` · Expires at ${new Date(remoteUrlPreview.expiresAt).toLocaleString()}` : " · No expiry"}
+                    </small>
+                  </>
+                )}
+                {remoteQrSvg && (
+                  <div className="settings-qr-preview" aria-live="polite">
+                    <p className="settings-qr-preview-label">Scan this QR code on your phone</p>
+                    <div className="settings-qr-preview-image-wrap">
+                      <img src={`data:image/svg+xml;utf8,${encodeURIComponent(remoteQrSvg)}`} alt="Remote access QR code" className="settings-qr-preview-image" />
+                    </div>
+                    <details>
+                      <summary>QR SVG markup</summary>
+                      <pre className="settings-raw-output">{remoteQrSvg}</pre>
+                    </details>
+                  </div>
+                )}
+              </div>
+            </details>
           </>
         );
       }
