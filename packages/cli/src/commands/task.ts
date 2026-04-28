@@ -1,4 +1,4 @@
-import { TaskStore, COLUMNS, COLUMN_LABELS, type Column, type StepStatus, type AgentLogType, type AgentLogEntry } from "@fusion/core";
+import { TaskStore, COLUMNS, COLUMN_LABELS, CentralCore, type Settings, type Column, type StepStatus, type AgentLogType, type AgentLogEntry } from "@fusion/core";
 import { aiMergeTask } from "@fusion/engine";
 import { createInterface } from "node:readline/promises";
 import type { PlanningQuestion, PlanningSummary } from "@fusion/core";
@@ -14,6 +14,7 @@ import {
   runGhJsonAsync,
 } from "@fusion/core/gh-cli";
 import { resolveProject, type ProjectContext } from "../project-context.js";
+import { findNodeByNameOrId } from "./node.js";
 
 const STEP_STATUSES: StepStatus[] = ["pending", "in-progress", "done", "skipped"];
 
@@ -93,7 +94,31 @@ async function getProjectPath(projectName?: string): Promise<string> {
   return (await getCommandContext(projectName)).projectPath;
 }
 
-export async function runTaskCreate(descriptionArg?: string, attachFiles?: string[], depends?: string[], projectName?: string) {
+async function resolveNodeByNameOrId(nodeNameOrId: string): Promise<{ id: string; name?: string }> {
+  const central = new CentralCore();
+  await central.init();
+
+  try {
+    const looksLikeNodeId = nodeNameOrId.includes("-") && nodeNameOrId.length > 20;
+    let node = looksLikeNodeId
+      ? await central.getNode(nodeNameOrId)
+      : await central.getNodeByName(nodeNameOrId);
+
+    if (!node) {
+      node = await findNodeByNameOrId(central, nodeNameOrId);
+    }
+
+    if (!node) {
+      throw new Error(`Node not found: ${nodeNameOrId}`);
+    }
+
+    return { id: node.id, name: node.name };
+  } finally {
+    await central.close();
+  }
+}
+
+export async function runTaskCreate(descriptionArg?: string, attachFiles?: string[], depends?: string[], projectName?: string, nodeName?: string) {
   let description = descriptionArg;
   const projectContext = await getProjectContext(projectName);
 
@@ -111,6 +136,17 @@ export async function runTaskCreate(descriptionArg?: string, attachFiles?: strin
   const store = projectContext?.store ?? await getStore(projectName);
   const task = await store.createTask({ description: description.trim(), dependencies: depends });
 
+  let resolvedNode: { id: string; name?: string } | undefined;
+  if (nodeName) {
+    try {
+      resolvedNode = await resolveNodeByNameOrId(nodeName);
+      await store.updateTask(task.id, { nodeId: resolvedNode.id });
+    } catch (error) {
+      console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    }
+  }
+
   const label = task.description.length > 60
     ? task.description.slice(0, 60) + "…"
     : task.description;
@@ -123,6 +159,9 @@ export async function runTaskCreate(descriptionArg?: string, attachFiles?: strin
   console.log(`    Column: triage`);
   if (task.dependencies.length > 0) {
     console.log(`    Dependencies: ${task.dependencies.join(", ")}`);
+  }
+  if (resolvedNode) {
+    console.log(`    Node: ${resolvedNode.name || resolvedNode.id}`);
   }
   console.log(`    Path:   .fusion/tasks/${task.id}/`);
 
@@ -411,15 +450,70 @@ export async function runTaskLogs(id: string, options: LogsOptions = {}, project
   }
 }
 
+export async function runTaskSetNode(id: string, nodeNameOrId: string, projectName?: string) {
+  const store = await getStore(projectName);
+  const task = await store.getTask(id);
+
+  if (task.column === "in-progress") {
+    console.error(`Cannot change node override: task ${id} is in progress`);
+    process.exit(1);
+  }
+
+  let resolvedNode: { id: string; name?: string };
+  try {
+    resolvedNode = await resolveNodeByNameOrId(nodeNameOrId);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+    return;
+  }
+
+  await store.updateTask(id, { nodeId: resolvedNode.id });
+  console.log(`✓ Set node override for ${id}: ${resolvedNode.name || resolvedNode.id}`);
+}
+
+export async function runTaskClearNode(id: string, projectName?: string) {
+  const store = await getStore(projectName);
+  const task = await store.getTask(id);
+
+  if (task.column === "in-progress") {
+    console.error(`Cannot change node override: task ${id} is in progress`);
+    process.exit(1);
+  }
+
+  await store.updateTask(id, { nodeId: null });
+  console.log(`✓ Cleared node override for ${id}`);
+}
+
 export async function runTaskShow(id: string, projectName?: string) {
   const store = await getStore(projectName);
   const task = await store.getTask(id);
+  const settings: Partial<Settings> = "getSettings" in store ? await store.getSettings() : {};
+
+  let nodeSummary = "(default local)";
+  if (task.nodeId) {
+    let nodeName: string | undefined;
+    const central = new CentralCore();
+    await central.init();
+    try {
+      nodeName = (await central.getNode(task.nodeId))?.name;
+    } finally {
+      await central.close();
+    }
+    nodeSummary = nodeName ? `${nodeName} (${task.nodeId})` : task.nodeId;
+  } else if (settings.defaultNodeId) {
+    nodeSummary = `project default: ${settings.defaultNodeId}`;
+  }
 
   console.log();
   console.log(`  ${task.id}: ${task.title || task.description}`);
   console.log(`  Column: ${COLUMN_LABELS[task.column]}${task.size ? ` · Size: ${task.size}` : ""}${task.reviewLevel !== undefined ? ` · Review: ${task.reviewLevel}` : ""}`);
   if (task.dependencies.length) {
     console.log(`  Dependencies: ${task.dependencies.join(", ")}`);
+  }
+  console.log(`  Node: ${nodeSummary}`);
+  if (settings.unavailableNodePolicy) {
+    console.log(`  Unavailable Node Policy: ${settings.unavailableNodePolicy}`);
   }
   console.log();
 

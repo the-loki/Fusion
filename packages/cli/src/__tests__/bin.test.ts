@@ -32,6 +32,8 @@ const commandMocks = vi.hoisted(() => ({
   runTaskComment: vi.fn(),
   runTaskComments: vi.fn(),
   runTaskSteer: vi.fn(),
+  runTaskSetNode: vi.fn(),
+  runTaskClearNode: vi.fn(),
   runTaskPrCreate: vi.fn(),
 
   runSettingsShow: vi.fn(),
@@ -122,6 +124,8 @@ vi.mock("../commands/task.js", () => ({
   runTaskComment: commandMocks.runTaskComment,
   runTaskComments: commandMocks.runTaskComments,
   runTaskSteer: commandMocks.runTaskSteer,
+  runTaskSetNode: commandMocks.runTaskSetNode,
+  runTaskClearNode: commandMocks.runTaskClearNode,
   runTaskPrCreate: commandMocks.runTaskPrCreate,
 }));
 

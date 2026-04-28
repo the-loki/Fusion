@@ -117,7 +117,7 @@ async function loadCommandHandlers() {
   const { runServe } = await import("./commands/serve.js");
   const { runDaemon } = await import("./commands/daemon.js");
   const { runDesktop } = await import("./commands/desktop.js");
-  const { runTaskCreate, runTaskList, runTaskMove, runTaskMerge, runTaskUpdate, runTaskLog, runTaskLogs, runTaskShow, runTaskAttach, runTaskPause, runTaskUnpause, runTaskImportFromGitHub, runTaskDuplicate, runTaskArchive, runTaskUnarchive, runTaskRefine, runTaskPlan, runTaskDelete, runTaskRetry, runTaskComment, runTaskComments, runTaskSteer, runTaskPrCreate } = await import("./commands/task.js");
+  const { runTaskCreate, runTaskList, runTaskMove, runTaskMerge, runTaskUpdate, runTaskLog, runTaskLogs, runTaskShow, runTaskAttach, runTaskPause, runTaskUnpause, runTaskImportFromGitHub, runTaskDuplicate, runTaskArchive, runTaskUnarchive, runTaskRefine, runTaskPlan, runTaskDelete, runTaskRetry, runTaskComment, runTaskComments, runTaskSteer, runTaskSetNode, runTaskClearNode, runTaskPrCreate } = await import("./commands/task.js");
   const { runSettingsShow, runSettingsSet } = await import("./commands/settings.js");
   const { runSettingsExport } = await import("./commands/settings-export.js");
   const { runSettingsImport } = await import("./commands/settings-import.js");
@@ -162,6 +162,8 @@ async function loadCommandHandlers() {
     runTaskComment,
     runTaskComments,
     runTaskSteer,
+    runTaskSetNode,
+    runTaskClearNode,
     runTaskPrCreate,
     runSettingsShow,
     runSettingsSet,
@@ -233,7 +235,7 @@ Usage:
   fn desktop                          Launch the Fusion desktop app (Electron)
   fn desktop --dev                    Launch with hot-reload (connects to Vite dev server)
   fn desktop --paused                 Launch with automation paused
-  fn task create [desc] [opts]         Create a new task (goes to triage)
+  fn task create [desc] [opts]         Create a new task (goes to triage; supports --node <name>)
   fn task plan [description] [opts]    Create task via AI-guided planning
   fn task list                        List all tasks
   fn task show <id>                   Show task details, steps, log
@@ -254,6 +256,8 @@ Usage:
   fn task comment <id> [message]      Add task comment (prompts if message omitted)
   fn task comments <id>               List task comments
   fn task steer <id> [message]        Add steering comment (prompts if message omitted)
+  fn task set-node <id> <node-name-or-id>  Set a per-task node override
+  fn task clear-node <id>                Clear a per-task node override
   fn task retry <id>                  Retry a failed task (clears error, moves to todo)
   fn task pr-create <id> [--title <title>] [--base <branch>] [--body <body>]
                          Create a GitHub PR for an in-review task
@@ -281,6 +285,8 @@ Usage:
   fn mesh status [--json]              Show full mesh state
   fn settings                          Show current Fusion configuration
   fn settings set <key> <value>        Update a configuration setting
+  fn settings set defaultNodeId <node-id>
+  fn settings set unavailableNodePolicy <block|fallback-local>
   fn settings export [opts]              Export settings to a JSON file
   fn settings import <file> [opts]       Import settings from a JSON file
 
@@ -435,6 +441,8 @@ async function main() {
     runTaskComment,
     runTaskComments,
     runTaskSteer,
+    runTaskSetNode,
+    runTaskClearNode,
     runTaskPrCreate,
     runSettingsShow,
     runSettingsSet,
@@ -708,6 +716,7 @@ async function main() {
             const createArgs = args.slice(2);
             const attachFiles: string[] = [];
             const dependsIds: string[] = [];
+            let nodeName: string | undefined;
             const descParts: string[] = [];
             for (let i = 0; i < createArgs.length; i++) {
               if (createArgs[i] === "--attach" && i + 1 < createArgs.length) {
@@ -716,12 +725,15 @@ async function main() {
               } else if (createArgs[i] === "--depends" && i + 1 < createArgs.length) {
                 dependsIds.push(createArgs[i + 1]);
                 i++; // skip the value
+              } else if (createArgs[i] === "--node" && i + 1 < createArgs.length) {
+                nodeName = createArgs[i + 1];
+                i++; // skip the value
               } else {
                 descParts.push(createArgs[i]);
               }
             }
             const title = descParts.join(" ");
-            await runTaskCreate(title || undefined, attachFiles.length > 0 ? attachFiles : undefined, dependsIds.length > 0 ? dependsIds : undefined, projectName);
+            await runTaskCreate(title || undefined, attachFiles.length > 0 ? attachFiles : undefined, dependsIds.length > 0 ? dependsIds : undefined, projectName, nodeName);
             break;
           }
           case "plan": {
@@ -889,6 +901,25 @@ async function main() {
             await runTaskSteer(id, message || undefined, projectName);
             break;
           }
+          case "set-node": {
+            const id = args[2];
+            const nodeName = args[3];
+            if (!id || !nodeName) {
+              console.error("Usage: fn task set-node <id> <node-name-or-id>");
+              process.exit(1);
+            }
+            await runTaskSetNode(id, nodeName, projectName);
+            break;
+          }
+          case "clear-node": {
+            const id = args[2];
+            if (!id) {
+              console.error("Usage: fn task clear-node <id>");
+              process.exit(1);
+            }
+            await runTaskClearNode(id, projectName);
+            break;
+          }
           case "retry": {
             const id = args[2];
             if (!id) {
@@ -971,7 +1002,7 @@ async function main() {
           }
           default:
             console.error(`Unknown subcommand: task ${subcommand || ""}`);
-            console.log("Try: fn task create | list | move");
+            console.log("Try: fn task create | list | move | set-node | clear-node");
             process.exit(1);
         }
         break;

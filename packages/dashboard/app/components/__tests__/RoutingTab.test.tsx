@@ -76,6 +76,7 @@ describe("RoutingTab", () => {
 
     expect(await screen.findByText("Per-task override")).toBeInTheDocument();
     expect(screen.getByText(/Effective node/i)).toBeInTheDocument();
+    expect(screen.getByText("Online")).toBeInTheDocument();
   });
 
   it("renders routing summary with project default", async () => {
@@ -96,6 +97,7 @@ describe("RoutingTab", () => {
 
     expect(await screen.findByText("Local (no routing configured)")).toBeInTheDocument();
     expect(screen.getByText("No routing")).toBeInTheDocument();
+    expect(screen.getByText("(not blocked)")).toBeInTheDocument();
   });
 
   it.each([

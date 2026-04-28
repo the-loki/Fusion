@@ -15,6 +15,8 @@ export const VALID_SETTINGS = [
   "defaultModel",
   "runStepsInNewSessions",
   "maxParallelSteps",
+  "defaultNodeId",
+  "unavailableNodePolicy",
 ] as const;
 
 const GLOBAL_ONLY_SETTINGS = ["ntfyEnabled", "ntfyTopic", "defaultModel"] as const;
@@ -28,6 +30,8 @@ const PROJECT_ONLY_SETTINGS = [
   "requirePlanApproval",
   "runStepsInNewSessions",
   "maxParallelSteps",
+  "defaultNodeId",
+  "unavailableNodePolicy",
 ] as const;
 
 type ValidSettingKey = (typeof VALID_SETTINGS)[number];
@@ -45,9 +49,10 @@ const NUMBER_SETTINGS: readonly string[] = ["maxConcurrent", "maxWorktrees", "ma
 
 const ENUM_SETTINGS: Record<string, readonly string[]> = {
   worktreeNaming: ["random", "task-id", "task-title"],
+  unavailableNodePolicy: ["block", "fallback-local"],
 };
 
-const STRING_SETTINGS: readonly string[] = ["taskPrefix", "ntfyTopic", "defaultModel"];
+const STRING_SETTINGS: readonly string[] = ["taskPrefix", "ntfyTopic", "defaultModel", "defaultNodeId"];
 
 // Validation ranges for numeric settings
 const NUMBER_RANGES: Record<string, { min: number; max: number }> = {
@@ -202,6 +207,10 @@ export async function runSettingsShow(projectName?: string): Promise<void> {
     {
       title: "Tasks",
       keys: ["taskPrefix", "requirePlanApproval", "includeTaskIdInCommit"],
+    },
+    {
+      title: "Node Routing",
+      keys: ["defaultNodeId", "unavailableNodePolicy"],
     },
     {
       title: "Notifications",

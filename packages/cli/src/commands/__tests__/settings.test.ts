@@ -13,6 +13,8 @@ vi.mock("@fusion/core", () => {
     githubTokenConfigured: false,
     defaultProvider: undefined,
     defaultModelId: undefined,
+    defaultNodeId: undefined,
+    unavailableNodePolicy: undefined,
   };
 
   return {
@@ -55,9 +57,15 @@ describe("settings commands", () => {
 
   it("exposes expected valid settings and parser behavior", () => {
     expect(VALID_SETTINGS).toContain("maxConcurrent");
+    expect(VALID_SETTINGS).toContain("defaultNodeId");
+    expect(VALID_SETTINGS).toContain("unavailableNodePolicy");
     expect(parseValue("ntfyEnabled", "yes")).toBe(true);
     expect(parseValue("maxConcurrent", "4")).toBe(4);
     expect(parseValue("worktreeNaming", "task-id")).toBe("task-id");
+    expect(parseValue("defaultNodeId", "node-abc-123")).toBe("node-abc-123");
+    expect(parseValue("unavailableNodePolicy", "block")).toBe("block");
+    expect(parseValue("unavailableNodePolicy", "fallback-local")).toBe("fallback-local");
+    expect(() => parseValue("unavailableNodePolicy", "invalid")).toThrow(/block, fallback-local/);
   });
 
   it("runSettingsShow without project uses global settings even if a project could resolve", async () => {
@@ -172,6 +180,24 @@ describe("settings commands", () => {
     expect(updateSettings).toHaveBeenCalledWith({ maxParallelSteps: 3 });
   });
 
+  it("runSettingsSet updates defaultNodeId and unavailableNodePolicy", async () => {
+    const updateSettings = vi.fn().mockResolvedValue(makeSettings({ defaultNodeId: "my-node", unavailableNodePolicy: "fallback-local" }));
+    const getSettings = vi.fn().mockResolvedValue(makeSettings({ defaultNodeId: "my-node", unavailableNodePolicy: "fallback-local" }));
+    vi.mocked(resolveProject).mockResolvedValue({
+      projectId: "proj-1",
+      projectName: "demo-project",
+      projectPath: "/projects/demo",
+      isRegistered: true,
+      store: { updateSettings, getSettings } as any,
+    });
+
+    await runSettingsSet("defaultNodeId", "my-node", "demo-project");
+    await runSettingsSet("unavailableNodePolicy", "fallback-local", "demo-project");
+
+    expect(updateSettings).toHaveBeenNthCalledWith(1, { defaultNodeId: "my-node" });
+    expect(updateSettings).toHaveBeenNthCalledWith(2, { unavailableNodePolicy: "fallback-local" });
+  });
+
   it("rejects maxParallelSteps values outside range", async () => {
     vi.mocked(resolveProject).mockResolvedValue({
       projectId: "proj-1",
@@ -204,5 +230,26 @@ describe("settings commands", () => {
     expect(output).toContain("Execution");
     expect(output).toContain("Run Steps In New Sessions");
     expect(output).toContain("Max Parallel Steps");
+  });
+
+  it("runSettingsShow includes Node Routing section", async () => {
+    const getSettings = vi.fn().mockResolvedValue(makeSettings({
+      defaultNodeId: "node-abc",
+      unavailableNodePolicy: "block",
+    }));
+    vi.mocked(resolveProject).mockResolvedValue({
+      projectId: "proj-1",
+      projectName: "demo-project",
+      projectPath: "/projects/demo",
+      isRegistered: true,
+      store: { getSettings } as any,
+    });
+
+    await runSettingsShow("demo-project");
+
+    const output = logSpy.mock.calls.map((args) => args.join(" ")).join("\n");
+    expect(output).toContain("Node Routing");
+    expect(output).toContain("Default Node Id");
+    expect(output).toContain("Unavailable Node Policy");
   });
 });

@@ -37,6 +37,8 @@ vi.mock("@fusion/core", () => {
         getProject: vi.fn().mockResolvedValue(undefined),
         getProjectByPath: vi.fn().mockResolvedValue(undefined),
         registerProject: vi.fn().mockResolvedValue({ id: "proj_test", name: "test", path: "/test" }),
+        getNode: vi.fn().mockResolvedValue(undefined),
+        getNodeByName: vi.fn().mockResolvedValue(undefined),
       };
     }),
   };
@@ -79,9 +81,9 @@ vi.mock("../../project-context.js", () => ({
 }));
 
 import { createInterface } from "node:readline/promises";
-import { TaskStore } from "@fusion/core";
+import { TaskStore, CentralCore } from "@fusion/core";
 import { watchFile, unwatchFile, statSync, existsSync, readFileSync } from "node:fs";
-import { runTaskShow, runTaskCreate, runTaskList, runTaskDuplicate, runTaskRefine, runTaskDelete, runTaskRetry, runTaskLogs, runTaskComment, runTaskComments, runTaskPrCreate, runTaskPlan, runTaskMove, runTaskAttach, runTaskPause, runTaskUnpause, runTaskArchive, runTaskUnarchive, runTaskSteer, runTaskImportFromGitHub, runTaskImportGitHubInteractive, runTaskUpdate, runTaskLog, runTaskMerge, type LogsOptions } from "../task.js";
+import { runTaskShow, runTaskCreate, runTaskList, runTaskDuplicate, runTaskRefine, runTaskDelete, runTaskRetry, runTaskLogs, runTaskComment, runTaskComments, runTaskPrCreate, runTaskPlan, runTaskMove, runTaskAttach, runTaskPause, runTaskUnpause, runTaskArchive, runTaskUnarchive, runTaskSteer, runTaskSetNode, runTaskClearNode, runTaskImportFromGitHub, runTaskImportGitHubInteractive, runTaskUpdate, runTaskLog, runTaskMerge, type LogsOptions } from "../task.js";
 import {
   getCurrentRepo,
   isGhAuthenticated,
@@ -159,6 +161,151 @@ describe("runTaskShow", () => {
     expect(headerLine).toBeDefined();
     expect(headerLine![0]).toContain("My Task Title");
     expect(headerLine![0]).not.toContain("This is the full description");
+  });
+});
+
+describe("task node overrides", () => {
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    exitSpy = vi.spyOn(process, "exit").mockImplementation((code?: string | number | null) => {
+      throw new Error(`process.exit:${code ?? 0}`);
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("runTaskSetNode resolves node name and updates task", async () => {
+    const updateTask = vi.fn().mockResolvedValue(makeTask({ nodeId: "node-123" }));
+    (TaskStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => ({
+      init: vi.fn(),
+      getTask: vi.fn().mockResolvedValue(makeTask({ column: "todo" })),
+      updateTask,
+    }));
+
+    const getNodeByName = vi.fn().mockResolvedValue({ id: "node-123", name: "my-remote" });
+    const getNode = vi.fn().mockResolvedValue(undefined);
+    (CentralCore as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => ({
+      init: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+      getNode,
+      getNodeByName,
+    }));
+
+    await runTaskSetNode("FN-001", "my-remote");
+    expect(updateTask).toHaveBeenCalledWith("FN-001", { nodeId: "node-123" });
+  });
+
+  it("runTaskSetNode accepts raw node id", async () => {
+    const updateTask = vi.fn().mockResolvedValue(makeTask({ nodeId: "12345678-1234-1234-1234-123456789012" }));
+    (TaskStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => ({
+      init: vi.fn(),
+      getTask: vi.fn().mockResolvedValue(makeTask({ column: "todo" })),
+      updateTask,
+    }));
+
+    const getNode = vi.fn().mockResolvedValue({ id: "12345678-1234-1234-1234-123456789012", name: "raw" });
+    (CentralCore as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => ({
+      init: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+      getNode,
+      getNodeByName: vi.fn().mockResolvedValue(undefined),
+    }));
+
+    await runTaskSetNode("FN-001", "12345678-1234-1234-1234-123456789012");
+    expect(updateTask).toHaveBeenCalledWith("FN-001", { nodeId: "12345678-1234-1234-1234-123456789012" });
+  });
+
+  it("runTaskSetNode blocks in-progress tasks", async () => {
+    (TaskStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => ({
+      init: vi.fn(),
+      getTask: vi.fn().mockResolvedValue(makeTask({ column: "in-progress" })),
+    }));
+
+    await expect(runTaskSetNode("FN-001", "my-remote")).rejects.toThrow("process.exit:1");
+    expect(errorSpy).toHaveBeenCalledWith("Cannot change node override: task FN-001 is in progress");
+  });
+
+  it("runTaskSetNode errors when node is unknown", async () => {
+    (TaskStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => ({
+      init: vi.fn(),
+      getTask: vi.fn().mockResolvedValue(makeTask({ column: "todo" })),
+      updateTask: vi.fn(),
+    }));
+
+    (CentralCore as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => ({
+      init: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+      getNode: vi.fn().mockResolvedValue(undefined),
+      getNodeByName: vi.fn().mockResolvedValue(undefined),
+    }));
+
+    await expect(runTaskSetNode("FN-001", "missing-node")).rejects.toThrow("process.exit:1");
+  });
+
+  it("runTaskClearNode clears override", async () => {
+    const updateTask = vi.fn().mockResolvedValue(makeTask({ nodeId: undefined }));
+    (TaskStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => ({
+      init: vi.fn(),
+      getTask: vi.fn().mockResolvedValue(makeTask({ column: "todo", nodeId: "node-123" })),
+      updateTask,
+    }));
+
+    await runTaskClearNode("FN-001");
+    expect(updateTask).toHaveBeenCalledWith("FN-001", { nodeId: null });
+  });
+
+  it("runTaskClearNode blocks in-progress tasks", async () => {
+    (TaskStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => ({
+      init: vi.fn(),
+      getTask: vi.fn().mockResolvedValue(makeTask({ column: "in-progress" })),
+    }));
+
+    await expect(runTaskClearNode("FN-001")).rejects.toThrow("process.exit:1");
+    expect(errorSpy).toHaveBeenCalledWith("Cannot change node override: task FN-001 is in progress");
+  });
+
+  it("runTaskShow displays node routing info", async () => {
+    (TaskStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => ({
+      init: vi.fn(),
+      getTask: vi.fn().mockResolvedValue(makeTask({ nodeId: "node-123", column: "todo" })),
+      getSettings: vi.fn().mockResolvedValue({ unavailableNodePolicy: "block" }),
+    }));
+    (CentralCore as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => ({
+      init: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+      getNode: vi.fn().mockResolvedValue({ id: "node-123", name: "remote-a" }),
+      getNodeByName: vi.fn().mockResolvedValue(undefined),
+    }));
+
+    await runTaskShow("FN-001");
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("Node:");
+    expect(output).toContain("Unavailable Node Policy");
+  });
+
+  it("runTaskCreate with node resolves and applies override", async () => {
+    const updateTask = vi.fn().mockResolvedValue(makeTask({ nodeId: "node-123" }));
+    (TaskStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => ({
+      init: vi.fn(),
+      createTask: vi.fn().mockResolvedValue(makeTask({ id: "FN-900", column: "triage" })),
+      updateTask,
+    }));
+    (CentralCore as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => ({
+      init: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+      getNode: vi.fn().mockResolvedValue(undefined),
+      getNodeByName: vi.fn().mockResolvedValue({ id: "node-123", name: "remote-a" }),
+    }));
+
+    await runTaskCreate("new task", undefined, undefined, undefined, "remote-a");
+    expect(updateTask).toHaveBeenCalledWith("FN-900", { nodeId: "node-123" });
   });
 });
 
