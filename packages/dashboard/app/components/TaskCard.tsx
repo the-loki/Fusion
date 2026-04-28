@@ -169,6 +169,20 @@ function formatElapsedDuration(elapsedMs: number): string {
   return `${elapsedDays}d`;
 }
 
+export function formatElapsedDurationDone(elapsedMs: number): string {
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 0) return "";
+  if (elapsedMs === 0) return "";
+
+  const elapsedMinutes = Math.ceil(elapsedMs / 60_000);
+  if (elapsedMinutes < 59) return `${elapsedMinutes}m`;
+
+  const elapsedHours = Math.ceil(elapsedMs / 3_600_000);
+  if (elapsedHours < 24) return `${elapsedHours}h`;
+
+  const elapsedDays = Math.ceil(elapsedMs / 86_400_000);
+  return `${elapsedDays}d`;
+}
+
 
 interface TaskCardProps {
   task: Task;
@@ -692,17 +706,22 @@ function TaskCardComponent({
       return null;
     }
 
-    const elapsedLabel = formatElapsedDuration(instrumentedMs);
-    if (!elapsedLabel) {
-      return null;
-    }
-
     if (task.column === "in-progress") {
+      const elapsedLabel = formatElapsedDuration(instrumentedMs);
+      if (!elapsedLabel) {
+        return null;
+      }
+
       return {
         label: elapsedLabel,
         title: `Execution time ${elapsedLabel}`,
         ariaLabel: `Execution time ${elapsedLabel}`,
       };
+    }
+
+    const elapsedLabel = formatElapsedDurationDone(instrumentedMs);
+    if (!elapsedLabel) {
+      return null;
     }
 
     const completionMs = getDoneCompletionMs(task);

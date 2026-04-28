@@ -1,6 +1,6 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
-import { TaskCard } from "../TaskCard";
+import { TaskCard, formatElapsedDurationDone } from "../TaskCard";
 import type { Task } from "@fusion/core";
 
 // Mock lucide-react to avoid SVG rendering issues in test env
@@ -710,6 +710,72 @@ describe("TaskCard", () => {
     );
 
     expect(container.querySelector(".card-time-indicator")).toBeNull();
+  });
+
+  describe("formatElapsedDuration rounding for done tasks", () => {
+    it.each([
+      [59_999, "1m"],
+      [60_000, "1m"],
+      [90_000, "2m"],
+      [3_540_000, "1h"],
+      [3_600_000, "1h"],
+      [86_400_000, "1d"],
+    ])("formats %dms as %s for done tasks", (elapsedMs, expected) => {
+      expect(formatElapsedDurationDone(elapsedMs)).toBe(expected);
+    });
+
+    it("keeps in-progress rounding with floor semantics", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-04-25T12:01:30.000Z"));
+
+      const { container } = render(
+        <TaskCard
+          task={makeTask({
+            column: "in-progress",
+            workflowStepResults: [
+              {
+                workflowStepId: "step-1",
+                workflowStepName: "Plan",
+                phase: "pre-merge" as const,
+                status: "pending" as const,
+                startedAt: "2026-04-25T12:00:00.000Z",
+              },
+            ],
+          })}
+          onOpenDetail={noop}
+          addToast={noop}
+        />,
+      );
+
+      expect(container.querySelector(".card-time-indicator")?.textContent).toContain("1m");
+    });
+
+    it("renders done-card timer with ceiling rounding for fractional minutes", () => {
+      const { container } = render(
+        <TaskCard
+          task={makeTask({
+            column: "done",
+            createdAt: "2026-04-25T12:00:00.000Z",
+            columnMovedAt: "2026-04-25T12:04:30.000Z",
+            updatedAt: "2026-04-25T12:04:30.000Z",
+            workflowStepResults: [
+              {
+                workflowStepId: "step-1",
+                workflowStepName: "Plan",
+                phase: "pre-merge" as const,
+                status: "passed" as const,
+                startedAt: "2026-04-25T12:00:00.000Z",
+                completedAt: "2026-04-25T12:04:30.000Z",
+              },
+            ],
+          })}
+          onOpenDetail={noop}
+          addToast={noop}
+        />,
+      );
+
+      expect(container.querySelector(".card-time-indicator")?.textContent).toContain("5m");
+    });
   });
 
   it("live-ticks workflow runtime for in-progress steps", () => {
