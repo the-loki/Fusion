@@ -628,6 +628,7 @@ export type {
   ChatSessionSummary,
   EnrichedChatSession,
   ChatMention,
+  ChatAttachment,
   ChatMessage,
   ChatMessageCreateInput,
   ChatSessionCreateInput,

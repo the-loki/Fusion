@@ -16,6 +16,7 @@ import type {
   Agent,
   AgentStore,
   ChatMention,
+  ChatAttachment,
   ChatStore,
   ChatSession,
   ChatSessionCreateInput,
@@ -123,6 +124,12 @@ const MAX_MESSAGES_PER_IP_PER_MINUTE = 30;
 /** Maximum file size for # mentions (50KB). Files larger than this are skipped. */
 const MAX_REFERENCED_FILE_SIZE = 50 * 1024;
 
+function formatAttachmentSize(size: number): string {
+  if (size < 1024) return `${size}B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)}KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)}MB`;
+}
+
 // ── Types ───────────────────────────────────────────────────────────────────
 
 /** SSE event types for chat streaming */
@@ -131,7 +138,7 @@ export type ChatStreamEvent =
   | { type: "text"; data: string }
   | { type: "tool_start"; data: { toolName: string; args?: Record<string, unknown> } }
   | { type: "tool_end"; data: { toolName: string; isError: boolean; result?: unknown } }
-  | { type: "done"; data: { messageId: string } }
+  | { type: "done"; data: { messageId: string; attachments?: ChatAttachment[] } }
   | { type: "error"; data: string };
 
 /** Callback function for streaming events */
@@ -555,6 +562,7 @@ export class ChatManager {
     content: string,
     modelProvider?: string,
     modelId?: string,
+    attachments?: ChatAttachment[],
   ): Promise<void> {
     const abortController = new AbortController();
     this.activeGenerations.set(sessionId, { abortController });
@@ -592,6 +600,7 @@ export class ChatManager {
           role: "user",
           content,
           metadata: mentions.length > 0 ? { mentions } : undefined,
+          attachments,
         });
       } catch (err) {
         chatStreamManager.broadcast(sessionId, {
@@ -683,6 +692,12 @@ export class ChatManager {
       // Resolve #file references in the current message before sending to AI
       const resolvedContent = await resolveFileReferences(content, this.rootDir);
 
+      const attachmentSummary = attachments && attachments.length > 0
+        ? `[User attached: ${attachments
+          .map((attachment) => `${attachment.originalName} (${attachment.mimeType}, ${formatAttachmentSize(attachment.size)})`)
+          .join(", ")}]`
+        : "";
+
       const promptContent = conversationMessages.length > 0
         ? [
             "## Previous Conversation",
@@ -694,9 +709,10 @@ export class ChatManager {
             "",
             "## Current Message",
             "",
+            attachmentSummary,
             resolvedContent,
-          ].join("\n")
-        : resolvedContent;
+          ].filter(Boolean).join("\n")
+        : [attachmentSummary, resolvedContent].filter(Boolean).join("\n\n");
 
       // Create AI agent session
       agentResult = await createFnAgent({
@@ -802,7 +818,7 @@ export class ChatManager {
       // Broadcast done event
       chatStreamManager.broadcast(sessionId, {
         type: "done",
-        data: { messageId: assistantMessage.id },
+        data: { messageId: assistantMessage.id, attachments },
       });
     } catch (err) {
       if (abortController.signal.aborted) {

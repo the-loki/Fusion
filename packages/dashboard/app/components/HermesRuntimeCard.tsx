@@ -212,11 +212,28 @@ export function HermesRuntimeCard() {
     <RuntimeCardShell
       testId="hermes-runtime-card"
       logo={
-        <img
-          src="/brands/hermes-logo.svg"
-          alt="Nous Research"
-          style={{ width: 40, height: 40, display: "block", filter: "invert(1)" }}
-        />
+        <span
+          style={{
+            width: 40,
+            height: 40,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: "50%",
+            background: "#fff",
+          }}
+        >
+          <img
+            src="/brands/hermes-logo.svg"
+            alt="Nous Research"
+            style={{
+              width: 28,
+              height: 28,
+              display: "block",
+              filter: "invert(1) brightness(0)",
+            }}
+          />
+        </span>
       }
       name="Hermes"
       subname="by Nous Research"

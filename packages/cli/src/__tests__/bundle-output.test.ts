@@ -116,21 +116,20 @@ describe("CLI bundle output", () => {
     expect(existsSync(join(stagedRoot, "src", "process-manager.ts"))).toBe(true);
   });
 
-  it("pi-claude-cli source does not import cross-spawn", () => {
+  it("pi-claude-cli source imports cross-spawn", () => {
     const processManagerSource = readFileSync(join(cliRoot, "dist", "pi-claude-cli", "src", "process-manager.ts"), "utf-8");
 
-    expect(processManagerSource).not.toMatch(/import\s+.*cross-spawn/);
-    expect(processManagerSource).toMatch(/import\s*\{[^}]*spawn[^}]*\}\s*from\s*["']node:child_process["']/);
+    expect(processManagerSource).toMatch(/import\s+spawn\s+from\s*["']cross-spawn["']/);
   });
 
-  it("pi-claude-cli package.json has no cross-spawn dependency", () => {
+  it("pi-claude-cli package.json includes cross-spawn dependency", () => {
     const packageJson = JSON.parse(
       readFileSync(join(cliRoot, "dist", "pi-claude-cli", "package.json"), "utf-8"),
     ) as {
       dependencies?: Record<string, string>;
     };
 
-    expect(packageJson.dependencies?.["cross-spawn"]).toBeUndefined();
+    expect(packageJson.dependencies?.["cross-spawn"]).toBeDefined();
   });
 
   it("runtime native assets are staged after build:exe", () => {

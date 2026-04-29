@@ -949,6 +949,7 @@ export function createApiRoutes(store: TaskStore, options?: ServerOptions): Rout
   registerChatRoutes(routeContext, {
     parseLastEventId,
     validateOptionalModelField,
+    upload,
   });
   registerMessagingScriptRoutes(routeContext);
   registerGitGitHubRoutes(routeContext);

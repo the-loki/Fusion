@@ -1,4 +1,8 @@
-import type { EnrichedChatSession } from "@fusion/core";
+import { randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { basename, join, resolve } from "node:path";
+import type { EnrichedChatSession, ChatAttachment } from "@fusion/core";
 import { ApiError, badRequest, internalError, notFound } from "../api-error.js";
 import { rateLimit, RATE_LIMITS } from "../rate-limit.js";
 import { writeSSEEvent } from "../sse-buffer.js";
@@ -7,11 +11,52 @@ import type { ApiRoutesContext } from "./types.js";
 interface ChatRouteDeps {
   parseLastEventId: (req: import("express").Request) => number | undefined;
   validateOptionalModelField: (value: unknown, fieldName: string) => string | undefined;
+  upload: import("multer").Multer;
+}
+
+const CHAT_ALLOWED_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "text/plain",
+  "application/json",
+  "text/yaml",
+  "text/x-toml",
+  "text/csv",
+  "application/xml",
+]);
+
+const CHAT_MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024;
+
+function resolveAttachmentPath(rootDir: string, sessionId: string, filename: string): { sessionDir: string; filePath: string } {
+  const sessionDir = resolve(rootDir, ".fusion", "chat-attachments", sessionId);
+  const safeName = basename(filename);
+  const filePath = resolve(sessionDir, safeName);
+  if (!filePath.startsWith(`${sessionDir}/`) && filePath !== sessionDir) {
+    throw badRequest("Invalid attachment path");
+  }
+  return { sessionDir, filePath };
 }
 
 export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): void {
   const { router, options, getProjectContext, chatLogger, rethrowAsApiError } = ctx;
-  const { parseLastEventId, validateOptionalModelField } = deps;
+  const { parseLastEventId, validateOptionalModelField, upload } = deps;
+
+  const uploadChatAttachment: import("express").RequestHandler = (req, res, next) => {
+    upload.single("file")(req, res, (err?: unknown) => {
+      if (!err) {
+        next();
+        return;
+      }
+      const multerError = err as { code?: string; message?: string };
+      if (multerError?.code === "LIMIT_FILE_SIZE") {
+        next(badRequest(`File too large. Maximum: ${CHAT_MAX_ATTACHMENT_SIZE} bytes (5MB)`));
+        return;
+      }
+      next(err as Error);
+    });
+  };
 
   // ── Chat Routes ────────────────────────────────────────────────────────────
 
@@ -321,6 +366,95 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
     }
   });
 
+  router.post("/chat/sessions/:id/attachments", rateLimit(RATE_LIMITS.mutation), uploadChatAttachment, async (req, res) => {
+    try {
+      const chatStore = options?.chatStore;
+      if (!chatStore) {
+        throw internalError("Chat store not available");
+      }
+
+      const sessionId = String(req.params.id);
+      const session = chatStore.getSession(sessionId);
+      if (!session) {
+        throw notFound(`Chat session ${sessionId} not found`);
+      }
+
+      const file = req.file;
+      if (!file) {
+        throw badRequest("file is required");
+      }
+
+      if (!CHAT_ALLOWED_MIME_TYPES.has(file.mimetype)) {
+        throw badRequest(`Invalid mime type '${file.mimetype}'`);
+      }
+
+      if (file.size > CHAT_MAX_ATTACHMENT_SIZE) {
+        throw badRequest(`File too large (${file.size} bytes). Maximum: ${CHAT_MAX_ATTACHMENT_SIZE} bytes (5MB)`);
+      }
+
+      const { store: scopedStore } = await getProjectContext(req);
+      const rootDir = scopedStore.getRootDir();
+      const sessionDir = resolve(rootDir, ".fusion", "chat-attachments", sessionId);
+      await mkdir(sessionDir, { recursive: true });
+
+      const sanitizedFilename = (file.originalname || "attachment").replace(/[^a-zA-Z0-9._-]/g, "_");
+      const filename = `${Date.now()}-${sanitizedFilename}`;
+      const filePath = join(sessionDir, filename);
+      await writeFile(filePath, file.buffer);
+
+      const attachment: ChatAttachment = {
+        id: `att-${randomUUID().slice(0, 8)}`,
+        filename,
+        originalName: file.originalname,
+        mimeType: file.mimetype,
+        size: file.size,
+        createdAt: new Date().toISOString(),
+      };
+
+      res.status(201).json({ attachment });
+    } catch (err: unknown) {
+      if (err instanceof ApiError) throw err;
+      rethrowAsApiError(err, "Failed to upload chat attachment");
+    }
+  });
+
+  router.get("/chat/sessions/:id/attachments/:filename", async (req, res) => {
+    try {
+      const { store: scopedStore } = await getProjectContext(req);
+      const rootDir = scopedStore.getRootDir();
+      const { filePath } = resolveAttachmentPath(rootDir, String(req.params.id), String(req.params.filename));
+      const stream = createReadStream(filePath);
+      stream.on("error", () => {
+        if (!res.headersSent) {
+          res.status(404).json({ error: "Attachment not found" });
+        } else {
+          res.end();
+        }
+      });
+      res.setHeader("Content-Type", "application/octet-stream");
+      stream.pipe(res);
+    } catch (err: unknown) {
+      if (err instanceof ApiError) throw err;
+      rethrowAsApiError(err, "Failed to fetch chat attachment");
+    }
+  });
+
+  router.delete("/chat/sessions/:id/attachments/:filename", rateLimit(RATE_LIMITS.mutation), async (req, res) => {
+    try {
+      const { store: scopedStore } = await getProjectContext(req);
+      const rootDir = scopedStore.getRootDir();
+      const { filePath } = resolveAttachmentPath(rootDir, String(req.params.id), String(req.params.filename));
+      await rm(filePath);
+      res.json({ success: true });
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
+        throw notFound("Attachment not found");
+      }
+      if (err instanceof ApiError) throw err;
+      rethrowAsApiError(err, "Failed to delete chat attachment");
+    }
+  });
+
   /**
    * POST /api/chat/sessions/:id/messages
    * Send a message and stream AI response via SSE.
@@ -340,10 +474,11 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
         throw internalError("Chat store or manager not available");
       }
 
-      const { content, modelProvider, modelId } = req.body as {
+      const { content, modelProvider, modelId, attachments } = req.body as {
         content?: string;
         modelProvider?: string;
         modelId?: string;
+        attachments?: ChatAttachment[];
       };
       const sessionId = String(req.params.id);
 
@@ -446,6 +581,7 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
         content.trim(),
         normalizedProvider,
         normalizedModelId,
+        Array.isArray(attachments) ? attachments : undefined,
       ).catch((err: Error) => {
         chatLogger.error("Error in sendMessage", {
           error: err.message,
@@ -533,6 +669,9 @@ export function registerChatRoutes(ctx: ApiRoutesContext, deps: ChatRouteDeps): 
       "PATCH /chat/sessions/:id",
       "DELETE /chat/sessions/:id",
       "GET /chat/sessions/:id/messages",
+      "POST /chat/sessions/:id/attachments",
+      "GET /chat/sessions/:id/attachments/:filename",
+      "DELETE /chat/sessions/:id/attachments/:filename",
       "POST /chat/sessions/:id/messages",
       "POST /chat/sessions/:id/cancel",
       "DELETE /chat/sessions/:id/messages/:messageId",

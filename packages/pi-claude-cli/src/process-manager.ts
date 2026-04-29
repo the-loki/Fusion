@@ -6,7 +6,7 @@
  * Also provides startup validation for CLI presence and authentication.
  */
 
-import { spawn, execSync, type ChildProcess } from "node:child_process";
+import { execSync, spawn, type ChildProcess } from "node:child_process";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";

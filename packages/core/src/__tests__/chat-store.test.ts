@@ -430,6 +430,38 @@ describe("ChatStore", () => {
         expect(message.metadata).toEqual({ tokens: 150, finishReason: "stop" });
       });
 
+      it("round-trips attachments metadata", () => {
+        const session = createTestSession(store);
+        const attachments = [{
+          id: "att-abc123",
+          filename: "123-file.png",
+          originalName: "file.png",
+          mimeType: "image/png",
+          size: 1024,
+          createdAt: new Date().toISOString(),
+        }];
+
+        const created = store.addMessage(session.id, {
+          role: "user",
+          content: "with attachment",
+          attachments,
+        });
+
+        expect(created.attachments).toEqual(attachments);
+        const loaded = store.getMessage(created.id);
+        expect(loaded?.attachments).toEqual(attachments);
+      });
+
+      it("returns undefined attachments when not provided", () => {
+        const session = createTestSession(store);
+        const created = store.addMessage(session.id, {
+          role: "user",
+          content: "without attachment",
+        });
+
+        expect(created.attachments).toBeUndefined();
+      });
+
       it("throws error when session does not exist", () => {
         expect(() => {
           store.addMessage("chat-nonexistent", {
@@ -451,6 +483,53 @@ describe("ChatStore", () => {
         expect(new Date(updated.updatedAt).getTime()).toBeGreaterThan(
           new Date(originalUpdatedAt).getTime(),
         );
+      });
+    });
+
+    describe("addMessageAttachment", () => {
+      it("appends to existing attachments", () => {
+        const session = createTestSession(store);
+        const message = store.addMessage(session.id, {
+          role: "user",
+          content: "hello",
+          attachments: [{
+            id: "att-1",
+            filename: "a.txt",
+            originalName: "a.txt",
+            mimeType: "text/plain",
+            size: 1,
+            createdAt: new Date().toISOString(),
+          }],
+        });
+
+        const updated = store.addMessageAttachment(session.id, message.id, {
+          id: "att-2",
+          filename: "b.txt",
+          originalName: "b.txt",
+          mimeType: "text/plain",
+          size: 2,
+          createdAt: new Date().toISOString(),
+        });
+
+        expect(updated.attachments).toHaveLength(2);
+        expect(updated.attachments?.[1]?.id).toBe("att-2");
+      });
+
+      it("creates attachment array when message has none", () => {
+        const session = createTestSession(store);
+        const message = store.addMessage(session.id, { role: "user", content: "hello" });
+
+        const updated = store.addMessageAttachment(session.id, message.id, {
+          id: "att-3",
+          filename: "c.txt",
+          originalName: "c.txt",
+          mimeType: "text/plain",
+          size: 3,
+          createdAt: new Date().toISOString(),
+        });
+
+        expect(updated.attachments).toHaveLength(1);
+        expect(updated.attachments?.[0]?.id).toBe("att-3");
       });
     });
 
@@ -769,6 +848,26 @@ describe("ChatStore", () => {
 
       expect(handler).toHaveBeenCalledTimes(1);
       expect(handler.mock.calls[0][0].id).toBe(session.id);
+    });
+
+    it("addMessageAttachment emits chat:message:updated", () => {
+      const handler = vi.fn();
+      store.on("chat:message:updated", handler);
+
+      const session = createTestSession(store);
+      const message = store.addMessage(session.id, { role: "user", content: "hello" });
+
+      const updated = store.addMessageAttachment(session.id, message.id, {
+        id: "att-evt",
+        filename: "evt.txt",
+        originalName: "evt.txt",
+        mimeType: "text/plain",
+        size: 4,
+        createdAt: new Date().toISOString(),
+      });
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler).toHaveBeenCalledWith(updated);
     });
 
     it("deleteMessage does NOT emit for non-existent message", () => {

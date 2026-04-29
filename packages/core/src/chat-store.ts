@@ -19,6 +19,7 @@ import type {
   ChatSessionStatus,
   ChatMessage,
   ChatMessageRole,
+  ChatAttachment,
   ChatMessageCreateInput,
   ChatSessionCreateInput,
   ChatSessionUpdateInput,
@@ -38,6 +39,8 @@ export interface ChatStoreEvents {
   "chat:message:added": [message: ChatMessage];
   /** Emitted when a message is deleted from a session */
   "chat:message:deleted": [messageId: string];
+  /** Emitted when a message is updated (e.g., attachment appended) */
+  "chat:message:updated": [message: ChatMessage];
 }
 
 // ── Row Interfaces ───────────────────────────────────────────────────
@@ -63,6 +66,7 @@ interface ChatMessageRow {
   content: string;
   thinkingOutput: string | null;
   metadata: string | null;
+  attachments: string | null;
   createdAt: string;
 }
 
@@ -107,6 +111,7 @@ export class ChatStore extends EventEmitter<ChatStoreEvents> {
       content: row.content,
       thinkingOutput: row.thinkingOutput ?? null,
       metadata: fromJson<Record<string, unknown>>(row.metadata) ?? null,
+      attachments: fromJson<ChatAttachment[]>(row.attachments) ?? undefined,
       createdAt: row.createdAt,
     };
   }
@@ -369,12 +374,13 @@ export class ChatStore extends EventEmitter<ChatStoreEvents> {
       content: input.content,
       thinkingOutput: input.thinkingOutput ?? null,
       metadata: input.metadata ?? null,
+      attachments: input.attachments,
       createdAt: now,
     };
 
     this.db.prepare(`
-      INSERT INTO chat_messages (id, sessionId, role, content, thinkingOutput, metadata, createdAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO chat_messages (id, sessionId, role, content, thinkingOutput, metadata, attachments, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       message.id,
       message.sessionId,
@@ -382,6 +388,7 @@ export class ChatStore extends EventEmitter<ChatStoreEvents> {
       message.content,
       message.thinkingOutput,
       toJsonNullable(message.metadata),
+      toJsonNullable(message.attachments),
       message.createdAt,
     );
 
@@ -391,6 +398,32 @@ export class ChatStore extends EventEmitter<ChatStoreEvents> {
     this.db.bumpLastModified();
     this.emit("chat:message:added", message);
     return message;
+  }
+
+  /**
+   * Append a file attachment metadata record to an existing message.
+   */
+  addMessageAttachment(sessionId: string, messageId: string, attachment: ChatAttachment): ChatMessage {
+    const message = this.getMessage(messageId);
+    if (!message || message.sessionId !== sessionId) {
+      throw new Error(`Message ${messageId} not found in session ${sessionId}`);
+    }
+
+    const updatedAttachments = [...(message.attachments ?? []), attachment];
+    this.db.prepare(`
+      UPDATE chat_messages
+      SET attachments = ?
+      WHERE id = ?
+    `).run(toJsonNullable(updatedAttachments), messageId);
+
+    const updated = this.getMessage(messageId);
+    if (!updated) {
+      throw new Error(`Failed to update message ${messageId}`);
+    }
+
+    this.db.bumpLastModified();
+    this.emit("chat:message:updated", updated);
+    return updated;
   }
 
   /**

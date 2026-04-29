@@ -86,7 +86,7 @@ export function probeFts5(db: DatabaseSync): boolean {
 
 // ── Schema Definition ────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 50;
+const SCHEMA_VERSION = 51;
 
 function normalizeTaskComments(
   steeringComments: SteeringComment[] | undefined,
@@ -1938,6 +1938,14 @@ export class Database {
       this.applyMigration(50, () => {
         this.addColumnIfMissing("tasks", "effectiveNodeId", "TEXT");
         this.addColumnIfMissing("tasks", "effectiveNodeSource", "TEXT");
+      });
+    }
+
+    if (version < 51) {
+      this.applyMigration(51, () => {
+        if (this.hasTable("chat_messages")) {
+          this.addColumnIfMissing("chat_messages", "attachments", "TEXT");
+        }
       });
     }
 

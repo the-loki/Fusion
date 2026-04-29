@@ -64,6 +64,18 @@ export interface ChatMention {
 }
 
 /**
+ * File attachment metadata associated with a chat message.
+ */
+export interface ChatAttachment {
+  id: string;
+  filename: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  createdAt: string;
+}
+
+/**
  * A single message within a chat session.
  */
 export interface ChatMessage {
@@ -78,6 +90,8 @@ export interface ChatMessage {
   thinkingOutput: string | null;
   /** Additional metadata about the message (model, tokens, finish reason, etc.) */
   metadata: Record<string, unknown> | null;
+  /** Optional file attachments uploaded before sending this message */
+  attachments?: ChatAttachment[];
   /** When the message was created */
   createdAt: string;
 }
@@ -94,6 +108,8 @@ export interface ChatMessageCreateInput {
   thinkingOutput?: string | null;
   /** Optional metadata (e.g., { tokens: 150, finishReason: "stop" }) */
   metadata?: Record<string, unknown> | null;
+  /** Optional attachment metadata uploaded before send */
+  attachments?: ChatAttachment[];
 }
 
 /**
