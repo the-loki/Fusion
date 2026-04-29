@@ -3,7 +3,7 @@
  *
  * All tests that touch the filesystem or resolve paths from process.cwd()
  * should use these helpers so they never touch the real user's ~/Projects or
- * the repo's real .fusion/ directory.
+ * the repo's protected .fusion/ directory.
  *
  * - `tempWorkspace()` returns a tracked temp dir that is auto-removed in afterEach.
  * - `useIsolatedCwd()` chdirs into a tracked temp dir for the test and restores after.
@@ -12,40 +12,12 @@
 
 import { mkdtempSync, rmSync, existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach } from "vitest";
-
-let realFusionRootCache: string | null = null;
-function getRealFusionRoot(): string | null {
-  if (realFusionRootCache !== null) return realFusionRootCache;
-  const fromEnv = process.env.FUSION_TEST_REAL_ROOT;
-  if (fromEnv) {
-    try {
-      realFusionRootCache = realpathSync(fromEnv);
-    } catch {
-      realFusionRootCache = resolve(fromEnv);
-    }
-    return realFusionRootCache;
-  }
-  return null;
-}
+import { assertOutsideRealFusionPath } from "../test-safety.js";
 
 export function assertOutsideRealFusion(path: string, context = "operation"): void {
-  const realRoot = getRealFusionRoot();
-  if (!realRoot) return;
-  let candidate: string;
-  try {
-    candidate = realpathSync(path);
-  } catch {
-    candidate = resolve(path);
-  }
-  const realFusionDir = join(realRoot, ".fusion");
-  if (candidate === realFusionDir || candidate.startsWith(realFusionDir + sep)) {
-    throw new Error(
-      `[test-safety] ${context} targeted real user .fusion directory: ${candidate}\n` +
-      `Tests must operate inside a temp directory. Use tempWorkspace() or useIsolatedCwd().`
-    );
-  }
+  assertOutsideRealFusionPath(path, context);
 }
 
 const activeTempDirs = new Set<string>();

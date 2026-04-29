@@ -1,22 +1,26 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { existsSync, renameSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import vitestConfig from "../../vitest.config";
 
 const cliRoot = join(__dirname, "..", "..");
 const workspaceRoot = join(cliRoot, "..", "..");
+const hiddenDistRoot = join(workspaceRoot, `.tmp-fn-vitest-workspace-resolution-${process.pid}`);
 
 const internalPackages = ["core", "engine", "dashboard"] as const;
 const movedDistDirs: Array<{ from: string; to: string }> = [];
 
 function hideInternalPackageDistDirs() {
+  rmSync(hiddenDistRoot, { recursive: true, force: true });
+  mkdirSync(hiddenDistRoot, { recursive: true });
+
   for (const pkg of internalPackages) {
     const distPath = join(workspaceRoot, "packages", pkg, "dist");
     if (!existsSync(distPath)) {
       continue;
     }
 
-    const hiddenPath = `${distPath}.__fn2360-hidden-${process.pid}`;
+    const hiddenPath = join(hiddenDistRoot, `${pkg}-dist`);
     if (existsSync(hiddenPath)) {
       rmSync(hiddenPath, { recursive: true, force: true });
     }
@@ -39,6 +43,7 @@ function restoreInternalPackageDistDirs() {
     renameSync(to, from);
   }
   movedDistDirs.length = 0;
+  rmSync(hiddenDistRoot, { recursive: true, force: true });
 }
 
 describe("CLI Vitest workspace resolution", () => {

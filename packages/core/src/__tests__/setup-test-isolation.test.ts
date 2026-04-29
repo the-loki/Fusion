@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { mkdirSync, writeFileSync } from "node:fs";
+import * as fsPromises from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Database } from "../db.js";
 
 const TEMP_HOME_PREFIX = "fn-test-home-";
 
@@ -45,5 +48,39 @@ describe("test isolation setup", () => {
     const repoFusionDir = join(repoRoot, ".fusion");
 
     expect(process.cwd().startsWith(repoFusionDir)).toBe(false);
+  });
+
+  it("blocks sync filesystem writes into the repository .fusion directory", () => {
+    const thisFile = fileURLToPath(import.meta.url);
+    const repoRoot = resolve(dirname(thisFile), "../../../../");
+    const blockedPath = join(repoRoot, ".fusion", "__vitest-guard-sync__");
+
+    expect(() => mkdirSync(blockedPath, { recursive: true })).toThrow(
+      "targeted protected repo .fusion directory",
+    );
+    expect(() => writeFileSync(join(repoRoot, ".fusion", "__vitest-guard-sync__.txt"), "x")).toThrow(
+      "targeted protected repo .fusion directory",
+    );
+  });
+
+  it("blocks async filesystem writes into the repository .fusion directory", async () => {
+    const thisFile = fileURLToPath(import.meta.url);
+    const repoRoot = resolve(dirname(thisFile), "../../../../");
+
+    await expect(
+      fsPromises.mkdir(join(repoRoot, ".fusion", "__vitest-guard-async__"), { recursive: true }),
+    ).rejects.toThrow("targeted protected repo .fusion directory");
+    await expect(
+      fsPromises.writeFile(join(repoRoot, ".fusion", "__vitest-guard-async__.txt"), "x"),
+    ).rejects.toThrow("targeted protected repo .fusion directory");
+  });
+
+  it("blocks SQLite opens against the repository fusion database", () => {
+    const thisFile = fileURLToPath(import.meta.url);
+    const repoRoot = resolve(dirname(thisFile), "../../../../");
+
+    expect(() => new Database(join(repoRoot, ".fusion"))).toThrow(
+      "targeted protected repo .fusion directory",
+    );
   });
 });

@@ -13,6 +13,7 @@
  */
 
 import { createRequire } from "node:module";
+import { assertOutsideRealFusionPath } from "./test-safety.js";
 
 const isBun = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
 
@@ -70,6 +71,7 @@ export class DatabaseSync {
   private impl: RawDatabase;
 
   constructor(path: string) {
+    assertOutsideRealFusionPath(path, "SQLite database open");
     const Ctor = loadDatabaseCtor();
     this.impl = new Ctor(path);
   }

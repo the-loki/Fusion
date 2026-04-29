@@ -1,9 +1,14 @@
 import { defineConfig } from "vitest/config";
+import { resolve } from "node:path";
 
 export default defineConfig({
   test: {
     globals: true,
-    setupFiles: ["./src/__tests__/setup-test-isolation.ts"],
+    setupFiles: [
+      "./src/__tests__/setup-test-isolation.ts",
+      resolve(__dirname, "../core/src/__test-utils__/vitest-setup.ts"),
+    ],
+    globalSetup: [resolve(__dirname, "../core/src/__test-utils__/vitest-teardown.ts")],
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary"],
