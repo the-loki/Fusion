@@ -128,6 +128,22 @@ describe("CLI bundle output", () => {
     expect(processManagerSource).not.toMatch(/from\s*["']cross-spawn["']/);
   });
 
+  it("staged pi-claude-cli package.json keeps pi extension entry and excludes cross-spawn deps", () => {
+    const stagedPkg = JSON.parse(
+      readFileSync(join(cliRoot, "dist", "pi-claude-cli", "package.json"), "utf-8"),
+    ) as {
+      pi?: { extensions?: unknown };
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+
+    expect(stagedPkg.pi?.extensions).toEqual(["index.ts"]);
+    expect(stagedPkg.dependencies?.["cross-spawn"]).toBeUndefined();
+    expect(stagedPkg.dependencies?.["@types/cross-spawn"]).toBeUndefined();
+    expect(stagedPkg.devDependencies?.["cross-spawn"]).toBeUndefined();
+    expect(stagedPkg.devDependencies?.["@types/cross-spawn"]).toBeUndefined();
+  });
+
   it("runtime native assets are staged after build:exe", () => {
     const runtimeDir = join(cliRoot, "dist", "runtime");
     if (!existsSync(runtimeDir)) return;
