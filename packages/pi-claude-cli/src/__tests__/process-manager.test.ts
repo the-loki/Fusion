@@ -41,6 +41,7 @@ vi.mock("node:os", () => ({
 import { spawn, execSync } from "node:child_process";
 import {
   spawnClaude,
+  buildClaudeSpawnArgs,
   writeUserMessage,
   cleanupProcess,
   captureStderr,
@@ -51,6 +52,32 @@ import {
   killAllProcesses,
   cleanupSystemPromptFile,
 } from "../process-manager";
+
+describe("buildClaudeSpawnArgs", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.writeFileSync.mockReset();
+    mocks.tmpdir.mockReset();
+    mocks.tmpdir.mockReturnValue("/mock-tmp");
+  });
+
+  it("builds args including model and optional session/mcp flags", () => {
+    const args = buildClaudeSpawnArgs("claude-sonnet-4-6", undefined, {
+      resumeSessionId: "sess-1",
+      effort: "high",
+      mcpConfigPath: "/tmp/mcp.json",
+    });
+
+    expect(args).toContain("--model");
+    expect(args).toContain("claude-sonnet-4-6");
+    expect(args).toContain("--resume");
+    expect(args).toContain("sess-1");
+    expect(args).toContain("--effort");
+    expect(args).toContain("high");
+    expect(args).toContain("--mcp-config");
+    expect(args).toContain("/tmp/mcp.json");
+  });
+});
 
 describe("spawnClaude", () => {
   beforeEach(() => {

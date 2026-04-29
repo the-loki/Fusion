@@ -38,6 +38,7 @@ import {
   forceKillProcess,
   registerProcess,
   cleanupSystemPromptFile,
+  buildClaudeSpawnArgs,
 } from "./process-manager.js";
 import { parseLine } from "./stream-parser.js";
 import { createEventBridge } from "./event-bridge.js";
@@ -61,10 +62,12 @@ import { isPiKnownClaudeTool } from "./tool-mapping.js";
  * arrives (e.g. someone embeds pi-claude-cli without a stuck detector).
  */
 const INACTIVITY_TIMEOUT_MS = 30 * 60_000;
-const DEBUG_STREAM = process.env.PI_CLAUDE_CLI_DEBUG === "1";
+function isDebugStreamEnabled(): boolean {
+  return process.env.PI_CLAUDE_CLI_DEBUG === "1";
+}
 
 function debugLog(message: string): void {
-  if (!DEBUG_STREAM) return;
+  if (!isDebugStreamEnabled()) return;
   console.error(`[pi-claude-cli] ${message}`);
 }
 
@@ -131,19 +134,30 @@ export function streamViaCli(
         options?.thinkingBudgets,
       );
 
-      // Spawn subprocess
-      proc = spawnClaude(model.id, systemPrompt || undefined, {
+      const spawnOptions = {
         cwd,
         signal: options?.signal,
         effort,
         mcpConfigPath: options?.mcpConfigPath,
         resumeSessionId,
         newSessionId: !resumeSessionId ? options?.sessionId : undefined,
-      });
+      };
+
+      // Spawn subprocess
+      proc = spawnClaude(model.id, systemPrompt || undefined, spawnOptions);
       const getStderr = captureStderr(proc);
 
       // Register in global process registry for teardown cleanup
       registerProcess(proc);
+      const spawnArgs = buildClaudeSpawnArgs(model.id, undefined, {
+        effort,
+        mcpConfigPath: options?.mcpConfigPath,
+        resumeSessionId,
+        newSessionId: !resumeSessionId ? options?.sessionId : undefined,
+      });
+      debugLog(
+        `spawned claude subprocess pid=${proc.pid ?? "unknown"} args=${JSON.stringify(spawnArgs)}`,
+      );
 
       // Write user message to subprocess stdin
       writeUserMessage(proc, prompt);
@@ -234,10 +248,13 @@ export function streamViaCli(
       proc.on("close", (code: number | null, _signal: string | null) => {
         clearTimeout(inactivityTimer);
         if (broken) return; // Break-early kill, expected
+        const stderr = getStderr().trim();
+        if (stderr) {
+          console.warn(`[pi-claude-cli] Claude CLI stderr on close: ${stderr}`);
+        }
         if (code !== 0 && code !== null) {
-          const stderr = getStderr();
           const message = stderr
-            ? `Claude CLI exited with code ${code}: ${stderr.trim()}`
+            ? `Claude CLI exited with code ${code}: ${stderr}`
             : `Claude CLI exited unexpectedly with code ${code}`;
           endStreamWithError(message);
         }
@@ -324,6 +341,13 @@ export function streamViaCli(
       // Guard with streamEnded to avoid pushing done after an error was already pushed.
       if (!streamEnded) {
         const output = bridge.getOutput();
+        const contentEvents = output.content || [];
+
+        if (contentEvents.length === 0) {
+          console.warn(
+            `[pi-claude-cli] Claude CLI closed without content events (model=${model.id}, sessionId=${options?.sessionId ?? "none"})`,
+          );
+        }
 
         // If stopReason is toolUse but there are no pi-known tool calls in content,
         // it means only user MCP tools were called (filtered by event bridge).

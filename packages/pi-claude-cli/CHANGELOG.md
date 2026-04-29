@@ -1,5 +1,15 @@
 # @fusion/pi-claude-cli
 
+## Unreleased
+
+### Patch Changes
+
+- Add missing Anthropic model metadata entries to provider registration: `claude-sonnet-4-6`, `claude-sonnet-4-5`, and `claude-haiku-4-5` (alongside existing `claude-opus-4-7`) so they appear in the model picker even before upstream catalog updates.
+- Improve subprocess diagnostics in `streamViaCli` by:
+  - logging Claude stderr on close at warn level even when exit code is 0,
+  - logging debug spawn correlation details (PID + effective args) when `PI_CLAUDE_CLI_DEBUG=1`,
+  - warning when a subprocess closes without producing any content events.
+
 ## 0.7.1
 
 ### Patch Changes

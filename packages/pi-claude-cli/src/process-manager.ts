@@ -19,18 +19,16 @@ import { tmpdir } from "node:os";
  * @param options - Optional cwd, AbortSignal, and effort level
  * @returns The spawned ChildProcess with piped stdin/stdout/stderr
  */
-export function spawnClaude(
+export function buildClaudeSpawnArgs(
   modelId: string,
   systemPrompt?: string,
   options?: {
-    cwd?: string;
-    signal?: AbortSignal;
     effort?: string;
     mcpConfigPath?: string;
     resumeSessionId?: string;
     newSessionId?: string;
   },
-): ChildProcess {
+): string[] {
   const args = [
     "-p",
     "--input-format",
@@ -71,6 +69,28 @@ export function spawnClaude(
   if (options?.mcpConfigPath) {
     args.push("--mcp-config", options.mcpConfigPath);
   }
+
+  return args;
+}
+
+export function spawnClaude(
+  modelId: string,
+  systemPrompt?: string,
+  options?: {
+    cwd?: string;
+    signal?: AbortSignal;
+    effort?: string;
+    mcpConfigPath?: string;
+    resumeSessionId?: string;
+    newSessionId?: string;
+  },
+): ChildProcess {
+  const args = buildClaudeSpawnArgs(modelId, systemPrompt, {
+    effort: options?.effort,
+    mcpConfigPath: options?.mcpConfigPath,
+    resumeSessionId: options?.resumeSessionId,
+    newSessionId: options?.newSessionId,
+  });
 
   const proc = spawn("claude", args, {
     stdio: ["pipe", "pipe", "pipe"],

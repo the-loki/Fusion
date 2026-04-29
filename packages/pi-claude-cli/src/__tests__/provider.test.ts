@@ -66,6 +66,7 @@ vi.mock("@mariozechner/pi-ai", () => ({
 }));
 
 import { spawn } from "node:child_process";
+import { getModels } from "@mariozechner/pi-ai";
 import { streamViaCli } from "../provider";
 
 describe("provider registration (default export)", () => {
@@ -115,16 +116,71 @@ describe("provider registration (default export)", () => {
     expect(firstModel.maxTokens).toBe(8192);
     expect(firstModel.cost).toBeDefined();
   });
+
+  it("includes all extra Claude model entries", async () => {
+    const registerProvider = vi.fn();
+    const mockPi = { registerProvider, on: vi.fn() } as any;
+
+    const mod = await import("../../index");
+    mod.default(mockPi);
+
+    const config = registerProvider.mock.calls[0][1];
+    const modelIds = new Set(config.models.map((m: { id: string }) => m.id));
+
+    for (const id of [
+      "claude-opus-4-7",
+      "claude-sonnet-4-6",
+      "claude-sonnet-4-5",
+      "claude-haiku-4-5",
+    ]) {
+      expect(modelIds.has(id)).toBe(true);
+    }
+  });
+
+  it("deduplicates extra models when catalog already includes them", async () => {
+    const registerProvider = vi.fn();
+    const mockPi = { registerProvider, on: vi.fn() } as any;
+    const getModelsMock = vi.mocked(getModels);
+
+    getModelsMock.mockReturnValueOnce([
+      ...mockModels,
+      {
+        id: "claude-sonnet-4-6",
+        name: "Claude Sonnet 4.6",
+        api: "anthropic",
+        provider: "anthropic",
+        reasoning: true,
+        input: ["text", "image"],
+        cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+        contextWindow: 200000,
+        maxTokens: 16384,
+      } as any,
+    ] as any);
+
+    const mod = await import("../../index");
+    mod.default(mockPi);
+
+    const config = registerProvider.mock.calls[0][1];
+    const matches = config.models.filter(
+      (m: { id: string }) => m.id === "claude-sonnet-4-6",
+    );
+    expect(matches).toHaveLength(1);
+  });
 });
 
 describe("streamViaCli", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    delete process.env.PI_CLAUDE_CLI_DEBUG;
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
+    delete process.env.PI_CLAUDE_CLI_DEBUG;
   });
 
   it("returns an AssistantMessageEventStream", () => {
@@ -138,6 +194,24 @@ describe("streamViaCli", () => {
     expect(result).toBeDefined();
     expect(result.push).toBeDefined();
     expect(result.end).toBeDefined();
+  });
+
+  it("logs PID and spawn args when debug mode is enabled", async () => {
+    process.env.PI_CLAUDE_CLI_DEBUG = "1";
+
+    const model = mockModels[0] as any;
+    const context = {
+      messages: [{ role: "user", content: "Hello" }],
+    };
+
+    const errorSpy = vi.spyOn(console, "error");
+
+    streamViaCli(model, context);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("spawned claude subprocess pid=99999 args="),
+    );
   });
 
   it("spawns subprocess and writes user message to stdin", async () => {
@@ -1177,6 +1251,50 @@ describe("streamViaCli", () => {
       );
       expect(doneEvent).toBeDefined();
       expect(doneEvent.message.content).toBeDefined();
+    });
+
+    it("logs stderr at warn level on close even with exit code 0", async () => {
+      const model = mockModels[0] as any;
+      const context = {
+        messages: [{ role: "user", content: "Hello" }],
+      };
+
+      const warnSpy = vi.spyOn(console, "warn");
+
+      streamViaCli(model, context);
+      await vi.advanceTimersByTimeAsync(0);
+
+      const proc = (spawn as any).mock.results[0].value;
+
+      proc.stderr.emit("data", Buffer.from("minor warning from cli"));
+      proc.emit("close", 0, null);
+      proc.stdout.end();
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("minor warning from cli"),
+      );
+    });
+
+    it("warns when subprocess closes successfully with no content events", async () => {
+      const model = mockModels[0] as any;
+      const context = {
+        messages: [{ role: "user", content: "Hello" }],
+      };
+
+      const warnSpy = vi.spyOn(console, "warn");
+
+      streamViaCli(model, context);
+      await vi.advanceTimersByTimeAsync(0);
+
+      const proc = (spawn as any).mock.results[0].value;
+      proc.emit("close", 0, null);
+      proc.stdout.end();
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("closed without content events"),
+      );
     });
 
     it("does not push error on normal close (code 0)", async () => {
