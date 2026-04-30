@@ -11100,10 +11100,11 @@ describe("Saturated-slot regression: heartbeat wake routes", () => {
       const tempDir = mkdtempSync(join(tmpdir(), "kb-routes-sat-active-run-"));
       const fusionDir = join(tempDir, ".fusion");
       mkdirSync(fusionDir, { recursive: true });
+      let agentStore: any;
 
       try {
         const { AgentStore } = await import("@fusion/core");
-        const agentStore = new AgentStore({ rootDir: fusionDir });
+        agentStore = new AgentStore({ rootDir: fusionDir });
         await agentStore.init();
         const agent = await agentStore.createAgent({ name: "Active Run Agent", role: "executor" });
         await agentStore.updateAgent(agent.id, {
@@ -11146,6 +11147,7 @@ describe("Saturated-slot regression: heartbeat wake routes", () => {
           expect(heartbeatMonitor.executeHeartbeat).not.toHaveBeenCalled();
         }, { timeout: 1000 });
       } finally {
+        agentStore?.close?.();
         rmSync(tempDir, { recursive: true, force: true });
       }
     });
