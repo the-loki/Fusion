@@ -871,17 +871,18 @@ export function QuickChatFAB({
           );
           if (hasDefaultModel) {
             setSelectedModel(defaultSelection);
-            setChatMode("model");
+            if (agents.length === 0) {
+              setChatMode("model");
+            }
             return;
           }
         }
 
-        // Fallback: auto-select first model only when no agents exist.
-        if (agents.length === 0) {
-          const firstModel = loadedModels[0];
-          if (firstModel) {
-            setSelectedModel(`${firstModel.provider}/${firstModel.id}`);
-          }
+        // Always pre-select the first model so users can start chatting in model mode
+        // without having to manually pick from the dropdown.
+        const firstModel = loadedModels[0];
+        if (firstModel) {
+          setSelectedModel(`${firstModel.provider}/${firstModel.id}`);
         }
       })
       .catch((error: unknown) => {
@@ -954,6 +955,14 @@ export function QuickChatFAB({
   useEffect(() => {
     pendingAttachmentsRef.current = pendingAttachments;
   }, [pendingAttachments]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const frame = requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [isOpen]);
 
   // Attachment object URLs must be revoked when the composer unmounts.
   useEffect(() => {

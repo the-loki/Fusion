@@ -258,19 +258,23 @@
   white-space: nowrap;
 }
 
-.quick-chat-new-chat-btn {
+.quick-chat-panel-header-actions .btn-icon.quick-chat-new-chat-btn {
   background: var(--cta-bg);
-  border: 1px solid var(--cta-border);
+  border-color: var(--cta-border);
   color: var(--cta-text);
 }
 
-.quick-chat-new-chat-btn:hover {
+.quick-chat-panel-header-actions .btn-icon.quick-chat-new-chat-btn:hover {
   background: var(--cta-bg-hover);
+  border-color: var(--cta-border-hover);
+  color: var(--cta-text);
 }
 
-.quick-chat-new-chat-btn:disabled,
-.quick-chat-new-chat-btn:disabled:hover {
+.quick-chat-panel-header-actions .btn-icon.quick-chat-new-chat-btn:disabled,
+.quick-chat-panel-header-actions .btn-icon.quick-chat-new-chat-btn:disabled:hover {
   background: var(--cta-bg);
+  border-color: var(--cta-border);
+  color: var(--cta-text);
   opacity: 0.6;
   cursor: not-allowed;
 }
