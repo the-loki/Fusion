@@ -48,6 +48,7 @@ Defaults from `DEFAULT_GLOBAL_SETTINGS`; key scope from `GLOBAL_SETTINGS_KEYS`.
 | `webhookFormat` | `"slack" \| "discord" \| "generic"` | `"generic"` | Webhook payload format. Part of legacy flat settings. |
 | `webhookEvents` | `string[]` | `[]` | Event filter for webhook notifications. Empty/omitted means all events. Part of legacy flat settings. |
 | `notificationProviders` | `NotificationProviderConfig[]` | `[]` | Array of pluggable notification provider configurations. Each entry uses `{ id, name, enabled, config }` and is dispatched by provider ID (for example `ntfy` or `webhook`). |
+| `customProviders` | `CustomProvider[]` | `[]` | User-defined OpenAI-compatible or Anthropic-compatible providers used by the custom-provider API (`/api/custom-providers`). Each entry uses `{ id, name, apiType, baseUrl, apiKey?, models? }`; API keys are stored raw but masked in API responses. |
 | `defaultProjectId` | `string` | `undefined` | Default project for multi-project CLI operations when `--project` is omitted. |
 | `setupComplete` | `boolean` | `undefined` | Tracks completion of first-run setup. |
 | `favoriteProviders` | `string[]` | `undefined` | Pinned providers shown first in model selectors. |

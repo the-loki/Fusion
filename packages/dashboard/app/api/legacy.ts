@@ -1499,6 +1499,68 @@ export function setClaudeCliEnabled(
   });
 }
 
+export interface CustomProvider {
+  id: string;
+  name: string;
+  apiType: "openai-compatible" | "anthropic-compatible";
+  baseUrl: string;
+  apiKey?: string;
+  models?: { id: string; name: string }[];
+}
+
+export async function fetchCustomProviders(): Promise<CustomProvider[] & { providers: CustomProvider[] }> {
+  const providers = await api<CustomProvider[]>("/custom-providers");
+  return Object.assign(providers, { providers });
+}
+
+export function addCustomProvider(provider: Omit<CustomProvider, "id">): Promise<CustomProvider> {
+  return api<CustomProvider>("/custom-providers", {
+    method: "POST",
+    body: JSON.stringify(provider),
+  });
+}
+
+export function updateCustomProvider(
+  id: string,
+  updates: Partial<Omit<CustomProvider, "id">> | CustomProviderConfig,
+): Promise<CustomProvider> {
+  const legacy = updates as Partial<CustomProviderConfig>;
+  const normalized: Partial<Omit<CustomProvider, "id">> = {
+    ...(typeof legacy.name === "string" ? { name: legacy.name } : {}),
+    ...(typeof legacy.baseUrl === "string" ? { baseUrl: legacy.baseUrl } : {}),
+    ...(typeof legacy.apiKey === "string" ? { apiKey: legacy.apiKey } : {}),
+    ...(Array.isArray(legacy.models)
+      ? {
+          models: legacy.models.map((model) => ({
+            id: model.id,
+            name: model.name ?? model.id,
+          })),
+        }
+      : {}),
+    ...(legacy.api
+      ? {
+          apiType: legacy.api === "anthropic-messages" ? "anthropic-compatible" : "openai-compatible",
+        }
+      : {}),
+    ...("apiType" in (updates as Record<string, unknown>)
+      ? { apiType: (updates as Partial<Omit<CustomProvider, "id">>).apiType }
+      : {}),
+  };
+
+  return api<CustomProvider>(`/custom-providers/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(normalized),
+  });
+}
+
+export function deleteCustomProvider(id: string): Promise<{ success: boolean }> {
+  return api<{ success: boolean }>(`/custom-providers/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+// Backward-compatibility exports for existing UI callers; will be removed when
+// custom-provider UI migrates to the new core CustomProvider contract.
 export interface CustomProviderModelInput {
   id: string;
   name?: string;
@@ -1516,27 +1578,17 @@ export interface CustomProviderConfig {
   models: CustomProviderModelInput[];
 }
 
-export function fetchCustomProviders(): Promise<{ providers: CustomProviderConfig[] }> {
-  return api<{ providers: CustomProviderConfig[] }>("/custom-providers");
-}
-
-export function createCustomProvider(config: CustomProviderConfig): Promise<{ provider: CustomProviderConfig }> {
-  return api<{ provider: CustomProviderConfig }>("/custom-providers", {
-    method: "POST",
-    body: JSON.stringify(config),
-  });
-}
-
-export function updateCustomProvider(id: string, config: CustomProviderConfig): Promise<{ provider: CustomProviderConfig }> {
-  return api<{ provider: CustomProviderConfig }>(`/custom-providers/${encodeURIComponent(id)}`, {
-    method: "PUT",
-    body: JSON.stringify(config),
-  });
-}
-
-export function deleteCustomProvider(id: string): Promise<void> {
-  return api<void>(`/custom-providers/${encodeURIComponent(id)}`, {
-    method: "DELETE",
+export function createCustomProvider(config: CustomProviderConfig): Promise<CustomProvider> {
+  const apiType = config.api === "anthropic-messages" ? "anthropic-compatible" : "openai-compatible";
+  return addCustomProvider({
+    name: config.name?.trim() || config.id,
+    apiType,
+    baseUrl: config.baseUrl,
+    apiKey: config.apiKey,
+    models: config.models?.map((model) => ({
+      id: model.id,
+      name: model.name ?? model.id,
+    })),
   });
 }
 

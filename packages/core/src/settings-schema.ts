@@ -29,6 +29,7 @@ export const DEFAULT_GLOBAL_SETTINGS = {
   webhookFormat: "generic",
   webhookEvents: [],
   notificationProviders: [],
+  customProviders: [],
   defaultProjectId: undefined,
   setupComplete: undefined,
   favoriteProviders: undefined,

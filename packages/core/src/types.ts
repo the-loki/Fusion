@@ -238,6 +238,15 @@ export interface NotificationProviderConfig {
   config: Record<string, unknown>;
 }
 
+export interface CustomProvider {
+  id: string;
+  name: string;
+  apiType: "openai-compatible" | "anthropic-compatible";
+  baseUrl: string;
+  apiKey?: string;
+  models?: { id: string; name: string }[];
+}
+
 export interface WorkflowStepInput {
   /** Built-in template source ID when creating a concrete step from a template. */
   templateId?: string;
@@ -1235,6 +1244,8 @@ export interface GlobalSettings {
   /** Pluggable notification providers configuration. Additive to legacy ntfy
    *  settings so existing ntfy configuration continues working unchanged. */
   notificationProviders?: NotificationProviderConfig[];
+  /** User-defined OpenAI/Anthropic-compatible API providers. */
+  customProviders?: CustomProvider[];
   /** The default project ID for CLI operations when --project flag is not provided.
    *  Used to determine which project to operate on when not in a project directory.
    *  Set via `fn project set-default <name>`. */

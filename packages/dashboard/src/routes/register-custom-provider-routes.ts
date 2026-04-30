@@ -1,253 +1,247 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
+import crypto from "node:crypto";
+import type { CustomProvider } from "@fusion/core";
 import { ApiError, badRequest, notFound } from "../api-error.js";
-import { getFusionModelsPath } from "../auth-paths.js";
 import type { ApiRouteRegistrar } from "./types.js";
 
-const PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]*$/;
-const ALLOWED_APIS = new Set([
-  "openai-completions",
-  "openai-responses",
-  "anthropic-messages",
-  "google-generative-ai",
-]);
-
-// Keep in sync with BUILT_IN_PROVIDER_IDS in CustomProviderForm.tsx
-const BUILT_IN_PROVIDER_IDS = new Set<string>([
-  "anthropic", "claude-cli", "pi-claude-cli", "openai", "openai-codex", "google", "gemini", "google-antigravity",
-  "antigravity", "google-vertex", "vertex", "google-cloud-code", "cloud-code", "google-gemini-cli", "google-generative-ai",
-  "ollama", "github", "github-copilot", "openrouter", "minimax", "minimax-cn", "zai", "kimi", "moonshot", "kimi-coding",
-  "bedrock", "amazon-bedrock", "xai", "grok", "opencode", "opencode-go", "qwen", "qwen-ai", "qwen-coder", "alibaba", "tongyi",
-  "lmstudio", "lm-studio", "huggingface", "hugging-face", "hf", "mistral", "mistral-ai", "azure", "azure-openai",
-  "azure-openai-responses", "fireworks", "fireworks-ai", "fireworksai", "cerebras", "groq", "vercel", "vercel-ai-gateway",
-  "hermes", "hermes-agent", "hermesagent", "openclaw", "open-claw", "paperclip", "paperclipai", "paperclip-ai",
-]);
-
-type CustomModelConfig = {
-  id: string;
-  name?: string;
-  reasoning?: boolean;
-  contextWindow?: number;
-  maxTokens?: number;
-};
-
-type CustomProviderConfig = {
-  id: string;
-  name?: string;
-  baseUrl: string;
-  api: "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";
-  apiKey?: string;
-  models: CustomModelConfig[];
-};
-
-type ModelsFile = {
-  providers: Record<string, Omit<CustomProviderConfig, "id">>;
-};
-
-function validateBaseUrl(baseUrl: unknown): string {
-  if (typeof baseUrl !== "string" || baseUrl.trim().length === 0) {
-    throw badRequest("baseUrl is required");
+function maskApiKey(key: string): string {
+  if (key.length <= 8) {
+    return "••••••••";
   }
-  const normalized = baseUrl.trim();
+  return key.slice(0, 3) + "•••••" + key.slice(-4);
+}
+
+function sanitizeProvider(provider: CustomProvider): CustomProvider {
+  if (!provider.apiKey) {
+    return provider;
+  }
+
+  return {
+    ...provider,
+    apiKey: maskApiKey(provider.apiKey),
+  };
+}
+
+function assertNonEmptyString(value: unknown, fieldName: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw badRequest(`${fieldName} is required and must be a non-empty string`);
+  }
+  return value.trim();
+}
+
+function assertApiType(value: unknown): CustomProvider["apiType"] {
+  if (value !== "openai-compatible" && value !== "anthropic-compatible") {
+    throw badRequest("apiType must be either 'openai-compatible' or 'anthropic-compatible'");
+  }
+  return value;
+}
+
+function assertBaseUrl(value: unknown): string {
+  const baseUrl = assertNonEmptyString(value, "baseUrl");
+
   let parsed: URL;
   try {
-    parsed = new URL(normalized);
+    parsed = new URL(baseUrl);
   } catch {
     throw badRequest("baseUrl must be a valid URL");
   }
+
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw badRequest("baseUrl must use http or https");
   }
-  return normalized;
+
+  return baseUrl;
 }
 
-function validateModels(models: unknown): CustomModelConfig[] {
-  if (!Array.isArray(models) || models.length === 0) {
-    throw badRequest("models must contain at least one model");
+function validateModels(value: unknown): Array<{ id: string; name: string }> | undefined {
+  if (value === undefined) {
+    return undefined;
   }
 
-  return models.map((model, index) => {
-    if (!model || typeof model !== "object") {
+  if (!Array.isArray(value)) {
+    throw badRequest("models must be an array");
+  }
+
+  return value.map((entry, index) => {
+    if (!entry || typeof entry !== "object") {
       throw badRequest(`models[${index}] must be an object`);
     }
-    const row = model as Record<string, unknown>;
-    if (typeof row.id !== "string" || row.id.trim().length === 0) {
-      throw badRequest(`models[${index}].id is required`);
-    }
-    const parsed: CustomModelConfig = { id: row.id.trim() };
-    if (typeof row.name === "string" && row.name.trim().length > 0) parsed.name = row.name.trim();
-    if (typeof row.reasoning === "boolean") parsed.reasoning = row.reasoning;
-    if (row.contextWindow !== undefined) {
-      if (typeof row.contextWindow !== "number" || !Number.isFinite(row.contextWindow) || row.contextWindow <= 0) {
-        throw badRequest(`models[${index}].contextWindow must be a positive number`);
-      }
-      parsed.contextWindow = row.contextWindow;
-    }
-    if (row.maxTokens !== undefined) {
-      if (typeof row.maxTokens !== "number" || !Number.isFinite(row.maxTokens) || row.maxTokens <= 0) {
-        throw badRequest(`models[${index}].maxTokens must be a positive number`);
-      }
-      parsed.maxTokens = row.maxTokens;
-    }
-    return parsed;
+
+    const row = entry as Record<string, unknown>;
+    return {
+      id: assertNonEmptyString(row.id, `models[${index}].id`),
+      name: assertNonEmptyString(row.name, `models[${index}].name`),
+    };
   });
 }
 
-function validateApi(api: unknown): CustomProviderConfig["api"] {
-  if (typeof api !== "string" || !ALLOWED_APIS.has(api)) {
-    throw badRequest("api must be one of: openai-completions, openai-responses, anthropic-messages, google-generative-ai");
+function parseCreateBody(body: unknown): Omit<CustomProvider, "id"> {
+  if (!body || typeof body !== "object") {
+    throw badRequest("request body must be an object");
   }
-  return api as CustomProviderConfig["api"];
-}
 
-function parseProviderFromBody(body: unknown): CustomProviderConfig {
-  if (!body || typeof body !== "object") throw badRequest("request body must be an object");
   const row = body as Record<string, unknown>;
-
-  if (typeof row.id !== "string" || row.id.trim().length === 0) {
-    throw badRequest("id is required");
-  }
-  const id = row.id.trim();
-  if (!PROVIDER_ID_PATTERN.test(id)) {
-    throw badRequest("id must be kebab-case (^[a-z][a-z0-9-]*$)");
-  }
-
-  const baseUrl = validateBaseUrl(row.baseUrl);
-  const api = validateApi(row.api);
-  const models = validateModels(row.models);
-
-  const config: CustomProviderConfig = {
-    id,
-    baseUrl,
-    api,
-    models,
+  const provider: Omit<CustomProvider, "id"> = {
+    name: assertNonEmptyString(row.name, "name"),
+    apiType: assertApiType(row.apiType),
+    baseUrl: assertBaseUrl(row.baseUrl),
   };
 
-  if (typeof row.name === "string" && row.name.trim().length > 0) config.name = row.name.trim();
-  if (typeof row.apiKey === "string" && row.apiKey.trim().length > 0) config.apiKey = row.apiKey.trim();
-
-  return config;
-}
-
-async function readModelsFile(modelsPath: string): Promise<ModelsFile> {
-  try {
-    const content = await readFile(modelsPath, "utf8");
-    const parsed = JSON.parse(content) as Partial<ModelsFile>;
-    if (!parsed || typeof parsed !== "object" || !parsed.providers || typeof parsed.providers !== "object") {
-      return { providers: {} };
+  if (row.apiKey !== undefined) {
+    if (typeof row.apiKey !== "string") {
+      throw badRequest("apiKey must be a string");
     }
-    return { providers: parsed.providers as Record<string, Omit<CustomProviderConfig, "id">> };
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      await mkdir(path.dirname(modelsPath), { recursive: true });
-      const initial = { providers: {} } satisfies ModelsFile;
-      await writeFile(modelsPath, `${JSON.stringify(initial, null, 2)}\n`, "utf8");
-      return initial;
+    if (row.apiKey.trim().length > 0) {
+      provider.apiKey = row.apiKey;
     }
-    throw error;
   }
+
+  const models = validateModels(row.models);
+  if (models) {
+    provider.models = models;
+  }
+
+  return provider;
 }
 
-async function writeModelsFile(modelsPath: string, file: ModelsFile): Promise<void> {
-  await mkdir(path.dirname(modelsPath), { recursive: true });
-  await writeFile(modelsPath, `${JSON.stringify(file, null, 2)}\n`, "utf8");
-}
+function parseUpdateBody(body: unknown): Partial<Omit<CustomProvider, "id">> {
+  if (!body || typeof body !== "object") {
+    throw badRequest("request body must be an object");
+  }
 
-function normalizeResponse(file: ModelsFile): CustomProviderConfig[] {
-  return Object.entries(file.providers).map(([id, provider]) => ({ id, ...provider }));
+  const row = body as Record<string, unknown>;
+  const updates: Partial<Omit<CustomProvider, "id">> = {};
+
+  if (row.name !== undefined) {
+    updates.name = assertNonEmptyString(row.name, "name");
+  }
+  if (row.apiType !== undefined) {
+    updates.apiType = assertApiType(row.apiType);
+  }
+  if (row.baseUrl !== undefined) {
+    updates.baseUrl = assertBaseUrl(row.baseUrl);
+  }
+  if (row.apiKey !== undefined) {
+    if (typeof row.apiKey !== "string") {
+      throw badRequest("apiKey must be a string");
+    }
+    updates.apiKey = row.apiKey.trim().length > 0 ? row.apiKey : undefined;
+  }
+  if (row.models !== undefined) {
+    updates.models = validateModels(row.models);
+  }
+
+  return updates;
 }
 
 export const registerCustomProviderRoutes: ApiRouteRegistrar = (ctx) => {
-  const { router, options, rethrowAsApiError } = ctx;
+  const { router, store, rethrowAsApiError } = ctx;
 
   router.get("/custom-providers", async (_req, res) => {
     try {
-      const modelsPath = getFusionModelsPath();
-      const file = await readModelsFile(modelsPath);
-      res.json({ providers: normalizeResponse(file) });
+      if (!store) {
+        throw new ApiError(500, "Settings store unavailable");
+      }
+
+      const settings = await store.getGlobalSettingsStore().getSettings();
+      const providers = (settings.customProviders ?? []).map(sanitizeProvider);
+      res.json(providers);
     } catch (err: unknown) {
-      if (err instanceof ApiError) throw err;
+      if (err instanceof ApiError) {
+        throw err;
+      }
       rethrowAsApiError(err);
     }
   });
 
   router.post("/custom-providers", async (req, res) => {
     try {
-      const provider = parseProviderFromBody(req.body);
-      if (BUILT_IN_PROVIDER_IDS.has(provider.id)) {
-        throw badRequest(`id '${provider.id}' is reserved for a built-in provider`);
+      if (!store) {
+        throw new ApiError(500, "Settings store unavailable");
       }
 
-      const modelsPath = getFusionModelsPath();
-      const file = await readModelsFile(modelsPath);
-      if (file.providers[provider.id]) {
-        throw badRequest(`custom provider '${provider.id}' already exists`);
-      }
-
-      file.providers[provider.id] = {
-        name: provider.name,
-        baseUrl: provider.baseUrl,
-        api: provider.api,
-        apiKey: provider.apiKey,
-        models: provider.models,
+      const providerInput = parseCreateBody(req.body);
+      const provider: CustomProvider = {
+        id: crypto.randomUUID(),
+        ...providerInput,
       };
-      await writeModelsFile(modelsPath, file);
-      options?.modelRegistry?.refresh();
 
-      res.status(201).json({ provider });
+      const settings = await store.getGlobalSettingsStore().getSettings();
+      const providers = settings.customProviders ?? [];
+      await store.updateGlobalSettings({ customProviders: [...providers, provider] });
+
+      res.status(201).json(sanitizeProvider(provider));
     } catch (err: unknown) {
-      if (err instanceof ApiError) throw err;
+      if (err instanceof ApiError) {
+        throw err;
+      }
       rethrowAsApiError(err);
     }
   });
 
   router.put("/custom-providers/:id", async (req, res) => {
     try {
-      const providerId = String(req.params.id ?? "").trim();
-      if (!providerId) throw badRequest("id path parameter is required");
+      if (!store) {
+        throw new ApiError(500, "Settings store unavailable");
+      }
 
-      const parsed = parseProviderFromBody({ ...req.body, id: providerId });
-      const modelsPath = getFusionModelsPath();
-      const file = await readModelsFile(modelsPath);
-      if (!file.providers[providerId]) {
+      const providerId = String(req.params.id ?? "").trim();
+      if (!providerId) {
+        throw badRequest("id path parameter is required");
+      }
+
+      const updates = parseUpdateBody(req.body);
+      const settings = await store.getGlobalSettingsStore().getSettings();
+      const providers = settings.customProviders ?? [];
+      const targetIndex = providers.findIndex((provider) => provider.id === providerId);
+
+      if (targetIndex < 0) {
         throw notFound(`custom provider '${providerId}' not found`);
       }
 
-      file.providers[providerId] = {
-        name: parsed.name,
-        baseUrl: parsed.baseUrl,
-        api: parsed.api,
-        apiKey: parsed.apiKey,
-        models: parsed.models,
+      const updatedProvider: CustomProvider = {
+        ...providers[targetIndex],
+        ...updates,
       };
-      await writeModelsFile(modelsPath, file);
-      options?.modelRegistry?.refresh();
 
-      res.json({ provider: { id: providerId, ...file.providers[providerId] } });
+      const nextProviders = [...providers];
+      nextProviders[targetIndex] = updatedProvider;
+      await store.updateGlobalSettings({ customProviders: nextProviders });
+
+      res.json(sanitizeProvider(updatedProvider));
     } catch (err: unknown) {
-      if (err instanceof ApiError) throw err;
+      if (err instanceof ApiError) {
+        throw err;
+      }
       rethrowAsApiError(err);
     }
   });
 
   router.delete("/custom-providers/:id", async (req, res) => {
     try {
-      const providerId = String(req.params.id ?? "").trim();
-      if (!providerId) throw badRequest("id path parameter is required");
+      if (!store) {
+        throw new ApiError(500, "Settings store unavailable");
+      }
 
-      const modelsPath = getFusionModelsPath();
-      const file = await readModelsFile(modelsPath);
-      if (!file.providers[providerId]) {
+      const providerId = String(req.params.id ?? "").trim();
+      if (!providerId) {
+        throw badRequest("id path parameter is required");
+      }
+
+      const settings = await store.getGlobalSettingsStore().getSettings();
+      const providers = settings.customProviders ?? [];
+      const exists = providers.some((provider) => provider.id === providerId);
+
+      if (!exists) {
         throw notFound(`custom provider '${providerId}' not found`);
       }
 
-      delete file.providers[providerId];
-      await writeModelsFile(modelsPath, file);
-      options?.modelRegistry?.refresh();
-
-      res.status(204).end();
+      const nextProviders = providers.filter((provider) => provider.id !== providerId);
+      await store.updateGlobalSettings({ customProviders: nextProviders });
+      res.json({ success: true });
     } catch (err: unknown) {
-      if (err instanceof ApiError) throw err;
+      if (err instanceof ApiError) {
+        throw err;
+      }
       rethrowAsApiError(err);
     }
   });
