@@ -267,6 +267,26 @@ You are working in a git worktree isolated from the main branch. Your job is to 
 You are the primary implementation agent in Fusion.
 You execute task specs in isolated worktrees, produce production-quality changes, and hand off work that can pass independent review and merge.
 
+## Turn-ending rules — read carefully
+
+You MUST end every turn by either:
+- (a) calling another tool to make progress, OR
+- (b) calling \`fn_task_done\` if the entire task is complete, OR
+- (c) calling \`fn_task_done\` with a summary explaining what is blocked, if you cannot make progress for any reason
+
+You MUST NOT end a turn by writing prose that asks the user a question, summarizes progress, or requests permission to continue. The following are FORBIDDEN turn-endings:
+- "If you want, I can continue with..."
+- "Should I proceed with...?"
+- "Let me know if you'd like me to..."
+- "Ready to move on to step N. Want me to continue?"
+- Any markdown progress summary at the end of a turn instead of a tool call
+
+If you have just finished a step's work, immediately call \`fn_task_update\` to mark the step done and continue with the next pending step in the SAME turn. Do not pause to summarize.
+
+The user is not watching this conversation in real-time. They will read the final result. Asking permission wastes a full retry cycle and may orphan committed work.
+
+If you genuinely cannot proceed (blocked on a dependency, missing information, or an unresolvable error), call \`fn_task_done\` with a clear explanation of what is blocked and what is needed to unblock it. Never write the question as plain prose.
+
 ## How to work
 1. Read the PROMPT.md carefully — it contains your mission, steps, file scope, acceptance criteria, and Do NOT constraints
 2. Before touching code, read all files listed in "Context to Read First" and understand the full step outcome
@@ -2292,11 +2312,17 @@ export class TaskExecutor {
         ...(this.options.pluginRunner?.getPluginTools() ?? []),
       ];
 
+      // Accumulates the full assistant text output for the most recent session.
+      // Reset to "" each time a new session begins so detectPseudoPause only
+      // sees the last session's output, not the entire conversation history.
+      let lastAssistantText = "";
+
       const agentLogger = new AgentLogger({
         store: this.store,
         taskId: task.id,
         agent: "executor",
         onAgentText: (taskId, delta) => {
+          lastAssistantText += delta;
           stuckDetector?.recordActivity(taskId);
           this.options.onAgentText?.(taskId, delta);
         },
@@ -2593,7 +2619,24 @@ export class TaskExecutor {
                 this.currentRunContext,
               );
 
-              // Dispose old session and create a fresh one
+              // Capture and analyse the previous session's text before resetting.
+              const previousSessionText = lastAssistantText;
+              const pseudoPause = detectPseudoPause(previousSessionText);
+
+              if (pseudoPause.kind !== "none") {
+                const shortMatch = (pseudoPause.matched ?? "").slice(0, 120);
+                await this.store.logEntry(
+                  task.id,
+                  `Pseudo-pause detected (kind=${pseudoPause.kind}, matched='${shortMatch}')`,
+                  undefined,
+                  this.currentRunContext,
+                );
+                executorLog.log(`${task.id} pseudo-pause detected (kind=${pseudoPause.kind}): ${shortMatch}`);
+              }
+
+              // Dispose old session and create a fresh one.
+              // Reset lastAssistantText so the new session's text is tracked cleanly.
+              lastAssistantText = "";
               this.activeSessions.delete(task.id);
               this.tokenUsageBaselines.delete(task.id);
               session.dispose();
@@ -2636,15 +2679,38 @@ export class TaskExecutor {
               });
               stuckDetector?.trackTask(task.id, retrySession);
 
-              const retryPrompt = [
-                "Your previous session ended without calling the fn_task_done tool.",
-                "The task may already be complete — review the current state of the worktree and either:",
-                "1. If the work is done, call fn_task_done with a summary of what was accomplished.",
-                "2. If there is remaining work, finish it and then call fn_task_done.",
-                "",
-                "Original task:",
-                buildExecutionPrompt(detail, this.rootDir, settings, worktreePath),
-              ].join("\n");
+              let retryPrompt: string;
+              if (pseudoPause.kind !== "none") {
+                const shortMatch = (pseudoPause.matched ?? "").slice(0, 120);
+                retryPrompt = [
+                  `Your previous turn ended with a pseudo-pause: "${shortMatch}". This is forbidden.`,
+                  "",
+                  "Turn-ending rules you violated:",
+                  "- You MUST NOT end a turn by asking the user a question, summarizing progress, or requesting permission to continue.",
+                  "- Phrases like 'If you want, I can continue', 'Should I proceed?', 'Let me know if...' are FORBIDDEN turn-endings.",
+                  "- The user is not watching this conversation. Questions written as prose are ignored.",
+                  "- If you genuinely cannot proceed, call fn_task_done with a clear explanation — never write the blocker as plain prose.",
+                  "",
+                  "What you must do now:",
+                  "1. Review the PROMPT.md steps and identify the next pending step.",
+                  "2. Do the work for that step immediately — call fn_task_update, write code, run tests.",
+                  "3. Continue until all steps are done, then call fn_task_done.",
+                  "Do NOT ask for permission. Do NOT write a summary. Just call a tool and keep working.",
+                  "",
+                  "Original task:",
+                  buildExecutionPrompt(detail, this.rootDir, settings, worktreePath),
+                ].join("\n");
+              } else {
+                retryPrompt = [
+                  "Your previous session ended without calling the fn_task_done tool.",
+                  "The task may already be complete — review the current state of the worktree and either:",
+                  "1. If the work is done, call fn_task_done with a summary of what was accomplished.",
+                  "2. If there is remaining work, finish it and then call fn_task_done.",
+                  "",
+                  "Original task:",
+                  buildExecutionPrompt(detail, this.rootDir, settings, worktreePath),
+                ].join("\n");
+              }
 
               stuckDetector?.recordActivity(task.id);
               await promptWithFallback(retrySession, retryPrompt);
@@ -5969,6 +6035,75 @@ If lint is configured and failing, fix that too before completion.
 function formatCommentForInjection(comment: import("@fusion/core").SteeringComment): string {
   const timestamp = formatTimestamp(comment.createdAt);
   return `📣 **New feedback** — ${timestamp} (${comment.author}):\n\n${comment.text}\n\nPlease adjust your approach based on this feedback.`;
+}
+
+/**
+ * Result of a pseudo-pause detection check.
+ */
+export interface PseudoPauseResult {
+  /** Detection method: "regex" if a regex pattern matched, "structural" for structural
+   * heuristics, or "none" if no pseudo-pause was detected. */
+  kind: "regex" | "structural" | "none";
+  /** The matched text or pattern description when kind is not "none". */
+  matched?: string;
+}
+
+/**
+ * Detect whether the last assistant text output looks like a "pseudo-pause" —
+ * where the agent ended a turn by asking for permission or summarizing progress
+ * instead of calling a tool.
+ *
+ * Returns a {@link PseudoPauseResult} describing the detection kind and the
+ * matched text/pattern. Returns `{ kind: "none" }` when no pseudo-pause is found.
+ *
+ * @param lastText - The last assistant text output from the session.
+ */
+export function detectPseudoPause(lastText: string): PseudoPauseResult {
+  if (!lastText || lastText.trim().length === 0) {
+    return { kind: "none" };
+  }
+
+  const regexPatterns: RegExp[] = [
+    /\bif you (?:want|wish|need|like|prefer|'?d like)\b/i,
+    /\bshould I (?:continue|proceed|go ahead|move on|start|begin)\b/i,
+    /\blet me know\b/i,
+    /\b(?:want|would you like) me to (?:continue|proceed|finish|complete|do)\b/i,
+    /\bready to (?:proceed|continue|move on|begin)\b/i,
+    /\bshall I\b/i,
+    /\b(?:awaiting|waiting for) (?:your )?(?:approval|confirmation|go-ahead|response)\b/i,
+  ];
+
+  for (const pattern of regexPatterns) {
+    const match = pattern.exec(lastText);
+    if (match) {
+      // Capture surrounding context (up to 120 chars around the match)
+      const start = Math.max(0, match.index - 40);
+      const end = Math.min(lastText.length, match.index + match[0].length + 80);
+      const snippet = lastText.slice(start, end).replace(/\n+/g, " ").trim();
+      return { kind: "regex", matched: snippet };
+    }
+  }
+
+  // Structural fallback: long output that ends with a question or a markdown "next steps" heading
+  const trimmed = lastText.trimEnd();
+  if (trimmed.length > 200) {
+    if (trimmed.endsWith("?")) {
+      const lastLine = trimmed.split("\n").at(-1) ?? trimmed;
+      return { kind: "structural", matched: lastLine.trim() };
+    }
+    const nextStepsPattern = /(?:^|\n)#+\s*(?:notes?|next steps?|summary|what'?s? next)\s*:?\s*$/i;
+    if (nextStepsPattern.test(trimmed)) {
+      const lastLine = trimmed.split("\n").at(-1) ?? trimmed;
+      return { kind: "structural", matched: lastLine.trim() };
+    }
+    // Also catch plain "Next steps:" or "### Next steps" at the very end
+    if (/next steps?\s*:?\s*$/i.test(trimmed)) {
+      const lastLine = trimmed.split("\n").at(-1) ?? trimmed;
+      return { kind: "structural", matched: lastLine.trim() };
+    }
+  }
+
+  return { kind: "none" };
 }
 
 /**
