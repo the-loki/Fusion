@@ -4,7 +4,7 @@ import type { ProjectInfo } from "../api";
 import { getScopedItem, setScopedItem } from "../utils/projectStorage";
 
 export type ViewMode = "overview" | "project";
-export type TaskView = "board" | "list" | "agents" | "missions" | "chat" | "documents" | "roadmaps" | "skills" | "mailbox" | "insights" | "memory" | "devserver" | "dev-server" | "todos";
+export type TaskView = "board" | "list" | "agents" | "missions" | "chat" | "documents" | "research" | "roadmaps" | "skills" | "mailbox" | "insights" | "memory" | "devserver" | "dev-server" | "todos";
 
 const TASK_VIEWS: readonly TaskView[] = [
   "board",
@@ -13,6 +13,7 @@ const TASK_VIEWS: readonly TaskView[] = [
   "missions",
   "chat",
   "documents",
+  "research",
   "roadmaps",
   "skills",
   "mailbox",

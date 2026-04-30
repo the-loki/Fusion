@@ -14,6 +14,7 @@ import { MissionStore } from "./mission-store.js";
 import { PluginStore } from "./plugin-store.js";
 import { RoadmapStore } from "./roadmap-store.js";
 import { InsightStore } from "./insight-store.js";
+import { ResearchStore } from "./research-store.js";
 import { TodoStore } from "./todo-store.js";
 import { BackwardCompat, ProjectRequiredError } from "./migration.js";
 import { CentralCore } from "./central-core.js";
@@ -408,6 +409,8 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   private roadmapStore: RoadmapStore | null = null;
   /** Cached InsightStore instance */
   private insightStore: InsightStore | null = null;
+  /** Cached ResearchStore instance */
+  private researchStore: ResearchStore | null = null;
   /** Cached TodoStore instance */
   private todoStore: TodoStore | null = null;
 
@@ -6058,6 +6061,17 @@ ${notificationsSection}`;
       this.insightStore = new InsightStore(this.db);
     }
     return this.insightStore;
+  }
+
+  /**
+   * Get the ResearchStore instance for research run operations.
+   * Lazily initializes the ResearchStore on first access.
+   */
+  getResearchStore(): ResearchStore {
+    if (!this.researchStore) {
+      this.researchStore = new ResearchStore(this.db);
+    }
+    return this.researchStore;
   }
 
   /**

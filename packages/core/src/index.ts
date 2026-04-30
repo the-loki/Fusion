@@ -575,6 +575,36 @@ export type {
   InsightRunListOptions,
   InsightStoreEvents,
 } from "./insight-types.js";
+
+// ── Research System ───────────────────────────────────────────────────────
+
+export { ResearchStore } from "./research-store.js";
+export {
+  RESEARCH_RUN_STATUSES,
+  RESEARCH_SOURCE_STATUSES,
+  RESEARCH_EXPORT_FORMATS,
+  RESEARCH_SOURCE_TYPES,
+  RESEARCH_EVENT_TYPES,
+} from "./research-types.js";
+export type {
+  ResearchRunStatus,
+  ResearchSourceStatus,
+  ResearchExportFormat,
+  ResearchSourceType,
+  ResearchEventType,
+  ResearchSource,
+  ResearchEvent,
+  ResearchFinding,
+  ResearchResult,
+  ResearchTokenUsage,
+  ResearchRun,
+  ResearchExport,
+  ResearchRunCreateInput,
+  ResearchRunUpdateInput,
+  ResearchRunListOptions,
+  ResearchStoreEvents,
+} from "./research-types.js";
+
 export { TodoStore } from "./todo-store.js";
 export type { TodoStoreEvents } from "./todo-store.js";
 

@@ -86,7 +86,7 @@ export function probeFts5(db: DatabaseSync): boolean {
 
 // ── Schema Definition ────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 54;
+const SCHEMA_VERSION = 55;
 
 function normalizeTaskComments(
   steeringComments: SteeringComment[] | undefined,
@@ -410,6 +410,41 @@ CREATE TABLE IF NOT EXISTS task_document_revisions (
   createdAt TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idxTaskDocumentRevisionsTaskKey ON task_document_revisions(taskId, key);
+
+-- Research runs persistence (FN-2991)
+CREATE TABLE IF NOT EXISTS research_runs (
+  id TEXT PRIMARY KEY,
+  query TEXT NOT NULL,
+  topic TEXT,
+  status TEXT NOT NULL,
+  providerConfig TEXT,
+  sources TEXT NOT NULL DEFAULT '[]',
+  events TEXT NOT NULL DEFAULT '[]',
+  results TEXT,
+  error TEXT,
+  tokenUsage TEXT,
+  tags TEXT NOT NULL DEFAULT '[]',
+  metadata TEXT,
+  createdAt TEXT NOT NULL,
+  updatedAt TEXT NOT NULL,
+  startedAt TEXT,
+  completedAt TEXT,
+  cancelledAt TEXT
+);
+CREATE INDEX IF NOT EXISTS idxResearchRunsStatus ON research_runs(status);
+CREATE INDEX IF NOT EXISTS idxResearchRunsCreatedAt ON research_runs(createdAt);
+CREATE INDEX IF NOT EXISTS idxResearchRunsUpdatedAt ON research_runs(updatedAt);
+
+CREATE TABLE IF NOT EXISTS research_exports (
+  id TEXT PRIMARY KEY,
+  runId TEXT NOT NULL,
+  format TEXT NOT NULL,
+  content TEXT NOT NULL,
+  filePath TEXT,
+  createdAt TEXT NOT NULL,
+  FOREIGN KEY (runId) REFERENCES research_runs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idxResearchExportsRunId ON research_exports(runId);
 
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS __meta (
@@ -1996,6 +2031,51 @@ export class Database {
       this.applyMigration(54, () => {
         this.addColumnIfMissing("tasks", "executionStartedAt", "TEXT");
         this.addColumnIfMissing("tasks", "executionCompletedAt", "TEXT");
+      });
+    }
+
+    // Research runs + exports persistence tables (FN-2991).
+    if (version < 55) {
+      this.applyMigration(55, () => {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS research_runs (
+            id TEXT PRIMARY KEY,
+            query TEXT NOT NULL,
+            topic TEXT,
+            status TEXT NOT NULL,
+            providerConfig TEXT,
+            sources TEXT NOT NULL DEFAULT '[]',
+            events TEXT NOT NULL DEFAULT '[]',
+            results TEXT,
+            error TEXT,
+            tokenUsage TEXT,
+            tags TEXT NOT NULL DEFAULT '[]',
+            metadata TEXT,
+            createdAt TEXT NOT NULL,
+            updatedAt TEXT NOT NULL,
+            startedAt TEXT,
+            completedAt TEXT,
+            cancelledAt TEXT
+          )
+        `);
+
+        this.db.exec(`CREATE INDEX IF NOT EXISTS idxResearchRunsStatus ON research_runs(status)`);
+        this.db.exec(`CREATE INDEX IF NOT EXISTS idxResearchRunsCreatedAt ON research_runs(createdAt)`);
+        this.db.exec(`CREATE INDEX IF NOT EXISTS idxResearchRunsUpdatedAt ON research_runs(updatedAt)`);
+
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS research_exports (
+            id TEXT PRIMARY KEY,
+            runId TEXT NOT NULL,
+            format TEXT NOT NULL,
+            content TEXT NOT NULL,
+            filePath TEXT,
+            createdAt TEXT NOT NULL,
+            FOREIGN KEY (runId) REFERENCES research_runs(id) ON DELETE CASCADE
+          )
+        `);
+
+        this.db.exec(`CREATE INDEX IF NOT EXISTS idxResearchExportsRunId ON research_exports(runId)`);
       });
     }
 

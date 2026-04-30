@@ -21,6 +21,7 @@ import {
   Play,
   Settings,
   Monitor,
+  Search,
   Sparkles,
   Target,
   Terminal,
@@ -33,9 +34,9 @@ import { useViewportMode } from "./Header";
 
 export interface MobileNavBarProps {
   /** Current task view mode */
-  view: "board" | "list" | "agents" | "missions" | "chat" | "documents" | "roadmaps" | "skills" | "mailbox" | "insights" | "memory" | "devserver" | "dev-server" | "todos";
+  view: "board" | "list" | "agents" | "missions" | "chat" | "documents" | "research" | "roadmaps" | "skills" | "mailbox" | "insights" | "memory" | "devserver" | "dev-server" | "todos";
   /** Change task view handler */
-  onChangeView: (view: "board" | "list" | "agents" | "missions" | "chat" | "documents" | "roadmaps" | "skills" | "mailbox" | "insights" | "memory" | "devserver" | "dev-server" | "todos") => void;
+  onChangeView: (view: "board" | "list" | "agents" | "missions" | "chat" | "documents" | "research" | "roadmaps" | "skills" | "mailbox" | "insights" | "memory" | "devserver" | "dev-server" | "todos") => void;
   /** Whether the ExecutorStatusBar footer is visible */
   footerVisible: boolean;
   /** Whether any full-screen modal is currently open (hides the tab bar) */
@@ -189,6 +190,7 @@ export function MobileNavBar({
 
   const isMoreActive =
     view === "documents"
+    || view === "research"
     || view === "insights"
     || view === "memory"
     || view === "devserver"
@@ -561,6 +563,16 @@ export function MobileNavBar({
                 <span>Roadmaps</span>
               </button>
             )}
+
+            <button
+              type="button"
+              className="mobile-more-item"
+              data-testid="mobile-more-item-research"
+              onClick={() => handleMoreAction(() => onChangeView("research"))}
+            >
+              <Search />
+              <span>Research</span>
+            </button>
 
             {experimentalFeatures?.insights && (
               <button

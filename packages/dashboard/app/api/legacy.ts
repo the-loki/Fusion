@@ -66,6 +66,14 @@ import type {
   InsightStatus,
   InsightRun,
   InsightRunTrigger,
+  ResearchEvent,
+  ResearchExport,
+  ResearchResult,
+  ResearchRun,
+  ResearchRunCreateInput,
+  ResearchRunStatus,
+  ResearchRunUpdateInput,
+  ResearchSource,
   TaskPriority,
   TaskSourceIssue,
 } from "@fusion/core";
@@ -1508,9 +1516,17 @@ export interface CustomProvider {
   models?: { id: string; name: string }[];
 }
 
-export async function fetchCustomProviders(): Promise<CustomProvider[] & { providers: CustomProvider[] }> {
+export async function fetchCustomProviders(): Promise<CustomProviderConfig[] & { providers: CustomProviderConfig[] }> {
   const providers = await api<CustomProvider[]>("/custom-providers");
-  return Object.assign(providers, { providers });
+  const legacyProviders = providers.map((provider) => ({
+    id: provider.id,
+    name: provider.name,
+    baseUrl: provider.baseUrl,
+    api: provider.apiType === "anthropic-compatible" ? "anthropic-messages" : "openai-completions",
+    apiKey: provider.apiKey,
+    models: (provider.models ?? []).map((model) => ({ id: model.id, name: model.name })),
+  } satisfies CustomProviderConfig));
+  return Object.assign(legacyProviders, { providers: legacyProviders });
 }
 
 export function addCustomProvider(provider: Omit<CustomProvider, "id">): Promise<CustomProvider> {
@@ -7733,4 +7749,116 @@ export function getInsightCreateTaskData(
   return api(withProjectId(`/insights/${encodeURIComponent(id)}/create-task`, projectId), {
     method: "POST",
   });
+}
+
+// ── Research API ────────────────────────────────────────────────────────────
+
+export interface ResearchRunsListResponse {
+  runs: ResearchRun[];
+  count: number;
+}
+
+export interface ResearchStatsResponse {
+  total: number;
+  byStatus: Record<ResearchRunStatus, number>;
+}
+
+export function listResearchRuns(
+  options: {
+    status?: ResearchRunStatus;
+    search?: string;
+    tag?: string;
+    fromDate?: string;
+    toDate?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+  projectId?: string,
+): Promise<ResearchRunsListResponse> {
+  const params = new URLSearchParams();
+  if (options.status) params.set("status", options.status);
+  if (options.search) params.set("search", options.search);
+  if (options.tag) params.set("tag", options.tag);
+  if (options.fromDate) params.set("fromDate", options.fromDate);
+  if (options.toDate) params.set("toDate", options.toDate);
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.offset !== undefined) params.set("offset", String(options.offset));
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+  return api<ResearchRunsListResponse>(withProjectId(`/research/runs${suffix}`, projectId));
+}
+
+export function createResearchRun(input: ResearchRunCreateInput, projectId?: string): Promise<ResearchRun> {
+  return api<ResearchRun>(withProjectId("/research/runs", projectId), {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function getResearchRun(id: string, projectId?: string): Promise<ResearchRun> {
+  return api<ResearchRun>(withProjectId(`/research/runs/${encodeURIComponent(id)}`, projectId));
+}
+
+export function updateResearchRun(id: string, input: ResearchRunUpdateInput, projectId?: string): Promise<ResearchRun> {
+  return api<ResearchRun>(withProjectId(`/research/runs/${encodeURIComponent(id)}`, projectId), {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteResearchRun(id: string, projectId?: string): Promise<void> {
+  return api<void>(withProjectId(`/research/runs/${encodeURIComponent(id)}`, projectId), { method: "DELETE" });
+}
+
+export function appendResearchEvent(id: string, event: Omit<ResearchEvent, "id" | "timestamp">, projectId?: string): Promise<ResearchEvent> {
+  return api<ResearchEvent>(withProjectId(`/research/runs/${encodeURIComponent(id)}/events`, projectId), {
+    method: "POST",
+    body: JSON.stringify(event),
+  });
+}
+
+export function addResearchSource(id: string, source: Omit<ResearchSource, "id">, projectId?: string): Promise<ResearchSource> {
+  return api<ResearchSource>(withProjectId(`/research/runs/${encodeURIComponent(id)}/sources`, projectId), {
+    method: "POST",
+    body: JSON.stringify(source),
+  });
+}
+
+export function updateResearchSource(id: string, sourceId: string, updates: Partial<ResearchSource>, projectId?: string): Promise<void> {
+  return api<void>(withProjectId(`/research/runs/${encodeURIComponent(id)}/sources/${encodeURIComponent(sourceId)}`, projectId), {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export function setResearchResults(id: string, results: ResearchResult, projectId?: string): Promise<void> {
+  return api<void>(withProjectId(`/research/runs/${encodeURIComponent(id)}/results`, projectId), {
+    method: "PUT",
+    body: JSON.stringify(results),
+  });
+}
+
+export function updateResearchRunStatus(id: string, status: ResearchRunStatus, extra?: Partial<ResearchRun>, projectId?: string): Promise<ResearchRun> {
+  return api<ResearchRun>(withProjectId(`/research/runs/${encodeURIComponent(id)}/status`, projectId), {
+    method: "PATCH",
+    body: JSON.stringify({ status, extra }),
+  });
+}
+
+export function createResearchExport(id: string, format: ResearchExport["format"], content: string, projectId?: string): Promise<ResearchExport> {
+  return api<ResearchExport>(withProjectId(`/research/runs/${encodeURIComponent(id)}/exports`, projectId), {
+    method: "POST",
+    body: JSON.stringify({ format, content }),
+  });
+}
+
+export function getResearchExports(id: string, projectId?: string): Promise<{ exports: ResearchExport[] }> {
+  return api<{ exports: ResearchExport[] }>(withProjectId(`/research/runs/${encodeURIComponent(id)}/exports`, projectId));
+}
+
+export function getResearchStats(projectId?: string): Promise<ResearchStatsResponse> {
+  return api<ResearchStatsResponse>(withProjectId("/research/stats", projectId));
+}
+
+export function searchResearchRuns(query: string, projectId?: string): Promise<{ runs: ResearchRun[] }> {
+  return api<{ runs: ResearchRun[] }>(withProjectId(`/research/search?q=${encodeURIComponent(query)}`, projectId));
 }

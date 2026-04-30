@@ -193,8 +193,8 @@ export interface HeaderProps {
   enginePaused?: boolean;
   onToggleGlobalPause?: () => void;
   onToggleEnginePause?: () => void;
-  view?: "board" | "list" | "agents" | "missions" | "chat" | "documents" | "roadmaps" | "skills" | "mailbox" | "insights" | "memory" | "devserver" | "dev-server" | "todos";
-  onChangeView?: (view: "board" | "list" | "agents" | "missions" | "chat" | "documents" | "roadmaps" | "skills" | "mailbox" | "insights" | "memory" | "devserver" | "dev-server" | "todos") => void;
+  view?: "board" | "list" | "agents" | "missions" | "chat" | "documents" | "research" | "roadmaps" | "skills" | "mailbox" | "insights" | "memory" | "devserver" | "dev-server" | "todos";
+  onChangeView?: (view: "board" | "list" | "agents" | "missions" | "chat" | "documents" | "research" | "roadmaps" | "skills" | "mailbox" | "insights" | "memory" | "devserver" | "dev-server" | "todos") => void;
   /** Whether to show the skills tab in the view toggle */
   showSkillsTab?: boolean;
   /** When true, shows the Agents view tab button. Hidden by default (experimental feature). */
@@ -333,9 +333,10 @@ export function Header({
       experimentalFeatures?.roadmap ||
       showSkillsTab ||
       experimentalFeatures?.memoryView ||
-      experimentalFeatures?.devServerView
+      experimentalFeatures?.devServerView ||
+      !hideFullNav
     );
-  }, [experimentalFeatures, showSkillsTab]);
+  }, [experimentalFeatures, showSkillsTab, hideFullNav]);
 
   const getEffectiveViewport = useCallback(() => {
     const vv = window.visualViewport;
@@ -1109,7 +1110,7 @@ export function Header({
               <>
                 <button
                   ref={viewOverflowTriggerRef}
-                  className={`view-toggle-btn${["skills", "roadmaps", "insights", "memory", "dev-server", "devserver"].includes(view) || (experimentalFeatures?.todoView && view === "todos") ? " active" : ""}`}
+                  className={`view-toggle-btn${["research", "skills", "roadmaps", "insights", "memory", "dev-server", "devserver"].includes(view) || (experimentalFeatures?.todoView && view === "todos") ? " active" : ""}`}
                   onClick={() => setIsViewOverflowOpen((prev) => !prev)}
                   title="More views"
                   aria-label="More views"
@@ -1126,6 +1127,18 @@ export function Header({
                     role="menu"
                     aria-label="More views"
                   >
+                    <button
+                      className={`view-toggle-overflow-item${view === "research" ? " active" : ""}`}
+                      onClick={() => {
+                        onChangeView("research");
+                        setIsViewOverflowOpen(false);
+                      }}
+                      role="menuitem"
+                      data-testid="view-overflow-research"
+                    >
+                      <Search size={14} />
+                      <span>Research</span>
+                    </button>
                     {experimentalFeatures?.insights && (
                       <button
                         className={`view-toggle-overflow-item${view === "insights" ? " active" : ""}`}

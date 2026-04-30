@@ -167,13 +167,13 @@ describe("Header", () => {
       expect(screen.getByTestId("view-toggle-overflow-trigger")).toBeDefined();
     });
 
-    it("does not render view overflow trigger when all overflow feature flags are false", () => {
+    it("renders view overflow trigger for research even when all optional feature flags are false", () => {
       renderHeader({
         onChangeView: noop,
         showSkillsTab: false,
         experimentalFeatures: { insights: false, roadmap: false, memoryView: false, devServerView: false, todoView: false },
       });
-      expect(screen.queryByTestId("view-toggle-overflow-trigger")).toBeNull();
+      expect(screen.getByTestId("view-toggle-overflow-trigger")).toBeDefined();
     });
   });
 

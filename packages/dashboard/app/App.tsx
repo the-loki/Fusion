@@ -66,6 +66,7 @@ const DASHBOARD_READY_SETTLE_DELAY_MS = IS_TEST_ENV ? 0 : 200;
 const AgentsView = lazy(() => import("./components/AgentsView").then((m) => ({ default: m.AgentsView })));
 const DocumentsView = lazy(() => import("./components/DocumentsView").then((m) => ({ default: m.DocumentsView })));
 const InsightsView = lazy(() => import("./components/InsightsView").then((m) => ({ default: m.InsightsView })));
+const ResearchView = lazy(() => import("./components/ResearchView").then((m) => ({ default: m.ResearchView })));
 const NodesView = lazy(() => import("./components/NodesView").then((m) => ({ default: m.NodesView })));
 const ChatView = lazy(() => import("./components/ChatView").then((m) => ({ default: m.ChatView })));
 const RoadmapsView = lazy(() => import("./components/RoadmapsView").then((m) => ({ default: m.RoadmapsView })));
@@ -89,6 +90,7 @@ function prefetchLazyViews() {
     void import("./components/AgentsView");
     void import("./components/DocumentsView");
     void import("./components/InsightsView");
+    void import("./components/ResearchView");
     void import("./components/NodesView");
     void import("./components/ChatView");
     void import("./components/RoadmapsView");
@@ -713,6 +715,16 @@ function AppInner() {
               addToast={addToast}
               onClose={() => handleChangeTaskView("board")}
             />
+          </Suspense>
+        </PageErrorBoundary>
+      );
+    }
+
+    if (taskView === "research") {
+      return (
+        <PageErrorBoundary>
+          <Suspense fallback={null}>
+            <ResearchView projectId={currentProject?.id} addToast={addToast} />
           </Suspense>
         </PageErrorBoundary>
       );
