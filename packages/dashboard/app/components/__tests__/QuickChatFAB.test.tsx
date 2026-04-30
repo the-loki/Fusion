@@ -2309,6 +2309,29 @@ describe("QuickChatFAB", () => {
       clickSpy.mockRestore();
     });
 
+    it("keeps paperclip trigger and message input in the same composer row", async () => {
+      render(<QuickChatFAB addToast={addToast} />);
+      fireEvent.click(screen.getByTestId("quick-chat-fab"));
+
+      const composerRow = await screen.findByTestId("quick-chat-input-row");
+      const input = screen.getByTestId("quick-chat-input");
+      const attachBtn = screen.getByTestId("quick-chat-attach-btn");
+      const sendBtn = screen.getByTestId("quick-chat-send");
+
+      expect(composerRow).toContainElement(attachBtn);
+      expect(composerRow).toContainElement(input);
+      expect(composerRow).toContainElement(sendBtn);
+
+      const fileInput = document.querySelector(".quick-chat-attachment-input") as HTMLInputElement;
+      const imageFile = new File(["img"], "photo.png", { type: "image/png" });
+      fireEvent.change(fileInput, { target: { files: [imageFile] } });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("quick-chat-attachment-preview-0")).toBeInTheDocument();
+        expect(screen.getByTestId("quick-chat-send")).not.toBeDisabled();
+      });
+    });
+
     it("adds/removes previews for selected attachments and filters unsupported files", async () => {
       render(<QuickChatFAB addToast={addToast} />);
       fireEvent.click(screen.getByTestId("quick-chat-fab"));

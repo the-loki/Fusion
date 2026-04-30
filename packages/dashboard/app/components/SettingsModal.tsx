@@ -415,7 +415,7 @@ export function SettingsModal({
   const [loginInstructions, setLoginInstructions] = useState<Record<string, string>>({});
   const [apiKeyInputs, setApiKeyInputs] = useState<Record<string, string>>({});
   const [apiKeyErrors, setApiKeyErrors] = useState<Record<string, string>>({});
-  const [customProviders, setCustomProviders] = useState<CustomProviderConfig[]>([]);
+  const [customProviders, setCustomProviders] = useState<CustomProvider[]>([]);
   const [customProviderEditing, setCustomProviderEditing] = useState<CustomProviderConfig | null>(null);
   const [showCustomProviderForm, setShowCustomProviderForm] = useState(false);
   const [customProviderSaving, setCustomProviderSaving] = useState(false);
@@ -833,7 +833,7 @@ export function SettingsModal({
     }
   }, [customProviderEditing, loadCustomProviders]);
 
-  const handleDeleteCustomProvider = useCallback(async (provider: CustomProviderConfig) => {
+  const handleDeleteCustomProvider = useCallback(async (provider: CustomProvider) => {
     const ok = await confirm({
       title: "Delete custom provider",
       message: `Delete custom provider '${provider.id}'?`,
@@ -4711,7 +4711,23 @@ export function SettingsModal({
                         <small className="settings-muted">{provider.id}</small>
                       </div>
                       <div className="auth-custom-provider-actions">
-                        <button type="button" className="btn btn-sm" onClick={() => { setCustomProviderEditing(provider); setShowCustomProviderForm(true); }}>Edit</button>
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          onClick={() => {
+                            setCustomProviderEditing({
+                              id: provider.id,
+                              name: provider.name,
+                              baseUrl: provider.baseUrl,
+                              api: provider.apiType === "anthropic-compatible" ? "anthropic-messages" : "openai-completions",
+                              apiKey: provider.apiKey,
+                              models: provider.models?.map((model) => ({ id: model.id, name: model.name })) ?? [],
+                            });
+                            setShowCustomProviderForm(true);
+                          }}
+                        >
+                          Edit
+                        </button>
                         <button type="button" className="btn btn-sm" onClick={() => { void handleDeleteCustomProvider(provider); }}>Delete</button>
                       </div>
                     </div>

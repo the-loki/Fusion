@@ -605,7 +605,7 @@ export function ModelOnboardingModal({
   const [apiKeyInputs, setApiKeyInputs] = useState<Record<string, string>>({});
   const [apiKeyErrors, setApiKeyErrors] = useState<Record<string, string>>({});
   const [apiKeySuccess, setApiKeySuccess] = useState<Record<string, string | null>>({});
-  const [customProviders, setCustomProviders] = useState<CustomProviderConfig[]>([]);
+  const [customProviders, setCustomProviders] = useState<CustomProvider[]>([]);
   const [showCustomProviderForm, setShowCustomProviderForm] = useState(false);
   const [customProviderSaving, setCustomProviderSaving] = useState(false);
   const [customProviderError, setCustomProviderError] = useState<string | undefined>();

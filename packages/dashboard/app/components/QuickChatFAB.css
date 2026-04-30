@@ -471,14 +471,20 @@
 .quick-chat-input-wrapper {
   position: relative;
   display: flex;
-  align-items: center;
-  gap: var(--space-sm);
   flex: 1;
+  flex-direction: column;
   min-width: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg);
   padding: var(--space-xs);
+}
+
+.quick-chat-input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
 }
 
 .quick-chat-input-wrapper--dragover {
@@ -510,8 +516,8 @@
   flex-shrink: 0;
 }
 
-/* Only the outer send/stop action keeps the larger touch target. */
-.quick-chat-panel-input > button {
+/* The send/stop action stays in the same inline composer row as attach + input. */
+.quick-chat-send-btn {
   min-width: calc(var(--space-lg) + var(--space-xl));
   min-height: calc(var(--space-lg) + var(--space-xl));
   width: calc(var(--space-lg) + var(--space-xl));
@@ -523,9 +529,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
-.quick-chat-panel-input > button:disabled {
+.quick-chat-send-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -643,7 +650,7 @@
     height: calc(var(--space-lg) * 2 + var(--space-sm));
   }
 
-  .quick-chat-panel-input > button {
+  .quick-chat-send-btn {
     min-width: calc(var(--space-lg) + var(--space-xl));
     min-height: calc(var(--space-lg) + var(--space-xl));
   }

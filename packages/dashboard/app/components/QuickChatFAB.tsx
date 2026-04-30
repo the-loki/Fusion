@@ -1756,30 +1756,55 @@ export function QuickChatFAB({
                   event.target.value = "";
                 }}
               />
-              <button
-                type="button"
-                className="btn-icon quick-chat-attach-btn"
-                data-testid="quick-chat-attach-btn"
-                aria-label="Attach files"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Paperclip size={16} />
-              </button>
-              <input
-                ref={inputRef}
-                type="text"
-                value={messageInput}
-                onChange={handleInputChange}
-                onKeyDown={handleInputKeyDown}
-                onKeyUp={handleInputKeyUp}
-                onClick={handleInputSelectionChange}
-                onBlur={handleInputBlur}
-                onFocus={handleInputFocus}
-                onPaste={handlePaste}
-                placeholder={inputPlaceholder}
-                disabled={inputDisabled}
-                data-testid="quick-chat-input"
-              />
+              <div className="quick-chat-input-row" data-testid="quick-chat-input-row">
+                <button
+                  type="button"
+                  className="btn-icon quick-chat-attach-btn"
+                  data-testid="quick-chat-attach-btn"
+                  aria-label="Attach files"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Paperclip size={16} />
+                </button>
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={messageInput}
+                  onChange={handleInputChange}
+                  onKeyDown={handleInputKeyDown}
+                  onKeyUp={handleInputKeyUp}
+                  onClick={handleInputSelectionChange}
+                  onBlur={handleInputBlur}
+                  onFocus={handleInputFocus}
+                  onPaste={handlePaste}
+                  placeholder={inputPlaceholder}
+                  disabled={inputDisabled}
+                  data-testid="quick-chat-input"
+                />
+                {isStreaming ? (
+                  <button
+                    type="button"
+                    className="chat-input-stop quick-chat-send-btn"
+                    onClick={stopStreaming}
+                    aria-label="Stop generation"
+                    data-testid="quick-chat-stop"
+                  >
+                    <Square size={14} />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="quick-chat-send-btn"
+                    onClick={() => {
+                      void handleSendMessage();
+                    }}
+                    disabled={inputDisabled || (messageInput.trim().length === 0 && pendingAttachments.length === 0)}
+                    data-testid="quick-chat-send"
+                  >
+                    <Send size={16} />
+                  </button>
+                )}
+              </div>
               <AgentMentionPopup
                 agents={agents}
                 filter={mentionFilter}
@@ -1817,28 +1842,6 @@ export function QuickChatFAB({
                 </div>
               )}
             </div>
-            {isStreaming ? (
-              <button
-                type="button"
-                className="chat-input-stop"
-                onClick={stopStreaming}
-                aria-label="Stop generation"
-                data-testid="quick-chat-stop"
-              >
-                <Square size={14} />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  void handleSendMessage();
-                }}
-                disabled={inputDisabled || (messageInput.trim().length === 0 && pendingAttachments.length === 0)}
-                data-testid="quick-chat-send"
-              >
-                <Send size={16} />
-              </button>
-            )}
           </div>
         </div>
       )}
