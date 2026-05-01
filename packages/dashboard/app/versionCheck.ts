@@ -15,7 +15,7 @@ export function consumeVersionUpdateFlag(): boolean {
   return false;
 }
 
-function reloadOnce(reason: string): void {
+export function reloadOnce(reason: string): void {
   if (sessionStorage.getItem(RELOAD_FLAG)) {
     console.warn("[versionCheck] reload already attempted, suppressing", reason);
     return;

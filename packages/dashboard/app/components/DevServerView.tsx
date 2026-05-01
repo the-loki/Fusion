@@ -552,7 +552,7 @@ export function DevServerView({ addToast, projectId }: DevServerViewProps) {
               disabled={!effectivePreviewUrl}
               data-testid="devserver-preview-open-tab"
             >
-              <ExternalLink size={14} />
+              <ExternalLink />
             </button>
             <button
               type="button"
@@ -562,7 +562,7 @@ export function DevServerView({ addToast, projectId }: DevServerViewProps) {
               disabled={!effectivePreviewUrl}
               data-testid="devserver-preview-refresh"
             >
-              <RefreshCw size={14} />
+              <RefreshCw />
             </button>
           </div>
         </div>

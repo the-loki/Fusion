@@ -715,7 +715,7 @@ export function SubtaskBreakdownModal({ isOpen, onClose, initialDescription, onT
                               title="Move up"
                               aria-label="Move subtask up"
                             >
-                              <ArrowUp size={14} />
+                              <ArrowUp />
                             </button>
                             <button
                               type="button"
@@ -725,7 +725,7 @@ export function SubtaskBreakdownModal({ isOpen, onClose, initialDescription, onT
                               title="Move down"
                               aria-label="Move subtask down"
                             >
-                              <ArrowDown size={14} />
+                              <ArrowDown />
                             </button>
                             <button type="button" className="btn btn-sm" onClick={() => removeSubtask(subtask.id)} disabled={view.type === "creating"}>
                               <Trash2 size={14} /> Remove

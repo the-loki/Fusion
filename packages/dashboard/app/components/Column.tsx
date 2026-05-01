@@ -309,7 +309,7 @@ function ColumnComponent({ column, tasks, projectId, maxConcurrent, onMoveTask, 
             title="Archive all done tasks"
             aria-label="Archive all done tasks"
           >
-            <Archive size={16} />
+            <Archive />
           </button>
         )}
         {isArchived && onToggleCollapse && (
@@ -319,6 +319,7 @@ function ColumnComponent({ column, tasks, projectId, maxConcurrent, onMoveTask, 
             title={collapsed ? "Expand archived tasks" : "Collapse archived tasks"}
             aria-label={collapsed ? "Expand archived tasks" : "Collapse archived tasks"}
           >
+            {/* Directional chevrons stay explicit for clearer collapsed-state affordance in compact headers. */}
             {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
           </button>
         )}
@@ -334,7 +335,7 @@ function ColumnComponent({ column, tasks, projectId, maxConcurrent, onMoveTask, 
               title="Column actions"
               disabled={isMenuBusy}
             >
-              <MoreVertical size={16} />
+              <MoreVertical />
             </button>
             {isMenuOpen && (
               <div className="column-menu-popover" role="menu">

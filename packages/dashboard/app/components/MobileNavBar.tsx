@@ -400,7 +400,7 @@ export function MobileNavBar({
               <div className="mobile-more-submenu" role="menu" aria-label="Scripts submenu">
                 {scriptsLoading ? (
                   <div className="mobile-more-submenu-loading" data-testid="mobile-more-scripts-loading">
-                    <Loader2 size={14} className="animate-spin" />
+                    <Loader2 className="animate-spin" />
                     <span>Loading scripts…</span>
                   </div>
                 ) : scriptEntries.length > 0 ? (
@@ -417,7 +417,7 @@ export function MobileNavBar({
                           setIsScriptsSubmenuOpen(false);
                         }}
                       >
-                        <Play size={14} />
+                        <Play />
                         <span>{name}</span>
                       </button>
                     ))}
@@ -432,7 +432,7 @@ export function MobileNavBar({
                           onOpenScripts();
                         }}
                       >
-                        <FileCode size={14} />
+                        <FileCode />
                         <span>Manage Scripts…</span>
                       </button>
                     )}
@@ -449,7 +449,7 @@ export function MobileNavBar({
                         onOpenScripts();
                       }}
                     >
-                      <FileCode size={14} />
+                      <FileCode />
                       <span>No scripts — add one…</span>
                     </button>
                   )
@@ -609,7 +609,7 @@ export function MobileNavBar({
                   handleMoreAction(() => onChangeView("dev-server"));
                 }}
               >
-                <Monitor size={14} />
+                <Monitor />
                 <span>Dev Server</span>
               </button>
             )}
@@ -621,7 +621,7 @@ export function MobileNavBar({
                 data-testid="mobile-more-item-todos"
                 onClick={() => handleMoreAction(() => onChangeView("todos"))}
               >
-                <CheckSquare size={14} />
+                <CheckSquare />
                 <span>Todos</span>
               </button>
             )}

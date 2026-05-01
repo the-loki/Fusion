@@ -202,7 +202,7 @@ export function RoutineCard({ routine, onEdit, onDelete, onRun, onToggle, runnin
             title={running ? "Running…" : "Run now"}
             aria-label={running ? "Running…" : `Run ${routine.name} now`}
           >
-            {running ? <Loader2 size={14} className="spinner" /> : <Play size={14} />}
+            {running ? <Loader2 className="spinner" /> : <Play />}
           </button>
           <button
             className="btn-icon"
@@ -211,7 +211,7 @@ export function RoutineCard({ routine, onEdit, onDelete, onRun, onToggle, runnin
             aria-label={routine.enabled ? `Disable ${routine.name}` : `Enable ${routine.name}`}
             aria-pressed={routine.enabled}
           >
-            {routine.enabled ? <Pause size={14} /> : <Play size={14} />}
+            {routine.enabled ? <Pause /> : <Play />}
           </button>
           <button
             className="btn-icon"
@@ -219,7 +219,7 @@ export function RoutineCard({ routine, onEdit, onDelete, onRun, onToggle, runnin
             title="Edit"
             aria-label={`Edit ${routine.name}`}
           >
-            <Pencil size={14} />
+            <Pencil />
           </button>
           <button
             className="btn-icon"
@@ -227,7 +227,7 @@ export function RoutineCard({ routine, onEdit, onDelete, onRun, onToggle, runnin
             title="Delete"
             aria-label={`Delete ${routine.name}`}
           >
-            <Trash2 size={14} />
+            <Trash2 />
           </button>
         </div>
       </div>

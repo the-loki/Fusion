@@ -136,6 +136,8 @@ html {
   --header-padding: var(--space-md) var(--space-xl);
   --column-gap: var(--space-md);
   --board-padding: var(--space-lg) var(--space-xl);
+  --icon-size-md: 16px;
+  --icon-size-sm: 14px;
 
   /* Layout tokens for fixed footer (ExecutorStatusBar) */
   --header-height: 57px;
@@ -702,6 +704,24 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+
+.btn-icon {
+  --btn-icon-size: var(--icon-size-md);
+  line-height: 0;
+}
+
+.btn-icon > svg {
+  width: var(--btn-icon-size);
+  height: var(--btn-icon-size);
+  flex-shrink: 0;
+}
+
+.btn.btn-icon.btn-sm,
+.btn.btn-icon.btn--sm,
+.btn-icon.btn-sm,
+.btn-icon.btn--sm {
+  --btn-icon-size: var(--icon-size-sm);
 }
 
 /* === Button Modifiers (BEM style) === */

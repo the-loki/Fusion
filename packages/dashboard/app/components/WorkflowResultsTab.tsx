@@ -391,7 +391,7 @@ export function WorkflowResultsTab({
                       data-testid={`workflow-step-move-up-${stepId}`}
                       title="Move up"
                     >
-                      <ChevronUp size={14} />
+                      <ChevronUp />
                     </button>
                     <button
                       type="button"
@@ -401,7 +401,7 @@ export function WorkflowResultsTab({
                       data-testid={`workflow-step-move-down-${stepId}`}
                       title="Move down"
                     >
-                      <ChevronDown size={14} />
+                      <ChevronDown />
                     </button>
                     <button
                       type="button"
@@ -410,7 +410,7 @@ export function WorkflowResultsTab({
                       data-testid={`workflow-step-remove-${stepId}`}
                       title="Remove"
                     >
-                      <X size={14} />
+                      <X />
                     </button>
                   </div>
                 </div>

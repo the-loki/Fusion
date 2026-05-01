@@ -144,7 +144,7 @@ export function ChangesDiffModal({
                   title="Previous file (Ctrl+↑)"
                   aria-label="Previous file"
                 >
-                  <ChevronLeft size={14} />
+                  <ChevronLeft />
                 </button>
                 <span className="changes-nav-indicator" aria-live="polite">
                   {selectedIndex !== null
@@ -160,7 +160,7 @@ export function ChangesDiffModal({
                   title="Next file (Ctrl+↓)"
                   aria-label="Next file"
                 >
-                  <ChevronRight size={14} />
+                  <ChevronRight />
                 </button>
               </div>
             )}

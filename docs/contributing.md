@@ -164,6 +164,16 @@ The dashboard's CSS has been modularized:
 
 **Rule:** New component CSS goes in the component's `.css` file, not in `styles.css`. Only truly global rules belong in the root stylesheet.
 
+### Icon-only button sizing contract
+
+Dashboard icon-only controls should use the shared `.btn-icon` contract instead of ad-hoc Lucide `size={12}` / `size={14}` props:
+
+- `.btn-icon` defaults icon glyphs to `--icon-size-md` via `--btn-icon-size`
+- compact icon-only buttons (`.btn-icon.btn-sm`, `.btn.btn-icon.btn--sm`) automatically use `--icon-size-sm`
+- keep intentionally smaller directional affordances (for example split-button chevrons or non-button inline indicators) as explicit local exceptions in component CSS/JSX
+
+Use component-local overrides only when a surface has a deliberate visual exception; ordinary icon-only actions should inherit the shared contract.
+
 ### CSS Testing
 
 For CSS regression tests, use the helper at `packages/dashboard/app/test/cssFixture.ts`:

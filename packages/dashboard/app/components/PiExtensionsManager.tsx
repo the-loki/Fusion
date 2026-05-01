@@ -224,7 +224,7 @@ export function PiExtensionsManager({ addToast, projectId }: PiExtensionsManager
                 title={`Remove ${path}`}
                 aria-label={`Remove ${path}`}
               >
-                <X size={12} />
+                <X />
               </button>
             </span>
           ))}
@@ -421,7 +421,7 @@ export function PiExtensionsManager({ addToast, projectId }: PiExtensionsManager
             disabled={extensionsLoading}
             title="Refresh extensions"
           >
-            <RefreshCw size={14} className={extensionsLoading ? "spin" : ""} />
+            <RefreshCw className={extensionsLoading ? "spin" : ""} />
           </button>
         </div>
         <p className="pi-ext-description">

@@ -190,7 +190,7 @@ export function ProjectDetectionResults({
                       title="Edit name"
                       disabled={isRegistering}
                     >
-                      <Edit2 size={12} />
+                      <Edit2 />
                     </button>
                   </div>
                 )}

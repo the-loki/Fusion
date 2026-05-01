@@ -10,8 +10,26 @@ const hiddenDistRoot = join(workspaceRoot, `.tmp-fn-vitest-workspace-resolution-
 const internalPackages = ["core", "engine", "dashboard"] as const;
 const movedDistDirs: Array<{ from: string; to: string }> = [];
 
+function rmSyncWithRetry(path: string) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      rmSync(path, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "ENOTEMPTY" && code !== "EPERM" && code !== "EEXIST") {
+        throw error;
+      }
+      if (attempt === 4) {
+        throw error;
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20 * (attempt + 1));
+    }
+  }
+}
+
 function hideInternalPackageDistDirs() {
-  rmSync(hiddenDistRoot, { recursive: true, force: true });
+  rmSyncWithRetry(hiddenDistRoot);
   mkdirSync(hiddenDistRoot, { recursive: true });
 
   for (const pkg of internalPackages) {
@@ -22,7 +40,7 @@ function hideInternalPackageDistDirs() {
 
     const hiddenPath = join(hiddenDistRoot, `${pkg}-dist`);
     if (existsSync(hiddenPath)) {
-      rmSync(hiddenPath, { recursive: true, force: true });
+      rmSyncWithRetry(hiddenPath);
     }
     renameSync(distPath, hiddenPath);
     movedDistDirs.push({ from: distPath, to: hiddenPath });
@@ -37,13 +55,13 @@ function restoreInternalPackageDistDirs() {
     }
 
     if (existsSync(from)) {
-      rmSync(from, { recursive: true, force: true });
+      rmSyncWithRetry(from);
     }
 
     renameSync(to, from);
   }
   movedDistDirs.length = 0;
-  rmSync(hiddenDistRoot, { recursive: true, force: true });
+  rmSyncWithRetry(hiddenDistRoot);
 }
 
 describe("CLI Vitest workspace resolution", () => {

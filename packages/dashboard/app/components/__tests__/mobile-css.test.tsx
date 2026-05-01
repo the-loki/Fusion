@@ -55,6 +55,23 @@ describe("mobile CSS foundation", () => {
     expect(touchTargetMatch![1]).toContain("min-height: 44px;");
   });
 
+  it("defines the shared btn-icon size variable contract", () => {
+    const css = loadAllAppCss();
+
+    const btnIconBlock = css.match(/\.btn-icon\s*\{([\s\S]*?)\}/);
+    expect(btnIconBlock).toBeTruthy();
+    expect(btnIconBlock![1]).toContain("--btn-icon-size: var(--icon-size-md);");
+
+    const btnIconSvgBlock = css.match(/\.btn-icon\s*>\s*svg\s*\{([\s\S]*?)\}/);
+    expect(btnIconSvgBlock).toBeTruthy();
+    expect(btnIconSvgBlock![1]).toContain("width: var(--btn-icon-size);");
+    expect(btnIconSvgBlock![1]).toContain("height: var(--btn-icon-size);");
+
+    const btnIconCompactBlock = css.match(/\.btn-icon\.btn-sm[\s\S]*?\{([\s\S]*?)\}/);
+    expect(btnIconCompactBlock).toBeTruthy();
+    expect(btnIconCompactBlock![1]).toContain("--btn-icon-size: var(--icon-size-sm);");
+  });
+
   it("enforces 16px font size for text inputs in the main mobile media query", () => {
     const css = loadAllAppCss();
     const mobileSection = getMainMobileSection(css);

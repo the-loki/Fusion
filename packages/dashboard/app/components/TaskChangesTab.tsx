@@ -325,7 +325,7 @@ export function TaskChangesTab({ taskId, worktree, projectId, column, mergeDetai
                   title="Previous file"
                   aria-label="Previous file"
                 >
-                  <ChevronLeft size={14} />
+                  <ChevronLeft />
                 </button>
                 <span className="changes-nav-indicator" aria-live="polite">
                   {currentFileIndex !== null ? `${currentFileIndex + 1}/${files.length}` : `—/${files.length}`}
@@ -337,7 +337,7 @@ export function TaskChangesTab({ taskId, worktree, projectId, column, mergeDetai
                   title="Next file"
                   aria-label="Next file"
                 >
-                  <ChevronRight size={14} />
+                  <ChevronRight />
                 </button>
               </div>
             )}
@@ -364,7 +364,7 @@ export function TaskChangesTab({ taskId, worktree, projectId, column, mergeDetai
               title="Expand to full-screen diff view"
               aria-label="Expand diff view"
             >
-              <Maximize2 size={14} />
+              <Maximize2 />
             </button>
           </div>
         </div>

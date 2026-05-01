@@ -43,8 +43,8 @@
 
 .system-stats-modal__header-actions .btn-icon svg {
   display: block;
-  width: 1rem;
-  height: 1rem;
+  width: var(--btn-icon-size);
+  height: var(--btn-icon-size);
 }
 
 .system-stats-modal__refresh--spinning {

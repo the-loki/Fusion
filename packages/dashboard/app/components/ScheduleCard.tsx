@@ -194,7 +194,7 @@ export function ScheduleCard({ schedule, onEdit, onDelete, onRun, onToggle, runn
             title={running ? "Running…" : "Run now"}
             aria-label={running ? "Running…" : `Run ${schedule.name} now`}
           >
-            <Play size={14} />
+            <Play />
           </button>
           <button
             className="btn-icon"
@@ -203,7 +203,7 @@ export function ScheduleCard({ schedule, onEdit, onDelete, onRun, onToggle, runn
             aria-label={schedule.enabled ? `Disable ${schedule.name}` : `Enable ${schedule.name}`}
             aria-pressed={schedule.enabled}
           >
-            {schedule.enabled ? <Pause size={14} /> : <Play size={14} />}
+            {schedule.enabled ? <Pause /> : <Play />}
           </button>
           <button
             className="btn-icon"
@@ -211,7 +211,7 @@ export function ScheduleCard({ schedule, onEdit, onDelete, onRun, onToggle, runn
             title="Edit"
             aria-label={`Edit ${schedule.name}`}
           >
-            <Pencil size={14} />
+            <Pencil />
           </button>
           <button
             className="btn-icon"
@@ -219,7 +219,7 @@ export function ScheduleCard({ schedule, onEdit, onDelete, onRun, onToggle, runn
             title="Delete"
             aria-label={`Delete ${schedule.name}`}
           >
-            <Trash2 size={14} />
+            <Trash2 />
           </button>
         </div>
       </div>

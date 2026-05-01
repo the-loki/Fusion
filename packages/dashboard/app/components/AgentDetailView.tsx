@@ -614,7 +614,7 @@ export function AgentDetailView({ agentId, projectId, onClose, addToast, onChild
         {/* Footer with agent ID */}
         <div className="agent-detail-footer">
           <button className="btn-icon" onClick={copyAgentId} title="Copy Agent ID">
-            <Copy size={14} />
+            <Copy />
           </button>
           <span className="agent-detail-id" onClick={copyAgentId}>
             {agent.id}

@@ -421,7 +421,7 @@ export function ScheduleStepsEditor({ steps, onChange, onEditingChange }: Schedu
                     title="Move up"
                     aria-label={`Move ${step.name} up`}
                   >
-                    <ChevronUp size={14} />
+                    <ChevronUp />
                   </button>
                   <button
                     type="button"
@@ -431,7 +431,7 @@ export function ScheduleStepsEditor({ steps, onChange, onEditingChange }: Schedu
                     title="Move down"
                     aria-label={`Move ${step.name} down`}
                   >
-                    <ChevronDown size={14} />
+                    <ChevronDown />
                   </button>
                   <button
                     type="button"
@@ -440,7 +440,7 @@ export function ScheduleStepsEditor({ steps, onChange, onEditingChange }: Schedu
                     title="Edit"
                     aria-label={`Edit ${step.name}`}
                   >
-                    <Pencil size={14} />
+                    <Pencil />
                   </button>
                   <button
                     type="button"
@@ -449,7 +449,7 @@ export function ScheduleStepsEditor({ steps, onChange, onEditingChange }: Schedu
                     title="Delete"
                     aria-label={`Delete ${step.name}`}
                   >
-                    <Trash2 size={14} />
+                    <Trash2 />
                   </button>
                 </div>
               </div>

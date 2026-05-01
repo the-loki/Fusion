@@ -324,7 +324,7 @@ export function TodoView({ projectId, addToast }: TodoViewProps) {
               aria-label="Add list"
               data-testid="add-list-button"
             >
-              <Plus size={14} />
+              <Plus />
             </button>
           </div>
 
@@ -355,7 +355,7 @@ export function TodoView({ projectId, addToast }: TodoViewProps) {
                 }}
                 aria-label="Save list"
               >
-                <Check size={14} />
+                <Check />
               </button>
               <button
                 type="button"
@@ -366,7 +366,7 @@ export function TodoView({ projectId, addToast }: TodoViewProps) {
                 }}
                 aria-label="Cancel list"
               >
-                <X size={14} />
+                <X />
               </button>
             </div>
           )}
@@ -423,7 +423,7 @@ export function TodoView({ projectId, addToast }: TodoViewProps) {
                           }}
                           aria-label="Save list rename"
                         >
-                          <Check size={14} />
+                          <Check />
                         </button>
                         <button
                           type="button"
@@ -431,7 +431,7 @@ export function TodoView({ projectId, addToast }: TodoViewProps) {
                           onClick={handleCancelRenameList}
                           aria-label="Cancel list rename"
                         >
-                          <X size={14} />
+                          <X />
                         </button>
                       </>
                     ) : (
@@ -456,7 +456,7 @@ export function TodoView({ projectId, addToast }: TodoViewProps) {
                             aria-label={`Rename ${list.title}`}
                             data-testid={`rename-list-button-${list.id}`}
                           >
-                            <Pencil size={14} />
+                            <Pencil />
                           </button>
                           <button
                             type="button"
@@ -467,7 +467,7 @@ export function TodoView({ projectId, addToast }: TodoViewProps) {
                             aria-label={`Delete ${list.title}`}
                             data-testid={`delete-list-button-${list.id}`}
                           >
-                            <Trash2 size={14} />
+                            <Trash2 />
                           </button>
                         </div>
                       </>
@@ -586,7 +586,7 @@ export function TodoView({ projectId, addToast }: TodoViewProps) {
                                 }}
                                 aria-label="Save item edit"
                               >
-                                <Check size={14} />
+                                <Check />
                               </button>
                               <button
                                 type="button"
@@ -594,7 +594,7 @@ export function TodoView({ projectId, addToast }: TodoViewProps) {
                                 onClick={handleCancelEditItem}
                                 aria-label="Cancel item edit"
                               >
-                                <X size={14} />
+                                <X />
                               </button>
                             </>
                           ) : (
@@ -610,7 +610,7 @@ export function TodoView({ projectId, addToast }: TodoViewProps) {
                                   aria-label={`Move ${item.text} up`}
                                   data-testid={`move-up-${item.id}`}
                                 >
-                                  <ChevronUp size={14} />
+                                  <ChevronUp />
                                 </button>
                                 <button
                                   type="button"
@@ -622,7 +622,7 @@ export function TodoView({ projectId, addToast }: TodoViewProps) {
                                   aria-label={`Move ${item.text} down`}
                                   data-testid={`move-down-${item.id}`}
                                 >
-                                  <ChevronDown size={14} />
+                                  <ChevronDown />
                                 </button>
                               </div>
                               <button
@@ -634,7 +634,7 @@ export function TodoView({ projectId, addToast }: TodoViewProps) {
                                 aria-label={`Create task from ${item.text}`}
                                 data-testid={`create-task-from-${item.id}`}
                               >
-                                <PlusCircle size={14} />
+                                <PlusCircle />
                               </button>
                               <div
                                 className="todo-agent-picker-trigger"
@@ -650,7 +650,7 @@ export function TodoView({ projectId, addToast }: TodoViewProps) {
                                   aria-label={`Assign ${item.text} to agent`}
                                   data-testid={`assign-agent-for-${item.id}`}
                                 >
-                                  <Bot size={14} />
+                                  <Bot />
                                 </button>
                                 {showAgentPicker && activeItemForAgent === item.id && (
                                   <div
@@ -673,7 +673,7 @@ export function TodoView({ projectId, addToast }: TodoViewProps) {
                                               void handleCreateTaskAndAssign(item, agent.id);
                                             }}
                                           >
-                                            <Bot size={14} />
+                                            <Bot />
                                             <span>{agent.name}</span>
                                             <span className="todo-agent-picker-role">{agent.role}</span>
                                           </button>
@@ -691,7 +691,7 @@ export function TodoView({ projectId, addToast }: TodoViewProps) {
                                 aria-label={`Edit ${item.text}`}
                                 data-testid={`edit-item-${item.id}`}
                               >
-                                <Pencil size={14} />
+                                <Pencil />
                               </button>
                               <button
                                 type="button"
@@ -702,7 +702,7 @@ export function TodoView({ projectId, addToast }: TodoViewProps) {
                                 aria-label={`Delete ${item.text}`}
                                 data-testid={`delete-item-${item.id}`}
                               >
-                                <Trash2 size={14} />
+                                <Trash2 />
                               </button>
                             </>
                           )}

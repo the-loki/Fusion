@@ -4,6 +4,7 @@ import { RootErrorBoundary } from "./components/ErrorBoundary";
 import { App } from "./App";
 import { installAuthFetch } from "./auth";
 import { installVersionCheck } from "./versionCheck";
+import { installSwUpdate } from "./swUpdate";
 import "./styles.css";
 
 // Install the bearer-token fetch wrapper before React mounts so every API
@@ -21,13 +22,4 @@ createRoot(document.getElementById("root")!).render(
   </StrictMode>,
 );
 
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
-  navigator.serviceWorker
-    .register("/sw.js")
-    .then((registration) => {
-      console.log("SW registered:", registration.scope);
-    })
-    .catch((error) => {
-      console.log("SW registration failed:", error);
-    });
-}
+installSwUpdate();
