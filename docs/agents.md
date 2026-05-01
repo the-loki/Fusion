@@ -408,6 +408,39 @@ fn message delete MSG-123
 fn agent mailbox AGENT-001
 ```
 
+## Heartbeat Prompt Composition and Autonomous Run Behavior
+
+Heartbeat runs are composed from multiple prompt layers so each wake has full identity and operating context:
+
+1. **System prompt**
+   - Task-scoped runs use the task heartbeat system prompt.
+   - No-task runs use the ambient/no-task heartbeat system prompt (tool-aligned: no task-scoped tools).
+2. **Agent identity and instructions bundle**
+   - Inline instructions (`instructionsText`)
+   - File-backed instructions (`instructionsPath`)
+   - Soul/personality (`soul`)
+   - Agent memory (`memory`)
+   - Optional project memory guidance (when memory is enabled)
+3. **Execution prompt framing**
+   - `Identity Snapshot` block (agent ID/role + loaded soul/instructions/memory preview)
+   - `Wake Delta` block (source, trigger detail, wake reason, assignment/comments/messages)
+   - Heartbeat procedure block (task-scoped or no-task variant, plus optional per-agent procedure override file)
+
+This structure ensures every run re-anchors on identity, wake reason, and current context before taking action.
+
+### Manual / On-Demand Runs Are Autonomous Heartbeats
+
+`POST /api/agents/:id/runs` with `source: "on_demand"` executes the same autonomous heartbeat flow as timer/assignment triggers. It is **not** a mailbox-only poll.
+
+Expected behavior for both manual and automatic triggers:
+- Re-check identity/instructions context for this tick
+- Process wake delta first (including message/comment wakes)
+- Re-evaluate assignment state
+- Take exactly one concrete next action
+- Finish with `fn_heartbeat_done`
+
+Messages remain an important input signal, but they do not replace the heartbeat procedure.
+
 ## Heartbeat Run Mailbox Checking
 
 When messaging tools are enabled for an agent, heartbeat runs check for unread mailbox messages during execution regardless of the trigger type. This ensures agents can see and respond to incoming messages without needing an explicit wake-on-message trigger.

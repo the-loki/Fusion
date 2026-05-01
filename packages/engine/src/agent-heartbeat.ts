@@ -319,6 +319,37 @@ Critical: a heartbeat without observable progress (a log, a document write, a
 status change, a comment, a delegation, or an explicit "no-op with reason") is
 a bug. Do not loop on the same plan across heartbeats without recording why.`;
 
+/**
+ * No-task variant of HEARTBEAT_PROCEDURE. Keep this aligned with the ambient
+ * tool set (no fn_task_log / fn_task_document_* in no-task runs).
+ */
+export const HEARTBEAT_NO_TASK_PROCEDURE = `## Heartbeat Procedure (run every tick, in order)
+
+1. **Identity & context** — review the **Identity Snapshot** at the top of
+   this prompt. Confirm your role, soul, instructions, and memory match what
+   you expect, and surface any anomalies in your first text output before
+   doing anything else. (If fn_identity is available in your runtime you may
+   also call it for full structured detail; the snapshot above is the
+   authoritative source.)
+2. **Inbox** — when fn_read_messages is available, call it. Process any pending
+   messages first; reply with reply_to_message_id when answering.
+3. **Wake delta** — read the Wake Delta block above. The wake reason is the
+   highest-priority change for this heartbeat. If you were woken by a comment
+   or a message, acknowledge it before doing anything else.
+4. **Ambient review** — since you have no assigned task, review board/project
+   signals and recent memory context before acting.
+5. **Pick the next concrete action** — exactly ONE useful action this heartbeat:
+   create a focused task, delegate work, send/reply to a message, or append
+   durable memory.
+6. **Persist progress** — use available ambient tools only:
+   fn_task_create, fn_delegate_task, fn_send_message, fn_memory_append.
+7. **Exit** — call fn_heartbeat_done with a one-line summary of what changed
+   this tick. If you took no action, say so and explain why.
+
+Critical: a heartbeat without observable progress (a created task, delegation,
+message reply, memory append, or explicit "no-op with reason") is a bug. Do
+not loop on the same plan across heartbeats without recording why.`;
+
 /** Parameter schema for the fn_heartbeat_done tool */
 const heartbeatDoneParams = Type.Object({
   summary: Type.Optional(Type.String({ description: "Summary of what was accomplished this heartbeat" })),
@@ -438,13 +469,6 @@ export class HeartbeatMonitor {
     this.rootDir = options.rootDir;
     this.messageStore = options.messageStore;
     this.pluginRunner = options.pluginRunner;
-    this.onRecovered = options.onRecovered;
-    this.onTerminated = options.onTerminated;
-    this.onRunStarted = options.onRunStarted;
-    this.onRunCompleted = options.onRunCompleted;
-    this.taskStore = options.taskStore;
-    this.rootDir = options.rootDir;
-    this.messageStore = options.messageStore;
   }
 
   /**
@@ -1365,26 +1389,31 @@ export class HeartbeatMonitor {
         // Build skill selection context for heartbeat session (uses waking agent's skills, no role fallback)
         const skillContext = buildSessionSkillContextSync(agent, "heartbeat", rootDir);
 
-        let systemPrompt = isNoTaskRun
+        const baseHeartbeatSystemPrompt = isNoTaskRun
           ? HEARTBEAT_NO_TASK_SYSTEM_PROMPT
           : HEARTBEAT_SYSTEM_PROMPT;
-        const baseHeartbeatSystemPrompt = systemPrompt;
         let resolvedInstructionsForIdentity = "";
         try {
-          const agentInstructions = await resolveAgentInstructionsWithRatings(agent, rootDir, this.store);
-          resolvedInstructionsForIdentity = agentInstructions;
-          const memoryInstructions = memorySettings?.memoryEnabled === false
-            ? ""
-            : buildExecutionMemoryInstructions(rootDir, memorySettings);
-          systemPrompt = buildSystemPromptWithInstructions(
-            baseHeartbeatSystemPrompt,
-            [agentInstructions, memoryInstructions].filter((part) => part.trim()).join("\n\n"),
-          );
+          resolvedInstructionsForIdentity = await resolveAgentInstructionsWithRatings(agent, rootDir, this.store);
         } catch (instructionError) {
-          systemPrompt = baseHeartbeatSystemPrompt;
           const message = instructionError instanceof Error ? instructionError.message : String(instructionError);
-          heartbeatLog.warn(`Failed to enrich heartbeat system prompt for ${agentId}: ${message}`);
+          heartbeatLog.warn(`Failed to resolve agent instructions for heartbeat ${agentId}: ${message}`);
         }
+
+        let memoryInstructions = "";
+        if (memorySettings?.memoryEnabled !== false) {
+          try {
+            memoryInstructions = buildExecutionMemoryInstructions(rootDir, memorySettings);
+          } catch (memoryInstructionErr) {
+            const message = memoryInstructionErr instanceof Error ? memoryInstructionErr.message : String(memoryInstructionErr);
+            heartbeatLog.warn(`Failed to resolve project memory instructions for heartbeat ${agentId}: ${message}`);
+          }
+        }
+
+        const systemPrompt = buildSystemPromptWithInstructions(
+          baseHeartbeatSystemPrompt,
+          [resolvedInstructionsForIdentity, memoryInstructions].filter((part) => part.trim()).join("\n\n"),
+        );
 
         // Register fn_identity tool before fn_heartbeat_done (which must stay last)
         heartbeatTools.push(createIdentityTool({ agent, resolvedInstructions: resolvedInstructionsForIdentity }));
@@ -1468,7 +1497,8 @@ export class HeartbeatMonitor {
           // existing instructionsPath/instructionsText reload contract) so an
           // operator can iterate on procedure text without restarting agents.
           const customProcedure = await resolveAgentHeartbeatProcedure(agent, rootDir);
-          const heartbeatProcedureText = customProcedure ?? HEARTBEAT_PROCEDURE;
+          const heartbeatProcedureText = customProcedure
+            ?? (isNoTaskRun ? HEARTBEAT_NO_TASK_PROCEDURE : HEARTBEAT_PROCEDURE);
 
           if (isNoTaskRun) {
             // No-task heartbeat: agent has identity but no assigned task
@@ -1507,6 +1537,8 @@ export class HeartbeatMonitor {
               `- pending messages: ${pendingMessages.length}`,
               "",
               "Treat this wake delta as the highest-priority change for this heartbeat.",
+              "This is an autonomous heartbeat run (manual or automatic): re-anchor on",
+              "identity, process wake context, then complete ONE concrete action.",
               "Run the Heartbeat Procedure (below) before doing anything else — even a",
               "timer-only wake should re-check messages, memory, and project state.",
               "",
@@ -1608,6 +1640,8 @@ export class HeartbeatMonitor {
               `- triggering comments: ${effectiveTriggeringCommentIds?.length ?? 0}`,
               "",
               "Treat this wake delta as the highest-priority change for this heartbeat.",
+              "This is an autonomous heartbeat run (manual or automatic): re-anchor on",
+              "identity, process wake context, then complete ONE concrete action.",
               "Before resuming prior task work, run the Heartbeat Procedure (below) and",
               "decide what action this delta requires. Your assigned task is one input",
               "to the procedure — not the only thing to consider.",

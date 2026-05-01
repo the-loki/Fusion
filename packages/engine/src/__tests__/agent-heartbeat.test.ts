@@ -14,6 +14,7 @@ import {
   HEARTBEAT_SYSTEM_PROMPT,
   HEARTBEAT_NO_TASK_SYSTEM_PROMPT,
   HEARTBEAT_PROCEDURE,
+  HEARTBEAT_NO_TASK_PROCEDURE,
 } from "../agent-heartbeat.js";
 import { AgentLogger } from "../agent-logger.js";
 import * as agentTools from "../agent-tools.js";
@@ -1657,10 +1658,11 @@ describe("HeartbeatMonitor", () => {
         // Should NOT include task-specific content
         expect(executionPrompt).not.toContain("Assigned task:");
         expect(executionPrompt).not.toContain("Task description:");
-        // Should include Wake Delta + Heartbeat Procedure (paperclip-style per-tick anchoring)
+        // Should include Wake Delta + no-task heartbeat procedure (tool-aligned per-tick anchoring)
         expect(executionPrompt).toContain("## Wake Delta");
         expect(executionPrompt).toContain("wake reason:");
-        expect(executionPrompt).toContain(HEARTBEAT_PROCEDURE);
+        expect(executionPrompt).toContain("autonomous heartbeat run");
+        expect(executionPrompt).toContain(HEARTBEAT_NO_TASK_PROCEDURE);
       });
 
       it("task-scoped run receives HEARTBEAT_SYSTEM_PROMPT as system prompt", async () => {
@@ -1682,6 +1684,22 @@ describe("HeartbeatMonitor", () => {
         expect(systemPrompt).toContain("Task Documents:");
       });
 
+      it("timer task-scoped execution prompt is framed as autonomous heartbeat work", async () => {
+        const store = createStoreWithAgentForExec({ taskId: "FN-001" });
+        const mockSession = createMockAgentSession();
+        mockedCreateFnAgent.mockResolvedValue({ session: mockSession as any });
+
+        const monitor = new HeartbeatMonitor({ store, taskStore: mockTaskStore, rootDir: "/tmp" });
+        await monitor.executeHeartbeat({ agentId: "agent-001", source: "timer" });
+
+        const promptCalls = mockSession.prompt.mock.calls;
+        expect(promptCalls.length).toBeGreaterThan(0);
+        const executionPrompt = promptCalls[promptCalls.length - 1]![0]!;
+        expect(executionPrompt).toContain("## Wake Delta");
+        expect(executionPrompt).toContain("wake reason: timer");
+        expect(executionPrompt).toContain("autonomous heartbeat run");
+      });
+
       it("identity agent without task gets soul in system prompt", async () => {
         const store = createStoreWithAgentForExec({ taskId: undefined, soul: "I am a CEO who prioritizes high-impact work" });
         const mockSession = createMockAgentSession();
@@ -1696,6 +1714,33 @@ describe("HeartbeatMonitor", () => {
         // Soul should be in the system prompt
         expect(callArgs.systemPrompt).toContain("## Soul");
         expect(callArgs.systemPrompt).toContain("I am a CEO who prioritizes high-impact work");
+      });
+
+      it("builds heartbeat system prompt with inline + file instructions plus soul and memory", async () => {
+        const tmpRoot = mkdtempSync(join(tmpdir(), "fn-hb-instr-"));
+        try {
+          writeFileSync(join(tmpRoot, "instructions.md"), "File-backed operating instruction", "utf-8");
+          const store = createStoreWithAgentForExec({
+            taskId: undefined,
+            instructionsText: "Inline operating instruction",
+            instructionsPath: "instructions.md",
+            soul: "I am an autonomous agent",
+            memory: "Remember to prefer concrete actions",
+          });
+          const mockSession = createMockAgentSession();
+          mockedCreateFnAgent.mockResolvedValue({ session: mockSession as any });
+
+          const monitor = new HeartbeatMonitor({ store, taskStore: mockTaskStore, rootDir: tmpRoot });
+          await monitor.executeHeartbeat({ agentId: "agent-001", source: "on_demand" });
+
+          const callArgs = mockedCreateFnAgent.mock.calls[0]![0]!;
+          expect(callArgs.systemPrompt).toContain("Inline operating instruction");
+          expect(callArgs.systemPrompt).toContain("File-backed operating instruction");
+          expect(callArgs.systemPrompt).toContain("## Soul");
+          expect(callArgs.systemPrompt).toContain("## Agent Memory");
+        } finally {
+          rmSync(tmpRoot, { recursive: true, force: true });
+        }
       });
 
       it("agent WITHOUT identity (no soul, instructions, memory) still exits with no_assignment", async () => {
@@ -2134,6 +2179,7 @@ describe("HeartbeatMonitor", () => {
         // assigned task (paperclip-parity).
         expect(executionPrompt).toContain("## Wake Delta");
         expect(executionPrompt).toContain("wake reason: message_received");
+        expect(executionPrompt).toContain("autonomous heartbeat run");
         expect(executionPrompt).toContain(HEARTBEAT_PROCEDURE);
       });
 
@@ -2779,6 +2825,14 @@ describe("HeartbeatMonitor", () => {
         expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).toContain("fn_memory_get");
         expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).toContain("fn_memory_append");
         expect(HEARTBEAT_NO_TASK_SYSTEM_PROMPT).toContain("fn_heartbeat_done");
+      });
+
+      it("no-task heartbeat procedure aligns with ambient tools", () => {
+        expect(HEARTBEAT_NO_TASK_PROCEDURE).not.toContain("fn_task_log");
+        expect(HEARTBEAT_NO_TASK_PROCEDURE).not.toContain("fn_task_document_write");
+        expect(HEARTBEAT_NO_TASK_PROCEDURE).toContain("fn_task_create");
+        expect(HEARTBEAT_NO_TASK_PROCEDURE).toContain("fn_delegate_task");
+        expect(HEARTBEAT_NO_TASK_PROCEDURE).toContain("fn_memory_append");
       });
 
       it("task-scoped system prompt still references fn_task_log and fn_task_document tools", () => {
