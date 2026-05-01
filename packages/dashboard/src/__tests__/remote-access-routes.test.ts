@@ -157,10 +157,6 @@ describe("remote access provider/lifecycle contracts", () => {
     expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
       remoteAccess: expect.objectContaining({
         activeProvider: "cloudflare",
-        providers: expect.objectContaining({
-          tailscale: expect.objectContaining({ enabled: false }),
-          cloudflare: expect.objectContaining({ enabled: false }),
-        }),
       }),
     }));
   });

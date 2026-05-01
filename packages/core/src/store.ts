@@ -1636,56 +1636,12 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         }
       }
 
-      // Handle deep merge + targeted null clear semantics for remoteAccess
-      const incomingRemoteAccess = (projectPatch as Record<string, unknown>)["remoteAccess"];
-      if (incomingRemoteAccess === null) {
-        delete (config.settings as unknown as Record<string, unknown>)["remoteAccess"];
-        delete (projectPatch as Record<string, unknown>)["remoteAccess"];
-      } else if (isPlainObject(incomingRemoteAccess)) {
-        const existingRemoteAccess = (config.settings as unknown as Record<string, unknown>)["remoteAccess"];
-        const mergedRemoteAccess = deepMergeWithNullDelete(existingRemoteAccess, incomingRemoteAccess);
-
-        if (mergedRemoteAccess === undefined) {
-          delete (config.settings as unknown as Record<string, unknown>)["remoteAccess"];
-          delete (projectPatch as Record<string, unknown>)["remoteAccess"];
-        } else {
-          (config.settings as unknown as Record<string, unknown>)["remoteAccess"] = mergedRemoteAccess;
-          (projectPatch as Record<string, unknown>)["remoteAccess"] = mergedRemoteAccess;
-        }
-      }
-
       // Handle null values for other top-level keys (non-promptOverrides)
       for (const key of Object.keys(projectPatch)) {
         if ((projectPatch as Record<string, unknown>)[key] === null) {
           delete (config.settings as unknown as Record<string, unknown>)[key];
           delete (projectPatch as Record<string, unknown>)[key];
         }
-      }
-
-      // Handle experimentalFeatures merging (similar to promptOverrides)
-      const incomingExperimentalFeatures = (projectPatch as Record<string, unknown>)["experimentalFeatures"];
-      if (
-        incomingExperimentalFeatures !== undefined &&
-        typeof incomingExperimentalFeatures === "object" &&
-        incomingExperimentalFeatures !== null &&
-        !Array.isArray(incomingExperimentalFeatures)
-      ) {
-        // experimentalFeatures: { key: value } → merge with existing
-        const incomingMap = incomingExperimentalFeatures as Record<string, unknown>;
-        const existingMap = ((config.settings as unknown as Record<string, unknown>)["experimentalFeatures"] as Record<string, boolean>) ?? {};
-        const mergedMap: Record<string, boolean> = { ...existingMap };
-
-        for (const [key, value] of Object.entries(incomingMap)) {
-          // null values remove the feature
-          if (value === null) {
-            delete mergedMap[key];
-          } else if (typeof value === "boolean") {
-            mergedMap[key] = value;
-          }
-        }
-
-        (config.settings as unknown as Record<string, unknown>)["experimentalFeatures"] = mergedMap;
-        (projectPatch as Record<string, unknown>)["experimentalFeatures"] = mergedMap;
       }
 
       const globalSettings = await this.globalSettingsStore.getSettings();
@@ -1727,7 +1683,48 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
     const config = this.readConfigFast();
     const previous: Settings = { ...DEFAULT_SETTINGS, ...previousGlobal, ...config.settings } as Settings;
 
-    const updatedGlobal = await this.globalSettingsStore.updateSettings(patch);
+    const globalPatch: Partial<GlobalSettings> = { ...patch };
+
+    // Handle deep merge + targeted null clear semantics for remoteAccess
+    const incomingRemoteAccess = (globalPatch as Record<string, unknown>)["remoteAccess"];
+    if (incomingRemoteAccess === null) {
+      (globalPatch as Record<string, unknown>)["remoteAccess"] = null;
+    } else if (isPlainObject(incomingRemoteAccess)) {
+      const existingRemoteAccess = (previousGlobal as Record<string, unknown>)["remoteAccess"];
+      const mergedRemoteAccess = deepMergeWithNullDelete(existingRemoteAccess, incomingRemoteAccess);
+
+      if (mergedRemoteAccess === undefined) {
+        (globalPatch as Record<string, unknown>)["remoteAccess"] = null;
+      } else {
+        (globalPatch as Record<string, unknown>)["remoteAccess"] = mergedRemoteAccess;
+      }
+    }
+
+    // Handle experimentalFeatures merging (similar to promptOverrides)
+    const incomingExperimentalFeatures = (globalPatch as Record<string, unknown>)["experimentalFeatures"];
+    if (incomingExperimentalFeatures === null) {
+      (globalPatch as Record<string, unknown>)["experimentalFeatures"] = null;
+    } else if (
+      incomingExperimentalFeatures !== undefined &&
+      typeof incomingExperimentalFeatures === "object" &&
+      !Array.isArray(incomingExperimentalFeatures)
+    ) {
+      const incomingMap = incomingExperimentalFeatures as Record<string, unknown>;
+      const existingMap = ((previousGlobal as Record<string, unknown>)["experimentalFeatures"] as Record<string, boolean>) ?? {};
+      const mergedMap: Record<string, boolean> = { ...existingMap };
+
+      for (const [key, value] of Object.entries(incomingMap)) {
+        if (value === null) {
+          delete mergedMap[key];
+        } else if (typeof value === "boolean") {
+          mergedMap[key] = value;
+        }
+      }
+
+      (globalPatch as Record<string, unknown>)["experimentalFeatures"] = mergedMap;
+    }
+
+    const updatedGlobal = await this.globalSettingsStore.updateSettings(globalPatch);
     const merged: Settings = { ...DEFAULT_SETTINGS, ...updatedGlobal, ...config.settings } as Settings;
 
     // Emit settings:updated so SSE listeners pick up the change

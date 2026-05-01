@@ -182,6 +182,8 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "global-models", label: "Models", scope: "global" },
   { id: "research-global", label: "Research Defaults", scope: "global" },
   { id: "updates", label: "Updates", scope: "global" },
+  { id: "experimental", label: "Experimental Features", scope: "global" },
+  { id: "remote", label: "Remote Access", scope: "global" },
 
   // Runtimes group (plugin runtimes with their own settings)
   { id: "__runtimes_header", label: "Runtimes", scope: undefined, isGroupHeader: true },
@@ -200,10 +202,8 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "merge", label: "Merge", scope: "project" },
   { id: "memory", label: "Memory", scope: "project" },
   { id: "research-project", label: "Research", scope: "project" },
-  { id: "experimental", label: "Experimental Features", scope: "project" },
   { id: "prompts", label: "Prompts", scope: "project" },
   { id: "backups", label: "Backups", scope: "project" },
-  { id: "remote", label: "Remote Access", scope: "project" },
   { id: "plugins", label: "Plugins", scope: "project" },
 ];
 

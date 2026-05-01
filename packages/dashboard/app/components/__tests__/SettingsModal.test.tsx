@@ -1602,10 +1602,10 @@ describe("SettingsModal", () => {
       await userEvent.click(screen.getByText("Save"));
 
       await waitFor(() => {
-        expect(mockUpdateSettings).toHaveBeenCalledTimes(1);
+        expect(mockUpdateGlobalSettings).toHaveBeenCalledTimes(1);
       });
 
-      const payload = mockUpdateSettings.mock.calls[0][0];
+      const payload = mockUpdateGlobalSettings.mock.calls[0][0];
       expect(payload.experimentalFeatures).toEqual({ devServerView: false, devServer: null });
     });
 
@@ -1622,10 +1622,10 @@ describe("SettingsModal", () => {
       await userEvent.click(screen.getByText("Save"));
 
       await waitFor(() => {
-        expect(mockUpdateSettings).toHaveBeenCalledTimes(1);
+        expect(mockUpdateGlobalSettings).toHaveBeenCalledTimes(1);
       });
 
-      const payload = mockUpdateSettings.mock.calls[0][0];
+      const payload = mockUpdateGlobalSettings.mock.calls[0][0];
       expect(payload.experimentalFeatures).toEqual({ insights: true });
       expect(payload.experimentalFeatures.devServer).toBeUndefined();
     });
@@ -1708,20 +1708,20 @@ describe("SettingsModal", () => {
       await userEvent.click(screen.getByText("Save"));
 
       await waitFor(() => {
-        expect(mockUpdateSettings).toHaveBeenCalledTimes(1);
+        expect(mockUpdateGlobalSettings).toHaveBeenCalledTimes(1);
       });
 
-      const payload = mockUpdateSettings.mock.calls[0][0];
+      const payload = mockUpdateGlobalSettings.mock.calls[0][0];
       expect(payload.experimentalFeatures).toEqual({ "my-feature": true });
     });
 
-    it("shows project scope banner in Experimental Features section", async () => {
+    it("shows global scope banner in Experimental Features section", async () => {
       renderModal();
 
       await openExperimentalFeaturesSection();
 
-      // Should show project scope indicator
-      expect(screen.getByText(/only affect this project/i)).toBeInTheDocument();
+      // Should show global scope indicator
+      expect(screen.getByText(/shared across all your fusion projects/i)).toBeInTheDocument();
     });
 
     it("handles undefined experimentalFeatures (falls back to empty) but still shows known features", async () => {
@@ -1757,10 +1757,10 @@ describe("SettingsModal", () => {
       await userEvent.click(screen.getByText("Save"));
 
       await waitFor(() => {
-        expect(mockUpdateSettings).toHaveBeenCalledTimes(1);
+        expect(mockUpdateGlobalSettings).toHaveBeenCalledTimes(1);
       });
 
-      const payload = mockUpdateSettings.mock.calls[0][0];
+      const payload = mockUpdateGlobalSettings.mock.calls[0][0];
       expect(payload.experimentalFeatures).toEqual({ "feature-a": true, "feature-b": true });
     });
 

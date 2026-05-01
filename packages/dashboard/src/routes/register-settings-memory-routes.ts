@@ -1,4 +1,5 @@
 import {
+  DEFAULT_GLOBAL_SETTINGS,
   DEFAULT_PROJECT_SETTINGS,
   GLOBAL_SETTINGS_KEYS,
   QMD_INSTALL_COMMAND,
@@ -506,7 +507,7 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
     try {
       const { store: scopedStore } = await getProjectContext(req);
       const settings = await scopedStore.getSettings();
-      const remoteAccess = settings.remoteAccess ?? DEFAULT_PROJECT_SETTINGS.remoteAccess;
+      const remoteAccess = settings.remoteAccess ?? DEFAULT_GLOBAL_SETTINGS.remoteAccess;
 
       res.json({ settings: toRemoteSettingsPayload(remoteAccess) });
     } catch (err: unknown) {
@@ -519,7 +520,7 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
     try {
       const { store: scopedStore } = await getProjectContext(req);
       const settings = await scopedStore.getSettings();
-      const remoteAccess = settings.remoteAccess ?? DEFAULT_PROJECT_SETTINGS.remoteAccess;
+      const remoteAccess = settings.remoteAccess ?? DEFAULT_GLOBAL_SETTINGS.remoteAccess;
 
       const body = (req.body ?? {}) as Record<string, unknown>;
       const nextRemoteAccess = {
@@ -573,7 +574,7 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
         },
       };
 
-      await scopedStore.updateSettings({ remoteAccess: nextRemoteAccess });
+      await scopedStore.updateGlobalSettings({ remoteAccess: nextRemoteAccess });
       res.json({ settings: toRemoteSettingsPayload(nextRemoteAccess) });
     } catch (err: unknown) {
       if (err instanceof ApiError) throw err;
@@ -644,7 +645,7 @@ export function registerSettingsMemoryRoutes(ctx: ApiRoutesContext, deps: Settin
       }
       const { store: scopedStore } = await getProjectContext(req);
       const settings = await scopedStore.getSettings();
-      const remoteAccess = settings.remoteAccess ?? DEFAULT_PROJECT_SETTINGS.remoteAccess;
+      const remoteAccess = settings.remoteAccess ?? DEFAULT_GLOBAL_SETTINGS.remoteAccess;
 
       await scopedStore.updateSettings({
         remoteAccess: {

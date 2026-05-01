@@ -95,6 +95,41 @@ export const DEFAULT_GLOBAL_SETTINGS = {
   researchMaxSearchResults: 10,
   researchFetchTimeoutMs: 30_000,
   researchUserAgent: "FusionResearchBot/1.0",
+  remoteAccess: {
+    activeProvider: null,
+    providers: {
+      tailscale: {
+        enabled: false,
+        hostname: "",
+        targetPort: 0,
+        acceptRoutes: false,
+      },
+      cloudflare: {
+        enabled: false,
+        quickTunnel: true,
+        tunnelName: "",
+        tunnelToken: null,
+        ingressUrl: "",
+      },
+    },
+    tokenStrategy: {
+      persistent: {
+        enabled: true,
+        token: null,
+      },
+      shortLived: {
+        enabled: false,
+        ttlMs: 900000,
+        maxTtlMs: 86400000,
+      },
+    },
+    lifecycle: {
+      rememberLastRunning: false,
+      wasRunningOnShutdown: false,
+      lastRunningProvider: null,
+    },
+  },
+  experimentalFeatures: {},
 } satisfies CompleteSettings<GlobalSettings>;
 
 /** Default values for project-level settings. */
@@ -204,40 +239,6 @@ export const DEFAULT_PROJECT_SETTINGS = {
   missionHealthCheckIntervalMs: 300_000,
   agentPrompts: undefined,
   promptOverrides: undefined,
-  remoteAccess: {
-    activeProvider: null,
-    providers: {
-      tailscale: {
-        enabled: false,
-        hostname: "",
-        targetPort: 0,
-        acceptRoutes: false,
-      },
-      cloudflare: {
-        enabled: false,
-        quickTunnel: true,
-        tunnelName: "",
-        tunnelToken: null,
-        ingressUrl: "",
-      },
-    },
-    tokenStrategy: {
-      persistent: {
-        enabled: true,
-        token: null,
-      },
-      shortLived: {
-        enabled: false,
-        ttlMs: 900000,
-        maxTtlMs: 86400000,
-      },
-    },
-    lifecycle: {
-      rememberLastRunning: false,
-      wasRunningOnShutdown: false,
-      lastRunningProvider: null,
-    },
-  },
   reflectionEnabled: false,
   reflectionIntervalMs: 3_600_000,
   reflectionAfterTask: true,
@@ -267,7 +268,6 @@ export const DEFAULT_PROJECT_SETTINGS = {
   researchDefaultTimeout: 300000,
   researchMaxSourcesPerRun: 20,
   researchMaxSynthesisRounds: 2,
-  experimentalFeatures: {},
 } satisfies CompleteSettings<ProjectSettings>;
 
 /**

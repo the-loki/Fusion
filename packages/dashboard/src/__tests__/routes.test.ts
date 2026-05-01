@@ -14415,7 +14415,7 @@ describe("PUT /settings", () => {
       remoteAccess: mergedRemoteAccess,
     };
 
-    (store.updateSettings as ReturnType<typeof vi.fn>).mockResolvedValue(updatedSettings);
+    (store.updateGlobalSettings as ReturnType<typeof vi.fn>).mockResolvedValue(updatedSettings);
     (store.getSettingsFast as ReturnType<typeof vi.fn>).mockResolvedValue(updatedSettings);
 
     const app = buildApp();
@@ -14436,13 +14436,13 @@ describe("PUT /settings", () => {
     const updateRes = await REQUEST(
       app,
       "PUT",
-      "/api/settings",
+      "/api/settings/global",
       JSON.stringify(patch),
       { "Content-Type": "application/json" },
     );
 
     expect(updateRes.status).toBe(200);
-    expect(store.updateSettings).toHaveBeenCalledWith(patch);
+    expect(store.updateGlobalSettings).toHaveBeenCalledWith(patch);
 
     const getRes = await GET(app, "/api/settings");
     expect(getRes.status).toBe(200);

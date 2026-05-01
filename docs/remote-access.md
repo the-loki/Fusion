@@ -10,7 +10,7 @@ This runbook is the canonical operator reference for Fusion Remote Access across
 
 It documents only behavior implemented in the current codebase:
 
-- Project-scoped `remoteAccess` settings in `.fusion/config.json`
+- Global-scoped `remoteAccess` settings in `~/.fusion/settings.json`
 - API endpoints under `/api/remote/*` and `/api/remote-access/auth/login-url`
 - Public login handoff route `GET /remote-login?rt=...`
 - Engine tunnel lifecycle and safe restore diagnostics
@@ -21,8 +21,8 @@ It documents only behavior implemented in the current codebase:
 
 ## 1.1 General requirements
 
-- Remote Access is **project-scoped** (`ProjectSettings.remoteAccess` in `packages/core/src/types.ts`).
-- Configure it in dashboard settings (Remote tab) or via `PUT /api/settings`.
+- Remote Access is **global-scoped** (`GlobalSettings.remoteAccess` in `packages/core/src/types.ts`).
+- Configure it in dashboard settings (Remote tab) or via `PUT /api/settings/global` or `PUT /api/remote/settings`.
 - A provider must be selected (`remoteAccess.activeProvider`) before tunnel start.
 - Start/stop is always manual through `/api/remote/tunnel/start` and `/api/remote/tunnel/stop`.
 

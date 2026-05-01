@@ -75,6 +75,8 @@ Defaults from `DEFAULT_GLOBAL_SETTINGS`; key scope from `GLOBAL_SETTINGS_KEYS`.
 | `dashboardCurrentNodeId` | `string` | `undefined` | Currently selected dashboard node ID. Restores the last-viewed node on fresh browser/PWA sessions. `undefined` means viewing the local node. |
 | `dashboardCurrentProjectIdByNode` | `Record<string, string>` | `undefined` | Map of node ID to last-selected project ID. Use key `"local"` for the local node. Persists project context across browser restarts and PWA sessions. |
 | `researchGlobalDefaults` | `ResearchGlobalDefaults` | `{ searchProvider: undefined, synthesisProvider: undefined, synthesisModelId: undefined, enabledSources: { webSearch: true, pageFetch: true, github: false, localDocs: true, llmSynthesis: true }, maxSourcesPerRun: 20, defaultExportFormat: "markdown" }` | Global Research defaults shared by all projects. Project overrides come from `researchSettings`. |
+| `experimentalFeatures` | `Record<string, boolean>` | `{}` | Global-scoped experimental feature flags. Includes `experimentalFeatures.researchView` for standalone Research route visibility. |
+| `remoteAccess` | `RemoteAccessSettings` | `{ activeProvider: null, providers: {...}, tokenStrategy: {...}, lifecycle: {...} }` | Global-scoped remote access provider + token strategy configuration used by Remote Access routes and tunnel lifecycle controls. |
 
 ### Notification providers (pluggable)
 
@@ -240,7 +242,6 @@ Defaults from `DEFAULT_PROJECT_SETTINGS`; key scope from `PROJECT_SETTINGS_KEYS`
 | `reviewHandoffPolicy` | `"disabled" \| "comment-triggered" \| "always"` | `"disabled"` | Policy for agent-to-user review handoff detection. |
 | `showQuickChatFAB` | `boolean` | `false` | Show floating quick-chat button (chat remains available via More menu). |
 | `researchSettings` | `ResearchProjectSettings` | `{ enabled: true, searchProvider: undefined, synthesisProvider: undefined, synthesisModelId: undefined, enabledSources: { webSearch: true, pageFetch: true, github: false, localDocs: true, llmSynthesis: true }, limits: { maxConcurrentRuns: 3, maxSourcesPerRun: 20, maxDurationMs: 300000, requestTimeoutMs: 30000 } }` | Project-specific Research enablement/overrides. Resolved together with `researchGlobalDefaults` via `resolveResearchSettings()`. |
-| `experimentalFeatures` | `Record<string, boolean>` | `{}` | Project-scoped experimental feature flags. Includes `experimentalFeatures.researchView` for standalone Research route visibility. |
 
 ### Research settings hierarchy and credentials
 
@@ -286,9 +287,9 @@ See also:
 - [Multi-Project → Node Routing](./multi-project.md#node-routing)
 - [Architecture → Task Routing Architecture](./architecture.md#task-routing-architecture)
 
-### Remote Access settings (project-scoped)
+### Remote Access settings (global-scoped)
 
-Remote access settings are project-only (stored in `.fusion/config.json`), not global.
+Remote access settings are global-only (stored in `~/.fusion/settings.json`), not project-scoped.
 The canonical persisted shape is a nested `remoteAccess` object.
 
 Use **[Remote Access runbook](./remote-access.md)** for setup prerequisites (Tailscale/Cloudflare), tokenized login-link security caveats, and operational troubleshooting. Keep this section as a schema reference.
@@ -319,9 +320,9 @@ When `remoteAccess.activeProvider` is `tailscale` and the Fusion-managed tunnel 
 | `remoteAccess.lifecycle.wasRunningOnShutdown` | `boolean` | `false` | Internal marker written by runtime lifecycle management; explicit manual stop clears this to prevent unintended restart restore. |
 | `remoteAccess.lifecycle.lastRunningProvider` | `"tailscale" \| "cloudflare" \| null` | `null` | Internal provider marker used for startup restore gating; stale markers are cleared when restore is skipped/failed. |
 
-Patch semantics for `PUT /api/settings`:
+Patch semantics for global updates (`PUT /api/settings/global` and `PUT /api/remote/settings`):
 - `remoteAccess` patches are **deep-merged** so sibling branches are preserved.
-- `remoteAccess: null` clears the full project override (falls back to defaults).
+- `remoteAccess: null` clears the full global override (falls back to defaults).
 - Nested `null` clears only the targeted nested key/branch.
 
 Examples:
@@ -758,7 +759,7 @@ See also: [Workflow Steps](./workflow-steps.md) for how `scripts` and workflow m
 
 ## Experimental Features
 
-The `experimentalFeatures` setting provides a first-class mechanism for managing project-scoped experimental feature toggles. This allows teams to explicitly mark capabilities as experimental and toggle them on/off from a dedicated section in the Settings dashboard.
+The `experimentalFeatures` setting provides a first-class mechanism for managing global-scoped experimental feature toggles. This allows users to explicitly mark capabilities as experimental and toggle them on/off from a dedicated section in the Settings dashboard.
 
 ### How It Works
 
@@ -787,7 +788,7 @@ The `experimentalFeatures` setting provides a first-class mechanism for managing
 
 The Experimental Features section in Settings shows:
 - Feature name and enabled/disabled toggle for each configured feature
-- Project scope indicator (features are project-specific, not global)
+- Global scope indicator (features are shared across projects)
 - Description explaining the purpose of experimental features
 
 Common built-in dashboard flags include:

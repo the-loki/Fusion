@@ -50,11 +50,11 @@ describe("settings key parity", () => {
     expect(isGlobalSettingsKey("maxConcurrent")).toBe(false);
     expect(isProjectSettingsKey("maxConcurrent")).toBe(true);
     expect(isProjectSettingsKey("heartbeatMultiplier")).toBe(true);
-    expect(isProjectSettingsKey("remoteAccess")).toBe(true);
+    expect(isProjectSettingsKey("remoteAccess")).toBe(false);
     expect(isProjectSettingsKey("researchSettings")).toBe(true);
     expect(isGlobalSettingsKey("researchGlobalDefaults")).toBe(true);
     expect(isProjectSettingsKey("themeMode")).toBe(false);
-    expect(isGlobalSettingsKey("remoteAccess")).toBe(false);
+    expect(isGlobalSettingsKey("remoteAccess")).toBe(true);
     expect(isGlobalSettingsKey("researchSettings")).toBe(false);
   });
 
@@ -62,14 +62,14 @@ describe("settings key parity", () => {
     expect(DEFAULT_PROJECT_SETTINGS.heartbeatMultiplier).toBe(1);
   });
 
-  it("keeps remoteAccess scoped to project settings only", () => {
+  it("keeps remoteAccess scoped to global settings only", () => {
     const globalKeys = GLOBAL_SETTINGS_KEYS as readonly string[];
     const projectKeys = PROJECT_SETTINGS_KEYS as readonly string[];
 
-    expect(projectKeys).toContain("remoteAccess");
-    expect(globalKeys).not.toContain("remoteAccess");
-    expect(DEFAULT_PROJECT_SETTINGS.remoteAccess).toBeDefined();
-    expect((DEFAULT_GLOBAL_SETTINGS as Record<string, unknown>).remoteAccess).toBeUndefined();
+    expect(projectKeys).not.toContain("remoteAccess");
+    expect(globalKeys).toContain("remoteAccess");
+    expect(DEFAULT_GLOBAL_SETTINGS.remoteAccess).toBeDefined();
+    expect((DEFAULT_PROJECT_SETTINGS as Record<string, unknown>).remoteAccess).toBeUndefined();
   });
 
   it("No key appears in both GLOBAL_SETTINGS_KEYS and PROJECT_SETTINGS_KEYS", () => {

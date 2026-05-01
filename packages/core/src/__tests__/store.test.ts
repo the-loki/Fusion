@@ -2796,21 +2796,18 @@ describe("TaskStore", () => {
     };
 
     it("round-trips nested remoteAccess settings with both providers, token strategy, and lifecycle", async () => {
-      // Cross-instance persistence test — beforeEach uses in-memory DB
-      // for speed, but this case reloads via a second TaskStore on the
-      // same dir, so we need disk-backed for both.
       store.close();
       store = new TaskStore(rootDir, globalDir);
       await store.init();
 
-      await store.updateSettings({ remoteAccess: baseRemoteAccess });
+      await store.updateGlobalSettings({ remoteAccess: baseRemoteAccess });
 
       const settings = await store.getSettings();
       expect(settings.remoteAccess).toEqual(baseRemoteAccess);
 
       const { project, global } = await store.getSettingsByScope();
-      expect(project.remoteAccess).toEqual(baseRemoteAccess);
-      expect((global as Record<string, unknown>).remoteAccess).toBeUndefined();
+      expect((project as Record<string, unknown>).remoteAccess).toBeUndefined();
+      expect(global.remoteAccess).toEqual(baseRemoteAccess);
 
       store.close();
       store = new TaskStore(rootDir, globalDir);
@@ -2821,53 +2818,22 @@ describe("TaskStore", () => {
     });
 
     it("patching remoteAccess.providers.tailscale preserves providers.cloudflare", async () => {
-      await store.updateSettings({ remoteAccess: baseRemoteAccess });
-
-      await store.updateSettings({
-        remoteAccess: {
-          providers: {
-            tailscale: {
-              enabled: false,
-              hostname: "alt-tail.ts.net",
-              targetPort: 3000,
-              acceptRoutes: false,
-            },
-          },
-        },
-      } as any);
-
+      await store.updateGlobalSettings({ remoteAccess: baseRemoteAccess });
+      await store.updateGlobalSettings({ remoteAccess: { providers: { tailscale: { enabled: false, hostname: "alt-tail.ts.net", targetPort: 3000, acceptRoutes: false } } } } as any);
       const settings = await store.getSettings();
       expect(settings.remoteAccess?.providers.cloudflare).toEqual(baseRemoteAccess.providers.cloudflare);
     });
 
     it("patching remoteAccess.tokenStrategy.shortLived preserves tokenStrategy.persistent", async () => {
-      await store.updateSettings({ remoteAccess: baseRemoteAccess });
-
-      await store.updateSettings({
-        remoteAccess: {
-          tokenStrategy: {
-            shortLived: {
-              enabled: true,
-              ttlMs: 120_000,
-              maxTtlMs: 300_000,
-            },
-          },
-        },
-      } as any);
-
+      await store.updateGlobalSettings({ remoteAccess: baseRemoteAccess });
+      await store.updateGlobalSettings({ remoteAccess: { tokenStrategy: { shortLived: { enabled: true, ttlMs: 120_000, maxTtlMs: 300_000 } } } } as any);
       const settings = await store.getSettings();
       expect(settings.remoteAccess?.tokenStrategy.persistent).toEqual(baseRemoteAccess.tokenStrategy.persistent);
     });
 
     it("patching only activeProvider preserves providers, tokenStrategy, and lifecycle", async () => {
-      await store.updateSettings({ remoteAccess: baseRemoteAccess });
-
-      await store.updateSettings({
-        remoteAccess: {
-          activeProvider: "tailscale",
-        },
-      } as any);
-
+      await store.updateGlobalSettings({ remoteAccess: baseRemoteAccess });
+      await store.updateGlobalSettings({ remoteAccess: { activeProvider: "tailscale" } } as any);
       const settings = await store.getSettings();
       expect(settings.remoteAccess?.activeProvider).toBe("tailscale");
       expect(settings.remoteAccess?.providers).toEqual(baseRemoteAccess.providers);
@@ -2876,18 +2842,8 @@ describe("TaskStore", () => {
     });
 
     it("nested null clear only removes the targeted token field", async () => {
-      await store.updateSettings({ remoteAccess: baseRemoteAccess });
-
-      await store.updateSettings({
-        remoteAccess: {
-          tokenStrategy: {
-            persistent: {
-              token: null,
-            },
-          },
-        },
-      } as any);
-
+      await store.updateGlobalSettings({ remoteAccess: baseRemoteAccess });
+      await store.updateGlobalSettings({ remoteAccess: { tokenStrategy: { persistent: { token: null } } } } as any);
       const settings = await store.getSettings();
       expect(settings.remoteAccess?.tokenStrategy.persistent.enabled).toBe(true);
       expect(settings.remoteAccess?.tokenStrategy.persistent.token).toBeUndefined();
@@ -2895,21 +2851,14 @@ describe("TaskStore", () => {
     });
 
     it("top-level null clear removes remoteAccess override and falls back to defaults", async () => {
-      await store.updateSettings({ remoteAccess: baseRemoteAccess });
-      await store.updateSettings({ remoteAccess: null as any });
+      await store.updateGlobalSettings({ remoteAccess: baseRemoteAccess });
+      await store.updateGlobalSettings({ remoteAccess: null as any });
 
       const settings = await store.getSettings();
       expect(settings.remoteAccess?.activeProvider).toBeNull();
       expect(settings.remoteAccess?.tokenStrategy.persistent.token).toBeNull();
-
-      const db = (store as any).db;
-      const row = db.prepare("SELECT settings FROM config WHERE id = 1").get() as { settings?: string } | undefined;
-      const projectSettings = row?.settings ? JSON.parse(row.settings) : {};
-      expect(projectSettings.remoteAccess).toBeUndefined();
     });
   });
-
-  // ── Experimental Features Tests ─────────────────────────────────
 
   describe("experimentalFeatures settings", () => {
     it("defaults to empty object {}", async () => {
@@ -2917,122 +2866,51 @@ describe("TaskStore", () => {
       expect(settings.experimentalFeatures).toEqual({});
     });
 
-    it("can set experimental features via updateSettings", async () => {
-      await store.updateSettings({
-        experimentalFeatures: { "my-feature": true, "another-feature": false },
-      });
-
+    it("can set experimental features via updateGlobalSettings", async () => {
+      await store.updateGlobalSettings({ experimentalFeatures: { "my-feature": true, "another-feature": false } });
       const settings = await store.getSettings();
       expect(settings.experimentalFeatures).toEqual({ "my-feature": true, "another-feature": false });
     });
 
-    it("can enable a single experimental feature", async () => {
-      await store.updateSettings({
-        experimentalFeatures: { "my-feature": true },
-      });
-
+    it("can add and update features using merge semantics", async () => {
+      await store.updateGlobalSettings({ experimentalFeatures: { "feature-a": true } });
+      await store.updateGlobalSettings({ experimentalFeatures: { "feature-b": true, "feature-a": false } });
       const settings = await store.getSettings();
-      expect(settings.experimentalFeatures).toEqual({ "my-feature": true });
+      expect(settings.experimentalFeatures).toEqual({ "feature-a": false, "feature-b": true });
     });
 
-    it("can update an existing experimental feature", async () => {
-      await store.updateSettings({
-        experimentalFeatures: { "my-feature": true },
-      });
-
-      await store.updateSettings({
-        experimentalFeatures: { "my-feature": false },
-      });
-
-      const settings = await store.getSettings();
-      expect(settings.experimentalFeatures).toEqual({ "my-feature": false });
-    });
-
-    it("can add a new experimental feature (merges with existing)", async () => {
-      await store.updateSettings({
-        experimentalFeatures: { "feature-a": true },
-      });
-
-      await store.updateSettings({
-        experimentalFeatures: { "feature-b": true },
-      });
-
-      const settings = await store.getSettings();
-      // Note: updateSettings merges experimentalFeatures, not replaces
-      // To replace entirely, pass null first to clear, then the new values
-      expect(settings.experimentalFeatures).toEqual({ "feature-a": true, "feature-b": true });
-    });
-
-    it("can remove an experimental feature by setting it to null (selective removal)", async () => {
-      // Features can be selectively removed by setting them to null
-      await store.updateSettings({
-        experimentalFeatures: { "feature-a": true, "feature-b": true },
-      });
-
-      // Remove feature-a by setting it to null (cast needed for TypeScript type safety)
-      await store.updateSettings({
-        experimentalFeatures: { "feature-a": null } as unknown as Record<string, boolean>,
-      });
-
+    it("can remove an experimental feature by setting it to null", async () => {
+      await store.updateGlobalSettings({ experimentalFeatures: { "feature-a": true, "feature-b": true } });
+      await store.updateGlobalSettings({ experimentalFeatures: { "feature-a": null } as unknown as Record<string, boolean> });
       const settings = await store.getSettings();
       expect(settings.experimentalFeatures).toEqual({ "feature-b": true });
     });
 
-    it("can clear experimentalFeatures with null (falls back to default {})", async () => {
-      await store.updateSettings({
-        experimentalFeatures: { "my-feature": true },
-      });
-
-      await store.updateSettings({
-        experimentalFeatures: null as unknown as undefined,
-      });
-
+    it("can clear experimentalFeatures with null", async () => {
+      await store.updateGlobalSettings({ experimentalFeatures: { "my-feature": true } });
+      await store.updateGlobalSettings({ experimentalFeatures: null as unknown as undefined });
       const settings = await store.getSettings();
       expect(settings.experimentalFeatures).toEqual({});
     });
 
-    it("preserves other settings when experimentalFeatures changes", async () => {
-      await store.updateSettings({
-        maxConcurrent: 5,
-        autoMerge: false,
-      });
-
-      await store.updateSettings({
-        experimentalFeatures: { "my-feature": true },
-      });
-
+    it("preserves project settings while experimentalFeatures changes", async () => {
+      await store.updateSettings({ maxConcurrent: 5, autoMerge: false });
+      await store.updateGlobalSettings({ experimentalFeatures: { "my-feature": true } });
       const settings = await store.getSettings();
       expect(settings.maxConcurrent).toBe(5);
       expect(settings.autoMerge).toBe(false);
       expect(settings.experimentalFeatures).toEqual({ "my-feature": true });
     });
 
-    it("preserves experimentalFeatures when updating other settings", async () => {
-      await store.updateSettings({
-        experimentalFeatures: { "feature-a": true, "feature-b": false },
-      });
-
-      await store.updateSettings({ maxConcurrent: 7 });
-
-      const settings = await store.getSettings();
-      expect(settings.maxConcurrent).toBe(7);
-      expect(settings.experimentalFeatures).toEqual({ "feature-a": true, "feature-b": false });
-    });
-
     it("handles experimentalFeatures in getSettingsByScope", async () => {
-      await store.updateSettings({
-        experimentalFeatures: { "scoped-feature": true },
-      });
-
-      const { project } = await store.getSettingsByScope();
-      expect(project.experimentalFeatures).toEqual({ "scoped-feature": true });
+      await store.updateGlobalSettings({ experimentalFeatures: { "scoped-feature": true } });
+      const { global, project } = await store.getSettingsByScope();
+      expect(global.experimentalFeatures).toEqual({ "scoped-feature": true });
+      expect((project as Record<string, unknown>).experimentalFeatures).toBeUndefined();
     });
 
     it("handles experimentalFeatures in getSettingsFast", async () => {
-      await store.updateSettings({
-        experimentalFeatures: { "fast-feature": true },
-      });
-
+      await store.updateGlobalSettings({ experimentalFeatures: { "fast-feature": true } });
       const settings = await store.getSettingsFast();
       expect(settings.experimentalFeatures).toEqual({ "fast-feature": true });
     });

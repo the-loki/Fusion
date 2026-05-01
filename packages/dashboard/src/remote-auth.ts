@@ -1,10 +1,10 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import type { ProjectSettings } from "@fusion/core";
+import type { GlobalSettings } from "@fusion/core";
 
 export type RemoteTokenValidationStatus = "valid" | "missing" | "invalid" | "expired" | "disabled";
 export type RemoteTokenType = "persistent" | "short-lived";
 
-type RemoteAccessSettings = NonNullable<ProjectSettings["remoteAccess"]>;
+type RemoteAccessSettings = NonNullable<GlobalSettings["remoteAccess"]>;
 
 interface ShortLivedTokenEntry {
   expiresAtMs: number;

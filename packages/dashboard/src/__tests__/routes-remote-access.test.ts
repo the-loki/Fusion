@@ -2,7 +2,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import express from "express";
-import { DEFAULT_PROJECT_SETTINGS, type TaskStore } from "@fusion/core";
+import { DEFAULT_GLOBAL_SETTINGS, type TaskStore } from "@fusion/core";
 import { createApiRoutes } from "../routes.js";
 import { request as performRequest } from "../test-request.js";
 
@@ -47,6 +47,7 @@ function createMockStore(overrides: Partial<TaskStore> = {}): TaskStore {
   return {
     getSettings: vi.fn().mockResolvedValue({ remoteAccess: buildRemoteAccessSettings() }),
     updateSettings: vi.fn(async (patch: Record<string, unknown>) => patch),
+    updateGlobalSettings: vi.fn(async (patch: Record<string, unknown>) => patch),
     getRootDir: vi.fn().mockReturnValue("/fake/root"),
     getFusionDir: vi.fn().mockReturnValue("/fake/root/.fusion"),
     getDatabase: vi.fn().mockReturnValue({
@@ -86,7 +87,7 @@ async function REQUEST(app: express.Express, method: string, path: string, body?
 describe("remote access API route contracts", () => {
   it("supports GET and PUT /api/remote/settings", async () => {
     const store = createMockStore({
-      updateSettings: vi.fn().mockResolvedValue({ remoteAccess: buildRemoteAccessSettings() }),
+      updateGlobalSettings: vi.fn().mockResolvedValue({ remoteAccess: buildRemoteAccessSettings() }),
       getSettings: vi.fn()
         .mockResolvedValueOnce({ remoteAccess: buildRemoteAccessSettings() })
         .mockResolvedValueOnce({ remoteAccess: { ...buildRemoteAccessSettings(), activeProvider: "tailscale" } }),
@@ -122,7 +123,7 @@ describe("remote access API route contracts", () => {
       }),
     });
 
-    expect(store.updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+    expect(store.updateGlobalSettings).toHaveBeenCalledWith(expect.objectContaining({
       remoteAccess: expect.objectContaining({
         providers: expect.objectContaining({
           cloudflare: expect.objectContaining({ quickTunnel: true }),
@@ -152,10 +153,10 @@ describe("remote access API route contracts", () => {
   });
 
   it("seeds defaults when saving remote settings on a fresh project", async () => {
-    const updateSettings = vi.fn().mockResolvedValue(undefined);
+    const updateGlobalSettings = vi.fn().mockResolvedValue(undefined);
     const store = createMockStore({
       getSettings: vi.fn().mockResolvedValue({}),
-      updateSettings,
+      updateGlobalSettings,
     });
     const { app } = createApp({ store });
 
@@ -166,9 +167,9 @@ describe("remote access API route contracts", () => {
     });
 
     expect(putRes.status).toBe(200);
-    expect(updateSettings).toHaveBeenCalledWith({
+    expect(updateGlobalSettings).toHaveBeenCalledWith({
       remoteAccess: expect.objectContaining({
-        ...DEFAULT_PROJECT_SETTINGS.remoteAccess,
+        ...DEFAULT_GLOBAL_SETTINGS.remoteAccess,
         activeProvider: "tailscale",
         providers: expect.objectContaining({
           tailscale: expect.objectContaining({ enabled: true, hostname: "first-use.ts.net" }),

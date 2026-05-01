@@ -1468,6 +1468,24 @@ export interface GlobalSettings {
   researchFetchTimeoutMs?: number;
   /** User-Agent header for HTTP requests made by research providers. Default: "FusionResearchBot/1.0". */
   researchUserAgent?: string;
+  /** Global-scoped remote access configuration persisted in `~/.fusion/settings.json`.
+   *  Stores both provider configs, active provider selection, token strategy,
+   *  and lifecycle restart metadata for remote tunnel orchestration. */
+  remoteAccess?: RemoteAccessProjectSettings;
+  /** Global-scoped experimental feature toggles.
+   *  Each key is a feature flag name, and the value indicates whether it is enabled.
+   *  Features not present in this map are considered disabled (fallback to false).
+   *  This allows users to explicitly mark capabilities as experimental and toggle
+   *  them on/off from the Settings dashboard.
+   *
+   *  Example shape:
+   *  {
+   *    "my-new-feature": true,
+   *    "another-experiment": false
+   *  }
+   *
+   *  Default: {} (empty object — no experimental features enabled). */
+  experimentalFeatures?: Record<string, boolean>;
 }
 
 export type RemoteAccessProvider = "tailscale" | "cloudflare";
@@ -1954,10 +1972,6 @@ export interface ProjectSettings {
    *  "executor-completion", "triage-welcome", "triage-context", "reviewer-verdict",
    *  "merger-conflicts". */
   promptOverrides?: Record<string, string | null>;
-  /** Project-scoped remote access configuration persisted in `.fusion/config.json`.
-   *  Stores both provider configs, active provider selection, token strategy,
-   *  and lifecycle restart metadata for remote tunnel orchestration. */
-  remoteAccess?: RemoteAccessProjectSettings;
   /** Enable/disable agent self-reflection workflows. Default: false. */
   reflectionEnabled?: boolean;
   /** How often periodic reflections occur in milliseconds. Default: 3_600_000 (1 hour). */
@@ -1975,20 +1989,6 @@ export interface ProjectSettings {
    *  When false, the FAB is hidden but chat remains accessible via the More menu.
    *  Default: false. */
   showQuickChatFAB?: boolean;
-  /** Project-scoped experimental feature toggles.
-   *  Each key is a feature flag name, and the value indicates whether it is enabled.
-   *  Features not present in this map are considered disabled (fallback to false).
-   *  This allows teams to explicitly mark capabilities as experimental and toggle
-   *  them on/off from the Settings dashboard.
-   *
-   *  Example shape:
-   *  {
-   *    "my-new-feature": true,
-   *    "another-experiment": false
-   *  }
-   *
-   *  Default: {} (empty object — no experimental features enabled). */
-  experimentalFeatures?: Record<string, boolean>;
 }
 
 /**
