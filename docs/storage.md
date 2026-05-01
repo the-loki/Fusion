@@ -186,7 +186,7 @@ Additional backend notes:
 | `mission_features` | Features under slices with optional task linkage and execution-loop counters/state. |
 | `mission_events` | Mission event log with ordered sequence numbers and metadata payloads. |
 | `plugins` | Plugin registry, lifecycle state, dependency metadata, and settings blobs. |
-| `routines` | Routine definitions (trigger config, steps/command, catch-up policy, run history). |
+| `routines` | Routine definitions (trigger config, steps/command, catch-up policy, run history, and persisted `agentId` ownership metadata). Legacy databases missing routine fields (including `agentId`) are backfilled during init-time compatibility migration. |
 | `roadmaps` | Standalone roadmap metadata. |
 | `roadmap_milestones` | Milestones within roadmaps (`roadmapId` FK). |
 | `roadmap_features` | Features within roadmap milestones (`milestoneId` FK). |

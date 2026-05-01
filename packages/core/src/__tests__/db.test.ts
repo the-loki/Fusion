@@ -965,6 +965,50 @@ describe("schema migrations", () => {
     db.close();
   });
 
+  it("backfills legacy routines table missing agentId with safe defaults", () => {
+    tmpDir = makeTmpDir();
+    const fusionDir = join(tmpDir, ".fusion");
+    const db = new Database(fusionDir);
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS __meta (key TEXT PRIMARY KEY, value TEXT);
+      CREATE TABLE IF NOT EXISTS config (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        nextId INTEGER DEFAULT 1,
+        nextWorkflowStepId INTEGER DEFAULT 1,
+        settings TEXT DEFAULT '{}',
+        workflowSteps TEXT DEFAULT '[]',
+        updatedAt TEXT
+      );
+      CREATE TABLE IF NOT EXISTS routines (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        triggerType TEXT NOT NULL,
+        triggerConfig TEXT NOT NULL,
+        enabled INTEGER DEFAULT 1,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+    `);
+    db.exec("INSERT INTO __meta (key, value) VALUES ('schemaVersion', '55')");
+    db.exec("INSERT INTO __meta (key, value) VALUES ('lastModified', '1000')");
+    db.exec(`
+      INSERT INTO routines (id, name, description, triggerType, triggerConfig, enabled, createdAt, updatedAt)
+      VALUES ('routine-1', 'Database Backup', 'legacy row', 'cron', '{}', 1, '2026-01-01', '2026-01-01')
+    `);
+
+    db.init();
+
+    const columns = db.prepare("PRAGMA table_info(routines)").all() as Array<{ name: string }>;
+    expect(columns.map((column) => column.name)).toContain("agentId");
+
+    const row = db.prepare("SELECT agentId FROM routines WHERE id = 'routine-1'").get() as { agentId: string | null };
+    expect(row.agentId).toBe("");
+
+    db.close();
+  });
+
   it("migrates v50 databases by adding chat message attachments column", () => {
     tmpDir = makeTmpDir();
     const fusionDir = join(tmpDir, ".fusion");

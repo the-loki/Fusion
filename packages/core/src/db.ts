@@ -565,8 +565,6 @@ CREATE TABLE IF NOT EXISTS routines (
   createdAt TEXT NOT NULL,
   updatedAt TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idxRoutinesNextRunAt ON routines(nextRunAt);
-CREATE INDEX IF NOT EXISTS idxRoutinesEnabled ON routines(enabled);
 
 -- Roadmap persistence tables (FN-1690)
 -- Standalone roadmap: Roadmap → RoadmapMilestone → RoadmapFeature
@@ -851,6 +849,9 @@ export class Database {
     // Run schema migrations
     this.migrate();
 
+    // Compatibility backfills that must run even when schemaVersion is current.
+    this.ensureRoutinesSchemaCompatibility();
+
     // Seed config row idempotently with default settings
     const configNow = new Date().toISOString();
     this.db.exec(
@@ -869,6 +870,41 @@ export class Database {
    * Column additions use `hasColumn()` so they are idempotent — safe to
    * re-run even if a previous migration partially applied.
    */
+  /**
+   * Applies idempotent compatibility fixes for legacy routines table shapes.
+   *
+   * Some older databases contain `routines` without `agentId`, or with NULL
+   * agent IDs from earlier table definitions. `RoutineStore.rowToRoutine()` and
+   * backup routine sync expect a safe string value, so normalize to ''.
+   */
+  private ensureRoutinesSchemaCompatibility(): void {
+    if (!this.hasTable("routines")) {
+      return;
+    }
+
+    this.addColumnIfMissing("routines", "agentId", "TEXT NOT NULL DEFAULT ''");
+    this.addColumnIfMissing("routines", "command", "TEXT");
+    this.addColumnIfMissing("routines", "steps", "TEXT");
+    this.addColumnIfMissing("routines", "timeoutMs", "INTEGER");
+    this.addColumnIfMissing("routines", "catchUpPolicy", "TEXT NOT NULL DEFAULT 'run_one'");
+    this.addColumnIfMissing("routines", "executionPolicy", "TEXT NOT NULL DEFAULT 'queue'");
+    this.addColumnIfMissing("routines", "catchUpLimit", "INTEGER DEFAULT 5");
+    this.addColumnIfMissing("routines", "lastRunAt", "TEXT");
+    this.addColumnIfMissing("routines", "lastRunResult", "TEXT");
+    this.addColumnIfMissing("routines", "nextRunAt", "TEXT");
+    this.addColumnIfMissing("routines", "runCount", "INTEGER DEFAULT 0");
+    this.addColumnIfMissing("routines", "runHistory", "TEXT DEFAULT '[]'");
+    this.addColumnIfMissing("routines", "scope", "TEXT DEFAULT 'project'");
+    this.addColumnIfMissing("routines", "enabled", "INTEGER DEFAULT 1");
+
+    this.db.exec("UPDATE routines SET agentId = '' WHERE agentId IS NULL");
+    this.db.exec("UPDATE routines SET scope = 'project' WHERE scope IS NULL OR TRIM(scope) = ''");
+
+    this.db.exec("CREATE INDEX IF NOT EXISTS idxRoutinesNextRunAt ON routines(nextRunAt)");
+    this.db.exec("CREATE INDEX IF NOT EXISTS idxRoutinesEnabled ON routines(enabled)");
+    this.db.exec("CREATE INDEX IF NOT EXISTS idxRoutinesScope ON routines(scope)");
+  }
+
   private migrate(): void {
     const version = this.getSchemaVersion() || 1;
 

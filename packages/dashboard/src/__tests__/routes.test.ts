@@ -124,7 +124,7 @@ vi.mock("@fusion/engine", () => ({
   },
 }));
 
-import { AgentStore, isGhAvailable, isGhAuthenticated } from "@fusion/core";
+import { AgentStore, Database, RoutineStore, isGhAvailable, isGhAuthenticated } from "@fusion/core";
 import { createFnAgent } from "@fusion/engine";
 
 const mockIsGhAvailable = vi.mocked(isGhAvailable);
@@ -14114,10 +14114,10 @@ describe("PUT /settings", () => {
     store = createMockStore();
   });
 
-  function buildApp() {
+  function buildApp(routeOptions: Parameters<typeof createApiRoutes>[1] = { githubToken: "ghp_test_token" }) {
     const app = express();
     app.use(express.json());
-    app.use("/api", createApiRoutes(store, { githubToken: "ghp_test_token" }));
+    app.use("/api", createApiRoutes(store, routeOptions));
     return app;
   }
 
@@ -14135,6 +14135,67 @@ describe("PUT /settings", () => {
 
     expect(res.status).toBe(200);
     expect(store.updateSettings).toHaveBeenCalledWith({ maxConcurrent: 8 });
+  });
+
+  it("updates settings with auto-backup enabled without logging routine sync failure", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "kb-routes-backup-routine-"));
+    const db = new Database(join(tempDir, ".fusion"));
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS __meta (key TEXT PRIMARY KEY, value TEXT);
+      CREATE TABLE IF NOT EXISTS config (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        nextId INTEGER DEFAULT 1,
+        nextWorkflowStepId INTEGER DEFAULT 1,
+        settings TEXT DEFAULT '{}',
+        workflowSteps TEXT DEFAULT '[]',
+        updatedAt TEXT
+      );
+      CREATE TABLE IF NOT EXISTS routines (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        triggerType TEXT NOT NULL,
+        triggerConfig TEXT NOT NULL,
+        command TEXT,
+        enabled INTEGER DEFAULT 1,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+    `);
+    db.exec("INSERT INTO __meta (key, value) VALUES ('schemaVersion', '55')");
+    db.exec("INSERT INTO __meta (key, value) VALUES ('lastModified', '1000')");
+    db.close();
+
+    const routineStore = new RoutineStore(tempDir);
+    await routineStore.init();
+
+    const updatedSettings = {
+      ...DEFAULT_SETTINGS,
+      autoBackupEnabled: true,
+      autoBackupSchedule: "0 2 * * *",
+    };
+    (store.updateSettings as ReturnType<typeof vi.fn>).mockResolvedValue(updatedSettings);
+
+    const runtimeEvents: Array<{ level: string; scope: string; message: string; context?: Record<string, unknown> }> = [];
+    setRuntimeLogSink((level, scope, message, context) => {
+      runtimeEvents.push({ level, scope, message, context });
+    });
+
+    try {
+      const res = await REQUEST(
+        buildApp({ githubToken: "ghp_test_token", routineStore }),
+        "PUT",
+        "/api/settings",
+        JSON.stringify({ autoBackupEnabled: true, autoBackupSchedule: "0 2 * * *" }),
+        { "Content-Type": "application/json" },
+      );
+
+      expect(res.status).toBe(200);
+      expect(runtimeEvents.some((event) => event.message === "Failed to sync backup routine")).toBe(false);
+    } finally {
+      resetRuntimeLogSink();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("updates defaultNodeId when provided", async () => {

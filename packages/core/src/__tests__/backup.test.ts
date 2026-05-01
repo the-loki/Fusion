@@ -13,6 +13,7 @@ import {
   runBackupCommand,
   syncBackupRoutine,
 } from "../backup.js";
+import { Database } from "../db.js";
 import { RoutineStore } from "../routine-store.js";
 import type { ProjectSettings } from "../types.js";
 
@@ -521,6 +522,52 @@ describe("syncBackupRoutine", () => {
     })).rejects.toThrow("Invalid backup schedule");
 
     expect(await routineStore.listRoutines()).toEqual([]);
+  });
+
+  it("creates backup routine after upgrading legacy routines schema missing agentId", async () => {
+    const diskDir = mkdtempSync(join(tmpdir(), "kb-backup-routine-legacy-"));
+    const db = new Database(join(diskDir, ".fusion"));
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS __meta (key TEXT PRIMARY KEY, value TEXT);
+      CREATE TABLE IF NOT EXISTS config (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        nextId INTEGER DEFAULT 1,
+        nextWorkflowStepId INTEGER DEFAULT 1,
+        settings TEXT DEFAULT '{}',
+        workflowSteps TEXT DEFAULT '[]',
+        updatedAt TEXT
+      );
+      CREATE TABLE IF NOT EXISTS routines (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        triggerType TEXT NOT NULL,
+        triggerConfig TEXT NOT NULL,
+        command TEXT,
+        enabled INTEGER DEFAULT 1,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+    `);
+    db.exec("INSERT INTO __meta (key, value) VALUES ('schemaVersion', '55')");
+    db.exec("INSERT INTO __meta (key, value) VALUES ('lastModified', '1000')");
+    db.close();
+
+    const diskRoutineStore = new RoutineStore(diskDir);
+    await diskRoutineStore.init();
+
+    await expect(syncBackupRoutine(diskRoutineStore, {
+      ...baseSettings,
+      autoBackupEnabled: true,
+      autoBackupSchedule: "0 1 * * *",
+    })).resolves.toBeDefined();
+
+    const routines = await diskRoutineStore.listRoutines();
+    expect(routines).toHaveLength(1);
+    expect(routines[0]?.name).toBe("Database Backup");
+    expect(routines[0]?.agentId).toBe("");
+
+    await rm(diskDir, { recursive: true, force: true });
   });
 });
 
