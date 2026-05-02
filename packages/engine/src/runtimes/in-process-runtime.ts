@@ -170,7 +170,7 @@ export class InProcessRuntime
       this.messageStore = new MessageStoreClass(this.taskStore.getDatabase());
 
       // 2. Initialize Plugin system (PluginStore + PluginLoader + PluginRunner)
-      this.pluginStore = new PluginStoreClass(this.taskStore.getFusionDir());
+      this.pluginStore = new PluginStoreClass(this.config.workingDirectory);
       await this.pluginStore.init();
 
       this.pluginLoader = new PluginLoaderClass({
