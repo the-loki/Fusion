@@ -510,6 +510,20 @@
   opacity: 0.7;
 }
 
+.card-source-provenance {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.card-source-provenance .provider-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
 .card-time-indicator {
   display: inline-flex;
   align-items: center;
@@ -526,6 +540,10 @@
   font-family: var(--font-mono);
   line-height: 1;
   white-space: nowrap;
+}
+
+.card-source-provenance + .card-time-indicator {
+  margin-left: 0;
 }
 
 .card-progress-bar {

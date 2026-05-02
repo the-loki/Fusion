@@ -15,6 +15,7 @@ Features:
 - Column visibility controls
 - Inline quick entry creation
 - PR/issue badges with live updates
+- GitHub provenance marker on task cards imported from GitHub (`sourceType: github_import`), shown alongside existing footer metadata like timers
 
 ![Board view](./screenshots/dashboard-overview.png)
 

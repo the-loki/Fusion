@@ -656,6 +656,71 @@ describe("TaskCard", () => {
     expect(timer?.getAttribute("title")).toContain("Completed");
   });
 
+  it("renders GitHub provenance marker for github_import tasks", () => {
+    const { container } = render(
+      <TaskCard
+        task={makeTask({
+          column: "todo",
+          sourceType: "github_import",
+          sourceMetadata: { issueUrl: "https://github.com/owner/repo/issues/42" },
+        })}
+        onOpenDetail={noop}
+        addToast={noop}
+      />,
+    );
+
+    const footerRow = container.querySelector(".card-footer-row");
+    const provenance = container.querySelector(".card-source-provenance");
+
+    expect(footerRow).not.toBeNull();
+    expect(provenance).not.toBeNull();
+    expect(provenance?.getAttribute("title")).toContain("https://github.com/owner/repo/issues/42");
+    expect(screen.getByTestId("provider-icon-github")).toBeDefined();
+  });
+
+  it("does not render GitHub provenance marker for non-imported tasks", () => {
+    const { container } = render(
+      <TaskCard
+        task={makeTask({
+          column: "todo",
+          sourceType: "dashboard_ui",
+        })}
+        onOpenDetail={noop}
+        addToast={noop}
+      />,
+    );
+
+    expect(container.querySelector(".card-source-provenance")).toBeNull();
+    expect(screen.queryByTestId("provider-icon-github")).toBeNull();
+  });
+
+  it("coexists with GitHub badge and timer metadata", () => {
+    const { container } = render(
+      <TaskCard
+        task={makeTask({
+          column: "done",
+          sourceType: "github_import",
+          sourceMetadata: { issueUrl: "https://github.com/owner/repo/issues/7" },
+          issueInfo: {
+            owner: "owner",
+            repo: "repo",
+            issueNumber: 7,
+            state: "open",
+            title: "Fix bug",
+          } as any,
+          executionStartedAt: "2026-04-25T13:00:00.000Z",
+          executionCompletedAt: "2026-04-25T15:00:00.000Z",
+        })}
+        onOpenDetail={noop}
+        addToast={noop}
+      />,
+    );
+
+    expect(container.querySelector(".card-github-badge")).not.toBeNull();
+    expect(container.querySelector(".card-source-provenance")).not.toBeNull();
+    expect(container.querySelector(".card-time-indicator")).not.toBeNull();
+  });
+
   it("renders files-changed metadata and timer chip in footer row", () => {
     const { container } = render(
       <TaskCard

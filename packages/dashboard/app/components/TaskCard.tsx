@@ -299,6 +299,11 @@ function areTaskWorkflowStepIdsEqual(previous?: string[], next?: string[]): bool
   return previous.every((stepId, index) => stepId === next[index]);
 }
 
+function getIssueUrlFromMetadata(metadata: Task["sourceMetadata"]): string | undefined {
+  const issueUrl = metadata?.issueUrl;
+  return typeof issueUrl === "string" && issueUrl.length > 0 ? issueUrl : undefined;
+}
+
 function extractDependencyDeleteConflict(err: unknown): { dependentIds: string[] } | null {
   if (!(err instanceof Error)) {
     return null;
@@ -430,6 +435,8 @@ function areTaskCardPropsEqual(previous: TaskCardProps, next: TaskCardProps): bo
     previousTask.missionId === nextTask.missionId &&
     previousTask.assignedAgentId === nextTask.assignedAgentId &&
     previousTask.mergeRetries === nextTask.mergeRetries &&
+    previousTask.sourceType === nextTask.sourceType &&
+    previousTask.sourceMetadata?.issueUrl === nextTask.sourceMetadata?.issueUrl &&
     areAttachmentsEqual(previousTask.attachments, nextTask.attachments) &&
     areCommentsEqual(previousTask.comments, nextTask.comments) &&
     areTaskDependenciesEqual(previousTask.dependencies, nextTask.dependencies) &&
@@ -713,6 +720,8 @@ function TaskCardComponent({
   // Check if this card can be edited inline
   const canEdit = EDITABLE_COLUMNS.has(task.column) && !isAgentActive && !isPaused && !queued && onUpdateTask;
   const hasGitHubBadge = Boolean(task.prInfo || task.issueInfo);
+  const isGitHubImportedTask = task.sourceType === "github_import";
+  const sourceIssueUrl = getIssueUrlFromMetadata(task.sourceMetadata);
   const isAgentNameLoading = Boolean(task.assignedAgentId && agentName === null);
   const taskProviders = useMemo(() => {
     const providers: string[] = [];
@@ -1506,9 +1515,18 @@ function TaskCardComponent({
           </>
         );
       })()}
-      {(filesChangedButton || timeIndicator) && (
+      {(filesChangedButton || timeIndicator || isGitHubImportedTask) && (
         <div className="card-footer-row">
           {filesChangedButton}
+          {isGitHubImportedTask && (
+            <span
+              className="card-source-provenance"
+              title={sourceIssueUrl ? `Imported from GitHub: ${sourceIssueUrl}` : "Imported from GitHub"}
+              aria-label="Imported from GitHub"
+            >
+              <ProviderIcon provider="github" size="sm" />
+            </span>
+          )}
           {timeIndicator && (
             <span
               className="card-time-indicator"
