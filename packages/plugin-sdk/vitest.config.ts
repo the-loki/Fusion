@@ -3,7 +3,8 @@ import { cpus } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const defaultMaxWorkers = Math.max(1, cpus().length - 1);
+// Cap fan-out to 6 to avoid saturating high-core machines under workspace concurrency.
+const defaultMaxWorkers = Math.min(6, Math.max(1, cpus().length - 1));
 const requestedMaxWorkers = Number.parseInt(process.env.VITEST_MAX_WORKERS ?? String(defaultMaxWorkers), 10);
 const maxWorkers = Math.max(1, Number.isFinite(requestedMaxWorkers) ? requestedMaxWorkers : defaultMaxWorkers);
 process.env.VITEST_MAX_WORKERS = String(maxWorkers);
