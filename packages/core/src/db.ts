@@ -13,6 +13,7 @@ import { isAbsolute, join } from "node:path";
 import { mkdirSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { DEFAULT_PROJECT_SETTINGS } from "./types.js";
+import type { PluginOnSchemaInit } from "./plugin-types.js";
 import type { SteeringComment, TaskComment } from "./types.js";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -2392,6 +2393,34 @@ export class Database {
     } finally {
       this.transactionDepth--;
     }
+  }
+
+  /**
+   * Execute plugin-provided schema initialization hooks.
+   *
+   * Hooks run sequentially to preserve deterministic ordering based on plugin
+   * dependency resolution. Failures are isolated and logged so one plugin's
+   * schema initialization does not prevent later hooks from running.
+   */
+  async runPluginSchemaInits(
+    hooks: Array<{ pluginId: string; hook: PluginOnSchemaInit }>,
+  ): Promise<void> {
+    let errorCount = 0;
+
+    for (const { pluginId, hook } of hooks) {
+      try {
+        await hook(this);
+        console.log(`[fusion:db] Plugin schema init completed for ${pluginId}`);
+      } catch (error) {
+        errorCount += 1;
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[fusion:db] Plugin schema init failed for ${pluginId}: ${message}`);
+      }
+    }
+
+    console.log(
+      `[fusion:db] Plugin schema initialization complete (${hooks.length} hooks executed, ${errorCount} errors)`,
+    );
   }
 
   /**

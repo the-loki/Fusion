@@ -379,6 +379,17 @@ export async function runDaemon(opts: DaemonOptions = {}) {
   try {
     const { loaded, errors } = await pluginLoader.loadAllPlugins();
     console.log(`[plugins] Loaded ${loaded} plugins (${errors} errors)`);
+
+    const schemaHooks = pluginLoader.getPluginSchemaInitHooks();
+    if (schemaHooks.length > 0) {
+      try {
+        await store.getDatabase().runPluginSchemaInits(schemaHooks);
+      } catch (err) {
+        console.error(
+          `[plugins] Schema initialization failed: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
   } catch (err) {
     console.error(
       `[plugins] Failed to load plugins: ${err instanceof Error ? err.message : err}`

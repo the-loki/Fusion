@@ -274,13 +274,15 @@ const plugin: FusionPlugin = {
 | `onTaskMoved` | `(task: Task, fromColumn: string, toColumn: string, ctx: PluginContext) => Promise<void> \| void` | Task moved between columns |
 | `onTaskCompleted` | `(task: Task, ctx: PluginContext) => Promise<void> \| void` | Task reached "done" |
 | `onError` | `(error: Error, ctx: PluginContext) => Promise<void> \| void` | Error occurred in plugin execution |
-| `onSchemaInit` | `(db: Database) => Promise<void> \| void` | During DB schema initialization (before core migrations complete) |
+| `onSchemaInit` | `(db: Database) => Promise<void> \| void` | After enabled plugins are loaded at startup (engine/daemon/dashboard/serve) |
 
 ### Hook Behavior
 
 - **Timeout**: 5 seconds per invocation (logged and skipped if exceeded)
-- **Error Isolation**: Hook failures never block the host system
+- **Error Isolation**: Hook failures never block other hooks or abort startup
 - **Optional**: Only define the hooks you need
+- **Schema hook execution**: `onSchemaInit` hooks run sequentially in plugin dependency order (from `resolveLoadOrder`) after `loadAllPlugins()`.
+- **Schema hook database API**: The hook receives the runtime `Database` instance, including `db.exec()` and `db.prepare()` for SQL DDL.
 - **Schema hook constraints**: `onSchemaInit` is intended for idempotent DDL only (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`). Avoid data backfills or long-running logic.
 
 ### Example: Schema initialization hook

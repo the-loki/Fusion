@@ -134,6 +134,30 @@ describe("MobileNavBar", () => {
     expect(props.onChangeView).toHaveBeenCalledWith("plugin:fusion-plugin-dependency-graph:queue");
   });
 
+  it("limits primary plugin tabs on mobile and overflows extra primary views into More", () => {
+    render(
+      <MobileNavBar
+        {...createDefaultProps()}
+        pluginDashboardViews={[
+          {
+            pluginId: "fusion-plugin-dependency-graph",
+            view: { viewId: "graph", label: "Graph", componentPath: "./GraphView", icon: "Map", placement: "primary", order: 1 },
+          },
+          {
+            pluginId: "fusion-plugin-dependency-graph",
+            view: { viewId: "queue", label: "Queue", componentPath: "./QueueView", icon: "Workflow", placement: "primary", order: 2 },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId("mobile-nav-tab-plugin-fusion-plugin-dependency-graph-graph")).toBeDefined();
+    expect(screen.queryByTestId("mobile-nav-tab-plugin-fusion-plugin-dependency-graph-queue")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("mobile-nav-tab-more"));
+    expect(screen.getByTestId("mobile-more-item-plugin-fusion-plugin-dependency-graph-queue")).toBeDefined();
+  });
+
   it("active tab is highlighted for mailbox", () => {
     render(<MobileNavBar {...createDefaultProps()} view="mailbox" />);
     expect(screen.getByTestId("mobile-nav-tab-mailbox").className).toContain("mobile-nav-tab--active");

@@ -415,6 +415,91 @@ describe("Database", () => {
     });
   });
 
+  describe("runPluginSchemaInits", () => {
+    it("returns without error when no hooks are provided", async () => {
+      await expect(db.runPluginSchemaInits([])).resolves.toBeUndefined();
+    });
+
+    it("executes a single schema hook and creates its table", async () => {
+      await db.runPluginSchemaInits([
+        {
+          pluginId: "plugin-single",
+          hook: (database) => {
+            database.exec("CREATE TABLE IF NOT EXISTS plugin_single_table (id TEXT PRIMARY KEY)");
+          },
+        },
+      ]);
+
+      const row = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='plugin_single_table'")
+        .get() as { name: string } | undefined;
+      expect(row?.name).toBe("plugin_single_table");
+    });
+
+    it("executes multiple schema hooks in order", async () => {
+      const order: string[] = [];
+      await db.runPluginSchemaInits([
+        {
+          pluginId: "plugin-a",
+          hook: (database) => {
+            order.push("a");
+            database.exec("CREATE TABLE IF NOT EXISTS plugin_table_a (id TEXT PRIMARY KEY)");
+          },
+        },
+        {
+          pluginId: "plugin-b",
+          hook: (database) => {
+            order.push("b");
+            database.exec("CREATE TABLE IF NOT EXISTS plugin_table_b (id TEXT PRIMARY KEY)");
+          },
+        },
+      ]);
+
+      expect(order).toEqual(["a", "b"]);
+      const tables = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('plugin_table_a','plugin_table_b') ORDER BY name")
+        .all() as Array<{ name: string }>;
+      expect(tables.map((table) => table.name)).toEqual(["plugin_table_a", "plugin_table_b"]);
+    });
+
+    it("continues executing hooks after a hook throws", async () => {
+      await db.runPluginSchemaInits([
+        {
+          pluginId: "plugin-fail",
+          hook: () => {
+            throw new Error("boom");
+          },
+        },
+        {
+          pluginId: "plugin-after",
+          hook: (database) => {
+            database.exec("CREATE TABLE IF NOT EXISTS plugin_after_table (id TEXT PRIMARY KEY)");
+          },
+        },
+      ]);
+
+      const row = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='plugin_after_table'")
+        .get() as { name: string } | undefined;
+      expect(row?.name).toBe("plugin_after_table");
+    });
+
+    it("is idempotent when called repeatedly with the same hooks", async () => {
+      const hooks = [
+        {
+          pluginId: "plugin-idempotent",
+          hook: (database: Database) => {
+            database.exec("CREATE TABLE IF NOT EXISTS plugin_idempotent_table (id TEXT PRIMARY KEY)");
+            database.exec("CREATE INDEX IF NOT EXISTS idx_plugin_idempotent_id ON plugin_idempotent_table(id)");
+          },
+        },
+      ];
+
+      await expect(db.runPluginSchemaInits(hooks)).resolves.toBeUndefined();
+      await expect(db.runPluginSchemaInits(hooks)).resolves.toBeUndefined();
+    });
+  });
+
   describe("foreign key cascade", () => {
     it("deleting an agent cascades to heartbeats", () => {
       const now = new Date().toISOString();

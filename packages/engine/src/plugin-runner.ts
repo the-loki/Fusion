@@ -157,6 +157,19 @@ export class PluginRunner {
     const result = await this.options.pluginLoader.loadAllPlugins();
     executorLog.log(`PluginRunner loaded ${result.loaded} plugins (${result.errors} errors)`);
 
+    // Execute onSchemaInit hooks from loaded plugins.
+    const schemaInitHooks = this.options.pluginLoader.getPluginSchemaInitHooks();
+    if (schemaInitHooks.length > 0) {
+      executorLog.log(`Executing onSchemaInit hooks from ${schemaInitHooks.length} plugins`);
+      try {
+        const db = this.options.taskStore.getDatabase();
+        await db.runPluginSchemaInits(schemaInitHooks);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        executorLog.log(`onSchemaInit execution failed: ${message}`);
+      }
+    }
+
     // Subscribe to store events for task lifecycle hooks
     this.subscribeToStoreEvents();
 

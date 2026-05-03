@@ -201,6 +201,15 @@ export function MobileNavBar({
   const primaryPluginViews = pluginDashboardViews
     .filter((entry) => entry.view.placement === "primary")
     .sort((a, b) => (a.view.order ?? Number.MAX_SAFE_INTEGER) - (b.view.order ?? Number.MAX_SAFE_INTEGER));
+  // Keep plugin-provided top-level tabs constrained on mobile so fixed tabs retain
+  // reasonable touch-target width. Additional primary plugin destinations overflow into More.
+  const MAX_PRIMARY_PLUGIN_TOP_LEVEL_TABS = 1;
+  const topLevelPrimaryPluginViews = primaryPluginViews.slice(0, MAX_PRIMARY_PLUGIN_TOP_LEVEL_TABS);
+  const overflowPrimaryPluginViews = primaryPluginViews.slice(MAX_PRIMARY_PLUGIN_TOP_LEVEL_TABS);
+  const overflowPluginViews = [
+    ...overflowPrimaryPluginViews,
+    ...pluginDashboardViews.filter((entry) => entry.view.placement !== "primary"),
+  ].sort((a, b) => (a.view.order ?? Number.MAX_SAFE_INTEGER) - (b.view.order ?? Number.MAX_SAFE_INTEGER));
 
   const isMoreActive =
     view === "documents"
@@ -212,7 +221,7 @@ export function MobileNavBar({
     || (todosOpen && todoViewEnabled)
     || (view === "roadmaps" && !showRoadmapsTopLevel)
     || (view === "skills" && !showSkillsTopLevel)
-    || (view.startsWith("plugin:") && !primaryPluginViews.some((entry) => buildPluginTaskViewId(entry.pluginId, entry.view.viewId) === view));
+    || (view.startsWith("plugin:") && !topLevelPrimaryPluginViews.some((entry) => buildPluginTaskViewId(entry.pluginId, entry.view.viewId) === view));
 
   return (
     <>
@@ -320,7 +329,7 @@ export function MobileNavBar({
           </button>
         )}
 
-        {primaryPluginViews.map((entry) => {
+        {topLevelPrimaryPluginViews.map((entry) => {
           const pluginTaskView = buildPluginTaskViewId(entry.pluginId, entry.view.viewId);
           const PluginIcon = getPluginNavIcon(entry.view.icon);
           return (
@@ -660,10 +669,7 @@ export function MobileNavBar({
               </button>
             )}
 
-            {pluginDashboardViews
-              .filter((entry) => entry.view.placement !== "primary")
-              .sort((a, b) => (a.view.order ?? Number.MAX_SAFE_INTEGER) - (b.view.order ?? Number.MAX_SAFE_INTEGER))
-              .map((entry) => {
+            {overflowPluginViews.map((entry) => {
                 const pluginTaskView = buildPluginTaskViewId(entry.pluginId, entry.view.viewId);
                 const PluginIcon = getPluginNavIcon(entry.view.icon);
                 return (

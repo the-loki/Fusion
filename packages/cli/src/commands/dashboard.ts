@@ -1082,6 +1082,18 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
   try {
     const { loaded, errors } = await pluginLoader.loadAllPlugins();
     logSink.log(`Loaded ${loaded} plugins (${errors} errors)`, "plugins");
+
+    const schemaHooks = pluginLoader.getPluginSchemaInitHooks();
+    if (schemaHooks.length > 0) {
+      try {
+        await store.getDatabase().runPluginSchemaInits(schemaHooks);
+      } catch (err) {
+        logSink.log(
+          `Schema initialization failed: ${err instanceof Error ? err.message : err}`,
+          "plugins",
+        );
+      }
+    }
   } catch (err) {
     logSink.log(
       `Failed to load plugins: ${err instanceof Error ? err.message : err}`,
