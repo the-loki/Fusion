@@ -561,6 +561,24 @@ describe("InsightStore Run CRUD", () => {
       expect(run.completedAt).toBeNull();
     });
 
+    it("round-trips non-empty input metadata through SQLite", () => {
+      const run = store.createRun("proj", {
+        trigger: "manual",
+        inputMetadata: {
+          source: "memory",
+          taskId: "FN-3015",
+          hintCount: 3,
+        },
+      });
+
+      const fromDb = store.getRun(run.id);
+      expect(fromDb?.inputMetadata).toEqual({
+        source: "memory",
+        taskId: "FN-3015",
+        hintCount: 3,
+      });
+    });
+
     it("persists run to the database", () => {
       const created = store.createRun("proj", { trigger: "schedule" });
       const fromDb = store.getRun(created.id);
@@ -613,6 +631,24 @@ describe("InsightStore Run CRUD", () => {
 
       const manual = store.listRuns({ projectId: "proj", trigger: "manual" });
       expect(manual).toHaveLength(1);
+    });
+
+    it("supports combined project/status/trigger filters", () => {
+      const match = store.createRun("proj-a", { trigger: "manual" });
+      store.updateRun(match.id, { status: "running" });
+
+      const wrongStatus = store.createRun("proj-a", { trigger: "manual" });
+      store.updateRun(wrongStatus.id, { status: "failed" });
+
+      const wrongTrigger = store.createRun("proj-a", { trigger: "schedule" });
+      store.updateRun(wrongTrigger.id, { status: "running" });
+
+      const wrongProject = store.createRun("proj-b", { trigger: "manual" });
+      store.updateRun(wrongProject.id, { status: "running" });
+
+      const filtered = store.listRuns({ projectId: "proj-a", status: "running", trigger: "manual" });
+      expect(filtered).toHaveLength(1);
+      expect(filtered[0].id).toBe(match.id);
     });
 
     it("supports pagination", () => {
@@ -688,6 +724,43 @@ describe("InsightStore Run CRUD", () => {
       expect(updated!.completedAt).toBeTruthy();
     });
 
+    it("persists output metadata and cancelled terminal state", () => {
+      const run = store.createRun("proj", { trigger: "api" });
+
+      const updated = store.updateRun(run.id, {
+        status: "cancelled",
+        error: "Cancelled by user",
+        outputMetadata: {
+          model: "gpt-5.3-codex",
+          durationMs: 1200,
+          tokensUsed: 345,
+        },
+      });
+
+      expect(updated?.status).toBe("cancelled");
+      expect(updated?.completedAt).toBeTruthy();
+      expect(updated?.outputMetadata).toEqual({
+        model: "gpt-5.3-codex",
+        durationMs: 1200,
+        tokensUsed: 345,
+      });
+
+      const fromDb = store.getRun(run.id);
+      expect(fromDb).toEqual(updated);
+    });
+
+    it("preserves existing completedAt on later updates", () => {
+      const run = store.createRun("proj", { trigger: "manual" });
+      const completed = store.updateRun(run.id, { status: "failed", error: "boom" });
+      const firstCompletedAt = completed?.completedAt;
+
+      const patched = store.updateRun(run.id, { summary: "postmortem" });
+
+      expect(firstCompletedAt).toBeTruthy();
+      expect(patched?.completedAt).toBe(firstCompletedAt);
+      expect(patched?.summary).toBe("postmortem");
+    });
+
     it("does not override completedAt if already provided", () => {
       const run = store.createRun("proj", { trigger: "manual" });
       const fixed = "2025-06-01T12:00:00.000Z";
@@ -728,6 +801,17 @@ describe("InsightStore Run CRUD", () => {
       expect(handler.mock.calls[0][0].id).toBe(run.id);
       expect(handler.mock.calls[0][0].status).toBe("completed");
     });
+
+    it("emits run:completed before run:updated for terminal transitions", () => {
+      const callOrder: string[] = [];
+      store.on("run:updated", () => callOrder.push("updated"));
+      store.on("run:completed", () => callOrder.push("completed"));
+
+      const run = store.createRun("proj", { trigger: "manual" });
+      store.updateRun(run.id, { status: "cancelled" });
+
+      expect(callOrder).toEqual(["completed", "updated"]);
+    });
   });
 
   describe("upsertRun", () => {
@@ -735,6 +819,14 @@ describe("InsightStore Run CRUD", () => {
       const run = store.upsertRun("proj", "schedule", { trigger: "schedule" });
       expect(run.id).toMatch(/^INSR-/);
       expect(run.status).toBe("pending");
+    });
+
+    it("returns existing running run for same project+trigger", () => {
+      const first = store.createRun("proj", { trigger: "schedule" });
+      store.updateRun(first.id, { status: "running" });
+
+      const second = store.upsertRun("proj", "schedule", { trigger: "schedule" });
+      expect(second.id).toBe(first.id);
     });
 
     it("returns existing pending/running run instead of creating duplicate", () => {

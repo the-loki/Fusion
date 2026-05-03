@@ -379,3 +379,13 @@ This document captures the original porting plan. As of FN-3012 preflight, the r
 Important boundary clarification:
 - The research subsystem and the insights subsystem are both present and remain separate/parallel (`research_runs`/`research_exports` vs `project_insights`/`project_insight_runs`).
 - Follow-on hardening tasks should target current landed files, not the historical placeholder path examples in the original FN-299x chain.
+
+## 11. Addendum (FN-3015): Landed insights-backed regression coverage
+
+FN-3015 hardened regression coverage on the currently shipped insights persistence/API surface (not speculative research-only paths):
+- Core store coverage (`packages/core/src/__tests__/insight-store.test.ts`) now locks non-empty run metadata round-trips (`inputMetadata`/`outputMetadata`), terminal `cancelled` semantics, `completedAt` persistence behavior, combined run filter behavior, and `upsertRun` handling for running vs terminal prior runs.
+- Route coverage (`packages/dashboard/src/__tests__/insights-routes.test.ts`) now exercises real persistence-backed behavior for `/api/insights` and `/api/insights/runs`, including project-scoped store resolution via `projectId`, filters (`category`, `status`, `runId`, `trigger`), pagination (`limit`/`offset`), invalid input rejection, run failure persistence, and `/api/insights/:id/create-task` payload contracts.
+- `/api/insights/runs` now supports validated query filtering (`status`, `trigger`, `limit`, `offset`) in `packages/dashboard/src/insights-routes.ts` so route behavior matches the new regression assertions.
+
+Roadmap-only note:
+- This task intentionally did not add or invent new research-runner/retry/export behavior beyond the current landed insights API contracts.

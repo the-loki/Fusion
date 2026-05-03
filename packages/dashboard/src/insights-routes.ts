@@ -22,6 +22,8 @@ import {
   type InsightListOptions,
   type InsightRunTrigger,
   type InsightRunCreateInput,
+  type InsightRunListOptions,
+  type InsightRunStatus,
 } from "@fusion/core";
 import {
   ApiError,
@@ -338,7 +340,41 @@ export function createInsightsRouter(store: TaskStore): Router {
   router.get("/runs", (req: Request, res: Response) => {
     try {
       const store = getInsightStore();
-      const runs = store.listRuns({});
+      const options: InsightRunListOptions = {};
+
+      if (req.query.status) {
+        const status = req.query.status as string;
+        if (!["pending", "running", "completed", "failed", "cancelled"].includes(status)) {
+          throw badRequest(`Invalid run status: ${status}`);
+        }
+        options.status = status as InsightRunStatus;
+      }
+
+      if (req.query.trigger) {
+        const trigger = req.query.trigger as string;
+        if (!VALID_TRIGGERS.includes(trigger as InsightRunTrigger)) {
+          throw badRequest(`Invalid trigger: ${trigger}`);
+        }
+        options.trigger = trigger as InsightRunTrigger;
+      }
+
+      if (req.query.limit) {
+        const limit = parseInt(req.query.limit as string, 10);
+        if (isNaN(limit) || limit < 1) {
+          throw badRequest("Invalid limit");
+        }
+        options.limit = limit;
+      }
+
+      if (req.query.offset) {
+        const offset = parseInt(req.query.offset as string, 10);
+        if (isNaN(offset) || offset < 0) {
+          throw badRequest("Invalid offset");
+        }
+        options.offset = offset;
+      }
+
+      const runs = store.listRuns(options);
       res.json({ runs });
     } catch (error) {
       rethrowAsApiError(error, "Failed to list runs");
