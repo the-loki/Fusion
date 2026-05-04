@@ -273,9 +273,28 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
           task.status === "planning" ||
           task.status === "needs-replan" ||
           (task.stuckKillCount ?? 0) > 0);
+      const isInReviewRetry =
+        task.column === "in-review" &&
+        (task.status === "failed" || task.status === "stuck-killed");
       if (task.status !== "failed" && task.status !== "stuck-killed" && !retrySpecification) {
         throw badRequest(`Task is not in a retryable state (current status: ${task.status || 'none'})`);
       }
+
+      // In-review retry: keep the task in in-review, clear only error/retry state
+      // so the auto-merge system re-attempts on its next sweep.
+      if (isInReviewRetry) {
+        await scopedStore.updateTask(req.params.id, {
+          status: null,
+          error: null,
+          stuckKillCount: 0,
+          mergeRetries: 0,
+        });
+        await scopedStore.logEntry(req.params.id, "Retry requested from dashboard (in-review retry, mergeRetries reset)");
+        const updated = await scopedStore.getTask(req.params.id);
+        res.json(updated);
+        return;
+      }
+
       await scopedStore.updateTask(req.params.id, {
         status: retrySpecification ? "needs-replan" : null,
         error: null,

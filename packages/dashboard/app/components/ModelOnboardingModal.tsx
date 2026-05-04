@@ -1108,6 +1108,9 @@ export function ModelOnboardingModal({
               pollIntervalRef.current = null;
             }
             setAuthActionInProgress(null);
+            setAuthProviders((prev) => prev.map((provider) =>
+              provider.id === providerId ? { ...provider, loginInProgress: false } : provider,
+            ));
             setLoginOutcomes((prev) => ({ ...prev, [providerId]: "timeout" }));
             clearAuthLoginUiState();
             addToast("Login timed out. Please try again.", "warning");
@@ -1749,6 +1752,11 @@ export function ModelOnboardingModal({
   );
 
   const renderAiProviderCard = (provider: AuthProvider) => {
+    const hasTerminalLoginOutcome = loginOutcomes[provider.id] === "timeout" ||
+      loginOutcomes[provider.id] === "failed" ||
+      loginOutcomes[provider.id] === "cancelled";
+    const showRemoteLoginInProgress = provider.loginInProgress && !hasTerminalLoginOutcome;
+
     if (provider.id === "droid-cli" && provider.type === "cli") {
       return (
         <DroidCliProviderCard
@@ -1860,7 +1868,7 @@ export function ModelOnboardingModal({
                 </button>
               </>
             )
-          ) : provider.loginInProgress ? (
+          ) : showRemoteLoginInProgress ? (
             <>
               <button className="btn btn-sm" disabled>
                 Waiting for login…
@@ -1888,13 +1896,13 @@ export function ModelOnboardingModal({
             </button>
           )}
         </div>
-        {(authActionInProgress === provider.id || provider.loginInProgress) && loginInstructions[provider.id] && (
+        {(authActionInProgress === provider.id || showRemoteLoginInProgress) && loginInstructions[provider.id] && (
           <LoginInstructions
             instructions={loginInstructions[provider.id]}
             data-testid={`onboarding-login-instructions-${provider.id}`}
           />
         )}
-        {(authActionInProgress === provider.id || provider.loginInProgress) && manualCodeConfigs[provider.id] && (
+        {(authActionInProgress === provider.id || showRemoteLoginInProgress) && manualCodeConfigs[provider.id] && (
           <OAuthManualCodeForm
             value={manualCodeInputs[provider.id] ?? ""}
             onChange={(value) => setManualCodeInputs((prev) => ({ ...prev, [provider.id]: value }))}

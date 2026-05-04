@@ -3401,6 +3401,22 @@ describe("ModelOnboardingModal", () => {
       vi.spyOn(window, "open").mockImplementation(mockWindowOpen);
 
       const addToast = vi.fn();
+      let pollCallCount = 0;
+
+      mockFetchAuthStatus.mockImplementation(() => {
+        pollCallCount++;
+        return Promise.resolve({
+          providers: [
+            {
+              id: "anthropic",
+              name: "Anthropic",
+              authenticated: false,
+              loginInProgress: pollCallCount > 1,
+              type: "oauth",
+            },
+          ],
+        });
+      });
 
       // Use act to render with fake timers
       await act(async () => {

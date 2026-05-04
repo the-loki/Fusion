@@ -408,6 +408,78 @@ describe("POST /tasks/:id/retry", () => {
     expect(store.logEntry).toHaveBeenCalledWith("KB-001", "Retry requested from dashboard (stuck kill budget reset)");
   });
 
+  it("retries a failed in-review task without moving columns", async () => {
+    const reviewTask = { ...FAKE_TASK_DETAIL, column: "in-review", status: "failed" };
+    (store.getTask as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(reviewTask)
+      .mockResolvedValueOnce(reviewTask);
+    (store.updateTask as ReturnType<typeof vi.fn>).mockResolvedValue(reviewTask);
+
+    const res = await REQUEST(buildApp(), "POST", "/api/tasks/KB-001/retry", JSON.stringify({}), {
+      "Content-Type": "application/json",
+    });
+
+    expect(res.status).toBe(200);
+    expect(store.updateTask).toHaveBeenCalledWith("KB-001", {
+      status: null,
+      error: null,
+      stuckKillCount: 0,
+      mergeRetries: 0,
+    });
+    expect(store.moveTask).not.toHaveBeenCalled();
+    expect(store.logEntry).toHaveBeenCalledWith("KB-001", "Retry requested from dashboard (in-review retry, mergeRetries reset)");
+  });
+
+  it("retries a stuck-killed in-review task without moving columns", async () => {
+    const reviewTask = { ...FAKE_TASK_DETAIL, column: "in-review", status: "stuck-killed" };
+    (store.getTask as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(reviewTask)
+      .mockResolvedValueOnce(reviewTask);
+    (store.updateTask as ReturnType<typeof vi.fn>).mockResolvedValue(reviewTask);
+
+    const res = await REQUEST(buildApp(), "POST", "/api/tasks/KB-001/retry", JSON.stringify({}), {
+      "Content-Type": "application/json",
+    });
+
+    expect(res.status).toBe(200);
+    expect(store.updateTask).toHaveBeenCalledWith("KB-001", {
+      status: null,
+      error: null,
+      stuckKillCount: 0,
+      mergeRetries: 0,
+    });
+    expect(store.moveTask).not.toHaveBeenCalled();
+    expect(store.logEntry).toHaveBeenCalledWith("KB-001", "Retry requested from dashboard (in-review retry, mergeRetries reset)");
+  });
+
+  it("preserves worktree/branch when retrying in-review task", async () => {
+    const reviewTask = {
+      ...FAKE_TASK_DETAIL,
+      column: "in-review",
+      status: "failed",
+      worktree: "/path/to/worktree",
+      branch: "fusion/fn-001",
+      baseBranch: "main",
+      baseCommitSha: "abc123",
+    };
+    (store.getTask as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(reviewTask)
+      .mockResolvedValueOnce(reviewTask);
+    (store.updateTask as ReturnType<typeof vi.fn>).mockResolvedValue(reviewTask);
+
+    await REQUEST(buildApp(), "POST", "/api/tasks/KB-001/retry", JSON.stringify({}), {
+      "Content-Type": "application/json",
+    });
+
+    const updateCall = (store.updateTask as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(updateCall).not.toHaveProperty("worktree");
+    expect(updateCall).not.toHaveProperty("branch");
+    expect(updateCall).not.toHaveProperty("baseBranch");
+    expect(updateCall).not.toHaveProperty("baseCommitSha");
+    expect(updateCall).not.toHaveProperty("recoveryRetryCount");
+    expect(updateCall).not.toHaveProperty("nextRecoveryAt");
+  });
+
   it("retries a stranded planning triage task in triage and removes stale prompt", async () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "kb-task-retry-spec-"));
     const taskDir = join(tempRoot, ".fusion", "tasks", "FN-001");

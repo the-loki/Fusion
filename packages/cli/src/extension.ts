@@ -666,12 +666,13 @@ export default function kbExtension(pi: ExtensionAPI) {
     name: "fn_task_retry",
     label: "fn: Retry Task",
     description:
-      "Retry a failed task — clears the error state and moves it back to the todo column for re-execution.",
-    promptSnippet: "Retry a failed Fusion task (clears error, moves to todo)",
+      "Retry a failed task — clears the error state. Tasks in other columns move to todo; tasks in in-review stay in-place for auto-merge retry.",
+    promptSnippet: "Retry a failed Fusion task (clears error, moves to todo or stays in in-review)",
     promptGuidelines: [
-      "Use when a task has failed and needs to be retried from the beginning",
-      "Only tasks in 'failed' state can be retried",
-      "The task will be moved to the todo column with error state cleared",
+      "Use when a task has failed and needs to be retried",
+      "Only tasks in 'failed' or 'stuck-killed' state can be retried",
+      "Tasks in 'in-review' stay in in-review — only the error/retry state is cleared, and the auto-merge system re-attempts",
+      "Tasks in other columns are moved to the todo column with error state cleared",
     ],
     parameters: Type.Object({
       id: Type.String({ description: "Task ID to retry (e.g. FN-001). Must be in 'failed' state." }),
@@ -701,7 +702,17 @@ export default function kbExtension(pi: ExtensionAPI) {
         };
       }
       
-      // Clear failure state
+      // In-review retry: keep the task in in-review, clear only error/retry state
+      if (task.column === 'in-review') {
+        await store.updateTask(params.id, { status: null, error: null, stuckKillCount: 0, mergeRetries: 0 });
+        await store.logEntry(params.id, "Retry requested via Fusion extension (in-review retry, mergeRetries reset)");
+        return {
+          content: [{ type: "text", text: `Retried ${params.id} → in-review (merge retry state cleared, task stays in in-review)` }],
+          details: { taskId: params.id, newColumn: 'in-review' },
+        };
+      }
+
+      // Clear failure state and move to todo for other columns
       await store.updateTask(params.id, { status: null, error: null });
       
       // Move to todo column

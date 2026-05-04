@@ -2726,7 +2726,18 @@ describe("ChatView mobile behavior", () => {
         value: 900,
         configurable: true,
       });
-      messagesContainer.scrollTop = 0;
+      // In jsdom, scrollTop on a non-scrollable div may not reflect writes.
+      // Intercept the setter so the assertion can read back the value the effect wrote.
+      let capturedScrollTop = 0;
+      Object.defineProperty(messagesContainer, "scrollTop", {
+        get() { return capturedScrollTop; },
+        set(v: number) { capturedScrollTop = v; },
+        configurable: true,
+      });
+
+      // Focus the chat input so the hook treats the viewport shrink as a keyboard-open event.
+      const chatInput = screen.getByTestId("chat-input");
+      chatInput.focus();
 
       // Focus the chat textarea so the hook treats the active element as a
       // keyboard-focusable target.
