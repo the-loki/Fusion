@@ -950,6 +950,37 @@ describe("Droid CLI auth routes", () => {
           id: "droid-cli",
           name: "Factory AI — via Droid CLI",
           type: "cli",
+          authenticated: true,
+        }),
+      ]),
+    );
+  });
+
+  it("GET /auth/status marks droid-cli unauthenticated when extension status is not ok", async () => {
+    vi.spyOn(droidCliProbeModule, "probeDroidCli").mockResolvedValue({
+      available: true,
+      version: "droid 1.0.0",
+      probeDurationMs: 10,
+    });
+    store.getGlobalSettingsStore = vi.fn().mockReturnValue({
+      ...createMockGlobalSettingsStore(),
+      getSettings: vi.fn().mockResolvedValue({ useDroidCli: true }),
+    });
+
+    const res = await GET(
+      buildApp({ getDroidCliExtensionStatus: () => ({ status: "error", reason: "bad ext" }) } as Parameters<
+        typeof createApiRoutes
+      >[1]),
+      "/api/auth/status",
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.providers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "droid-cli",
+          authenticated: false,
+          type: "cli",
         }),
       ]),
     );

@@ -60,6 +60,16 @@ describe("registerModelRoutes droid-cli filter", () => {
     expect(response.models.some((model) => model.provider === "droid-cli")).toBe(true);
   });
 
+  it("filters droid-cli models when useDroidCli setting is unset", async () => {
+    const { handler } = setup(undefined);
+    const json = vi.fn();
+
+    await handler({}, { json });
+
+    const response = json.mock.calls[0][0] as { models: Array<{ provider: string }> };
+    expect(response.models.some((model) => model.provider === "droid-cli")).toBe(false);
+  });
+
   it("includes resolved planning model when settings hierarchy resolves one", async () => {
     const { handler } = setup(false, {
       planningProvider: "openai",

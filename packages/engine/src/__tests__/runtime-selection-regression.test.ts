@@ -300,5 +300,36 @@ describe("Runtime Selection Regression Tests", () => {
       expect(result.runtimeId).toBe("openclaw");
       expect(result.wasConfigured).toBe(true);
     });
+
+    it("should route runtimeHint=droid to the droid runtime", async () => {
+      mockResolveRuntime.mockResolvedValue({
+        runtime: {
+          id: "droid",
+          name: "Droid Runtime",
+          createSession: async () => ({
+            session: {
+              model: { provider: "droid-cli", id: "droid-pro" },
+            },
+          }),
+          promptWithFallback: vi.fn(),
+          describeModel: () => "droid/droid-pro",
+        },
+        wasConfigured: true,
+        runtimeId: "droid",
+      });
+
+      const { createResolvedAgentSession } = await import("../agent-session-helpers.js");
+
+      const result = await createResolvedAgentSession({
+        sessionPurpose: "executor",
+        pluginRunner: {} as any,
+        runtimeHint: "droid",
+        cwd: "/test/path",
+        systemPrompt: "Test prompt",
+      });
+
+      expect(result.runtimeId).toBe("droid");
+      expect(result.wasConfigured).toBe(true);
+    });
   });
 });

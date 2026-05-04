@@ -935,6 +935,18 @@ When a plugin changes host integration contracts, add or update host-side regres
 
 Keep this layer focused on **discovery/load/registration plumbing**. Deeper feature-flow regressions (Settings UX, onboarding UX, runtime execution/provider behavior) belong in dedicated follow-up suites, not in these plumbing tests.
 
+### Runtime/Provider Migration Regression Placement
+
+For runtime-provider migrations (like Droid), use layered regression suites instead of duplicating the same matrix everywhere:
+
+- **Engine runtime execution + fallback**: `packages/engine/src/__tests__/droid-runtime-e2e.test.ts` (patterned after Hermes/OpenClaw/Paperclip E2E suites) verifies plugin runtime resolution + default `pi` fallback when missing.
+- **Runtime hint matrix guardrail**: `packages/engine/src/__tests__/runtime-selection-regression.test.ts` keeps a lightweight hint-to-runtime routing assertion.
+- **Dashboard provider/auth routes**: `packages/dashboard/src/__tests__/routes-auth.test.ts` covers `POST /api/auth/droid-cli`, `GET /api/providers/droid-cli/status`, and `/api/auth/status` readiness/authenticated surfacing.
+- **Dashboard model filtering + settings hook**: `packages/dashboard/src/__tests__/register-model-routes-droid-cli.test.ts` and `packages/dashboard/src/__tests__/register-settings-droid-cli.test.ts` guard `useDroidCli` routing/filter behavior.
+- **Compatibility shim boundaries**: if `packages/droid-cli` remains, keep tests there focused on delegation to plugin-owned implementations (not a second behavior matrix).
+
+This keeps regressions durable while preserving clear ownership boundaries across engine, dashboard, plugin, and shim layers.
+
 ---
 
 ## 12. Publishing Plugins
