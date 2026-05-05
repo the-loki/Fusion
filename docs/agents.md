@@ -456,6 +456,10 @@ Heartbeat runs are composed from multiple prompt layers so each wake has full id
 1. **System prompt**
    - Task-scoped runs use the task heartbeat system prompt.
    - No-task runs use the ambient/no-task heartbeat system prompt (tool-aligned: no task-scoped tools).
+2. **Workspace tool mode**
+   - Heartbeat sessions are created with coding-capable workspace tools (`read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`) inside worktree boundary guards.
+   - Heartbeat behavior still stays lightweight: one concrete action per run, then `fn_heartbeat_done`.
+   - Engine-owned heartbeat tools are still layered on top (task creation/log/docs for task-scoped runs; ambient/delegation/memory tools for no-task runs).
 2. **Agent identity and instructions bundle**
    - Inline instructions (`instructionsText`)
    - File-backed instructions (`instructionsPath`)

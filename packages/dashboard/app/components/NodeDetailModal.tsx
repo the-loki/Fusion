@@ -15,7 +15,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import type { ContainerStatusInfo, DockerNodeConfigInfo as DockerNodeConfig, ManagedDockerNodeInfo, NodeInfo, NodeUpdateInput, ProjectInfo } from "../api";
+import type { ContainerStatusInfo, DockerNodeConfigInfo, ManagedDockerNodeInfo, NodeInfo, NodeUpdateInput, ProjectInfo } from "../api";
 import type { ToastType } from "../hooks/useToast";
 import { getProjectsForNode } from "../utils/nodeProjectAssignment";
 import type { ComputedNodeSyncStatus } from "../hooks/useNodeSettingsSync";
@@ -595,7 +595,7 @@ export function NodeDetailModal({
                   <details>
                     <summary>Volume Mounts</summary>
                     <div className="node-detail-modal__docker-list">
-                      {dockerConfigDraft.volumeMounts.map((mount, index) => (
+                      {dockerConfigDraft.volumeMounts.map((mount: DockerNodeConfigInfo["volumeMounts"][number], index: number) => (
                         <div key={`${mount.hostPath}-${mount.containerPath}-${index}`} className="node-detail-modal__docker-row">
                           <input className="input" value={mount.hostPath} placeholder="Host path" onChange={(event) => {
                             const next = [...dockerConfigDraft.volumeMounts];
@@ -686,7 +686,7 @@ export function NodeDetailModal({
                   <details>
                     <summary>Extra CLIs</summary>
                     <div className="node-detail-modal__docker-list">
-                      {(dockerConfigDraft.extraClis ?? []).map((cli, index) => (
+                      {(dockerConfigDraft.extraClis ?? []).map((cli: string, index: number) => (
                         <div key={`${cli}-${index}`} className="node-detail-modal__docker-row">
                           <input className="input" value={cli} onChange={(event) => {
                             const next = [...(dockerConfigDraft.extraClis ?? [])];
