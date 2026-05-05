@@ -1465,6 +1465,7 @@ export function ChatView({ projectId, addToast }: ChatViewProps) {
   };
 
   const activeModelTag = formatModelTag(activeSession?.modelProvider, activeSession?.modelId);
+  const hasThreadInView = Boolean(activeSession || isStreaming || messages.length > 0);
 
   const threadHeaderTitle = activeSession?.agentId === FN_AGENT_ID
     ? (activeModelTag ?? "Fusion")
@@ -1666,9 +1667,9 @@ export function ChatView({ projectId, addToast }: ChatViewProps) {
       {/* Thread */}
       <div className="chat-thread" style={threadKeyboardStyle}>
         {/* Header - always rendered in desktop/tablet, only rendered in mobile when viewing a thread */}
-        {(activeSession || !isMobile) && (
+        {(hasThreadInView || !isMobile) && (
           <div className="chat-thread-header">
-            {isMobile && activeSession && (
+            {isMobile && hasThreadInView && (
               <button className="btn-icon" onClick={handleBack} data-testid="chat-back-btn">
                 <ChevronLeft size={16} />
               </button>

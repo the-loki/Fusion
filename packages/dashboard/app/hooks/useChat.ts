@@ -290,22 +290,35 @@ export function useChat(
     refreshSessions();
   }, [refreshSessions]);
 
-  // Restore active session from localStorage after initial load
-  // Uses a ref to avoid circular dependency with selectSession
+  // Restore active session from localStorage after initial load.
+  // Uses refs to avoid circular dependency with selectSession and to avoid
+  // re-selecting/resetting the thread on every sessions refresh.
   const selectSessionRef = useRef<(id: string, sessionOverride?: ChatSessionInfo) => void>(() => {
     /* noop - will be replaced after selectSession is defined */
   });
+  const hasRestoredActiveSessionRef = useRef(false);
+
   useEffect(() => {
-    if (sessionsLoading) return; // Wait for sessions to load
+    hasRestoredActiveSessionRef.current = false;
+  }, [projectId]);
+
+  useEffect(() => {
+    if (sessionsLoading || hasRestoredActiveSessionRef.current || activeSessionRef.current) return;
 
     const savedSessionId = getScopedItem(ACTIVE_SESSION_STORAGE_KEY, projectId);
-    if (savedSessionId) {
-      // Check if the saved session exists in the loaded sessions
-      const session = sessions.find((s) => s.id === savedSessionId);
-      if (session) {
-        selectSessionRef.current(savedSessionId);
-      }
+    if (!savedSessionId) {
+      hasRestoredActiveSessionRef.current = true;
+      return;
     }
+
+    const session = sessions.find((s) => s.id === savedSessionId);
+    if (session) {
+      hasRestoredActiveSessionRef.current = true;
+      selectSessionRef.current(savedSessionId, session);
+      return;
+    }
+
+    hasRestoredActiveSessionRef.current = true;
   }, [sessionsLoading, sessions, projectId]);
 
   // Load messages when active session changes
@@ -345,6 +358,11 @@ export function useChat(
   // Select a session
   const selectSession = useCallback(
     (id: string, sessionOverride?: ChatSessionInfo) => {
+      const currentActiveSessionId = activeSessionRef.current?.id ?? null;
+      if (id && currentActiveSessionId === id && !sessionOverride) {
+        return;
+      }
+
       // Close any existing stream
       if (streamRef.current) {
         streamRef.current.close();
@@ -707,6 +725,36 @@ export function useChat(
           s.agentId.toLowerCase().includes(searchQuery.toLowerCase()),
       )
     : sessions;
+
+  // Recovery mode polling: if reloaded mid-generation, keep waiting state alive
+  // until generation finishes and messages can be reloaded.
+  useEffect(() => {
+    if (!isStreaming || streamRef.current || !activeSessionRef.current) return;
+
+    const interval = setInterval(async () => {
+      if (!isStreamingRef.current || streamRef.current || !activeSessionRef.current) {
+        clearInterval(interval);
+        return;
+      }
+
+      try {
+        const data: ChatSessionListResponse = await fetchChatSessions(projectId);
+        const session = data.sessions.find((candidate) => candidate.id === activeSessionRef.current?.id);
+        if (!session?.isGenerating) {
+          clearInterval(interval);
+          await loadMessages(activeSessionRef.current.id);
+          setStreamingText("");
+          setStreamingThinking("");
+          setStreamingToolCalls([]);
+          setIsStreaming(false);
+        }
+      } catch {
+        // Silently fail - will retry next interval
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [isStreaming, loadMessages, projectId]);
 
   // SSE real-time updates
   useEffect(() => {

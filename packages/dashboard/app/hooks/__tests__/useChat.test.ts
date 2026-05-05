@@ -1485,6 +1485,88 @@ describe("useChat", () => {
   });
 
   describe("FN-3336: streaming state recovery on reload", () => {
+    it("does not re-select and reset active session on subsequent session refreshes", async () => {
+      const session = { ...makeSession({ id: "session-001", agentId: "agent-001" }), isGenerating: true };
+      mockGetScopedItem.mockReturnValue("session-001");
+      mockFetchChatSessions
+        .mockResolvedValueOnce({ sessions: [session] })
+        .mockResolvedValueOnce({ sessions: [{ ...session, updatedAt: "2026-04-08T00:05:00.000Z" }] });
+      mockFetchChatMessages.mockResolvedValue({ messages: [] });
+
+      const { result } = renderHook(() => useChat("proj-123"));
+
+      await waitFor(() => {
+        expect(result.current.activeSession?.id).toBe("session-001");
+      });
+
+      expect(mockFetchChatMessages).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await result.current.refreshSessions();
+      });
+
+      await waitFor(() => {
+        expect(result.current.isStreaming).toBe(true);
+      });
+
+      // A sessions refresh should not auto-reselect/reset the active thread.
+      expect(mockFetchChatMessages).toHaveBeenCalledTimes(1);
+    });
+
+    it("preserves streaming text/thinking/tool state across sessions refresh", async () => {
+      const session = makeSession({ id: "session-001", agentId: "agent-001" });
+      mockFetchChatSessions
+        .mockResolvedValueOnce({ sessions: [session] })
+        .mockResolvedValueOnce({ sessions: [{ ...session, updatedAt: "2026-04-08T00:06:00.000Z" }] });
+      mockFetchChatMessages.mockResolvedValue({ messages: [] });
+
+      let textHandler: ((data: string) => void) | undefined;
+      let thinkingHandler: ((data: string) => void) | undefined;
+      let toolStartHandler: ((data: { toolName: string; args?: Record<string, unknown> }) => void) | undefined;
+      mockStreamChatResponse.mockImplementation((_sessionId, _content, handlers) => {
+        textHandler = handlers.onText;
+        thinkingHandler = handlers.onThinking;
+        toolStartHandler = handlers.onToolStart;
+        return { close: vi.fn(), isConnected: () => true };
+      });
+
+      const { result } = renderHook(() => useChat("proj-123"));
+
+      await waitFor(() => {
+        expect(result.current.sessions).toHaveLength(1);
+      });
+
+      act(() => {
+        result.current.selectSession("session-001");
+      });
+
+      await act(async () => {
+        result.current.sendMessage("Hello");
+      });
+
+      await act(async () => {
+        textHandler?.("Hi");
+        thinkingHandler?.("plan");
+        toolStartHandler?.({ toolName: "read", args: { path: "a.ts" } });
+      });
+
+      await waitFor(() => {
+        expect(result.current.isStreaming).toBe(true);
+        expect(result.current.streamingText).toBe("Hi");
+        expect(result.current.streamingThinking).toBe("plan");
+        expect(result.current.streamingToolCalls).toHaveLength(1);
+      });
+
+      await act(async () => {
+        await result.current.refreshSessions();
+      });
+
+      expect(result.current.isStreaming).toBe(true);
+      expect(result.current.streamingText).toBe("Hi");
+      expect(result.current.streamingThinking).toBe("plan");
+      expect(result.current.streamingToolCalls).toHaveLength(1);
+    });
+
     it("sets isStreaming=true when selecting a session with isGenerating=true", async () => {
       const session = { ...makeSession({ id: "session-001", agentId: "agent-001" }), isGenerating: true };
       mockFetchChatSessions.mockResolvedValueOnce({ sessions: [session] });

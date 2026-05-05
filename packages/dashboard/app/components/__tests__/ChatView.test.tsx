@@ -1512,6 +1512,42 @@ describe("ChatView", () => {
   });
 
   describe("streaming states", () => {
+    it("keeps mobile thread visible when active session metadata refreshes during streaming", () => {
+      const mediaQuerySpy = mockViewportMode("mobile");
+      const streamingState: UseChatReturn = {
+        ...defaultChatState,
+        sessions: [{ ...activeSessionFixture }],
+        filteredSessions: [{ ...activeSessionFixture }],
+        activeSession: { ...activeSessionFixture },
+        messages: [],
+        isStreaming: true,
+        streamingText: "",
+        streamingThinking: "",
+      };
+      const refreshedStreamingState: UseChatReturn = {
+        ...streamingState,
+        sessions: [{ ...activeSessionFixture, updatedAt: "2026-04-08T00:05:00.000Z" }],
+        filteredSessions: [{ ...activeSessionFixture, updatedAt: "2026-04-08T00:05:00.000Z" }],
+        activeSession: null,
+      };
+
+      mockUseChat
+        .mockReturnValueOnce(streamingState)
+        .mockReturnValue(refreshedStreamingState);
+
+      const { rerender } = render(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+
+      expect(document.querySelector(".chat-message--streaming")?.textContent).toContain("Connecting");
+      rerender(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+
+      expect(document.querySelector(".chat-message--streaming")?.textContent).toContain("Connecting");
+      expect(screen.queryByText("Start a new conversation")).not.toBeInTheDocument();
+      expect(screen.queryByText("No messages yet. Start the conversation!")).not.toBeInTheDocument();
+      expect(screen.getByTestId("chat-back-btn")).toBeInTheDocument();
+
+      void mediaQuerySpy;
+    });
+
     it("keeps the streaming indicator visible while message history is still loading", () => {
       setupMockChat({
         activeSession: { id: "session-001", agentId: "agent-001", status: "active", title: "Test Chat", createdAt: "2026-04-08T00:00:00.000Z", updatedAt: "2026-04-08T00:00:00.000Z" },

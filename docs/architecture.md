@@ -149,6 +149,8 @@ Concrete references:
 
 - `ChatStore` (`packages/core/src/chat-store.ts`) and `chat-types.ts` provide session-oriented chat state (`chat_sessions`, `chat_messages` tables)
 - Dashboard chat UX lives in `packages/dashboard/app/components/ChatView.tsx` and hooks `useChat.ts` / `useQuickChat.ts`
+- Main `useChat` session restore/recovery must not reset the active thread during session-list refresh or `chat:session:updated` metadata churn while a response is in flight.
+- When the active session is still generating after reload/reconnect (`isGenerating: true`), `useChat` keeps recovery streaming state alive ("Connecting…") until the assistant output is observed via SSE or reloaded from messages.
 - Chat message submission uses SSE streaming responses from dashboard chat routes
 
 ### Agent Companies
