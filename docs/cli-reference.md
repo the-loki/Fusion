@@ -553,6 +553,97 @@ fn agent export ./output-dir --company-name "My Company" --company-slug my-compa
 
 Subcommands: `stop`, `start`, `mailbox`, `import`, `export`.
 
+### `fn agent stop`
+
+Pause a running/active agent by transitioning its state to `paused`.
+
+**Options:**
+| Option | Description |
+|---|---|
+| `--project <name>`, `-P <name>` | Target a specific registered project before resolving the agent. |
+
+**Behavior notes:**
+- Usage: `fn agent stop <id>`.
+- If the agent does not exist, the command exits with `Agent <id> not found`.
+- If the agent is already paused, this is a no-op and prints `Agent <id> is already paused`.
+- Invalid state transitions are rejected with `Cannot stop agent <id> — current state '<state>' cannot transition to 'paused'`.
+- On success, prints `✓ Agent <id> stopped`.
+
+**Examples:**
+```bash
+fn agent stop AGENT-001
+fn agent stop AGENT-001 --project my-project
+```
+
+### `fn agent start`
+
+Resume a paused agent by transitioning its state to `active`.
+
+**Options:**
+| Option | Description |
+|---|---|
+| `--project <name>`, `-P <name>` | Target a specific registered project before resolving the agent. |
+
+**Behavior notes:**
+- Usage: `fn agent start <id>`.
+- If the agent does not exist, the command exits with `Agent <id> not found`.
+- If the agent is already `active` or `running`, this is a no-op and prints `Agent <id> is already running (<state>)`.
+- Invalid state transitions are rejected with `Cannot start agent <id> — current state '<state>' cannot transition to 'active'`.
+- On success, prints `✓ Agent <id> started`.
+
+**Examples:**
+```bash
+fn agent start AGENT-001
+fn agent start AGENT-001 --project my-project
+```
+
+### `fn agent mailbox`
+
+Inspect an agent-owned inbox (different from `fn message inbox`, which shows the CLI user's inbox).
+
+**Options:**
+| Option | Description |
+|---|---|
+| `--project <name>`, `-P <name>` | Target a specific registered project before reading mailbox data. |
+
+**Behavior notes:**
+- Usage: `fn agent mailbox <id>`.
+- Header format: `🤖 Agent Mailbox: <id> (<unreadCount> unread)`.
+- Displays up to 20 most recent inbox messages for the agent.
+- Unread messages are prefixed with `●`; read messages are unprefixed.
+- Message previews are truncated to 80 characters with a trailing ellipsis (`…`).
+- If no messages are present, prints `No messages`.
+
+**Examples:**
+```bash
+fn agent mailbox AGENT-001
+fn agent mailbox AGENT-001 --project my-project
+```
+
+### `fn agent export`
+
+Export Fusion agents to an Agent Companies package directory.
+
+**Options:**
+| Option | Description |
+|---|---|
+| `--company-name <name>` | Override the exported company display name. |
+| `--company-slug <slug>` | Override the exported company slug used in package metadata/paths. |
+| `--project <name>`, `-P <name>` | Target a specific registered project before collecting agents. |
+
+**Behavior notes:**
+- Usage: `fn agent export <dir> [--company-name <name>] [--company-slug <slug>]`.
+- If no agents exist in the selected project, the command exits with `No agents found to export`.
+- Successful runs print a summary including output directory, agents exported, skills exported, files written, and per-agent errors (if any).
+- Output directory paths are resolved to absolute paths before export.
+
+**Examples:**
+```bash
+fn agent export ./output-dir
+fn agent export ./output-dir --company-name "My Company" --company-slug my-company
+fn agent export ./output-dir --project my-project
+```
+
 ### `fn agent import`
 
 Import agents from [companies.sh](https://companies.sh) packages. Supports single manifest files, team packages, and archives.
@@ -745,5 +836,9 @@ Subcommands: `search`, `install`.
 | `--limit`, `-l` | `fn task import` (default: 30, max: 100), `fn skills search` (default: 10, max: 50) |
 | `--labels`, `-L` | `fn task import` |
 | `--skill` | `fn skills install` |
+| `--dry-run` | `fn agent import` |
+| `--skip-existing` | `fn agent import` |
+| `--company-name` | `fn agent export` |
+| `--company-slug` | `fn agent export` |
 
 For configuration details used by these commands, see [Settings Reference](./settings-reference.md).
