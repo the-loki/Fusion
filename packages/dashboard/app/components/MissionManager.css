@@ -208,10 +208,15 @@
 .mission-manager__sidebar-header {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   gap: var(--space-sm);
   padding: var(--space-md);
   border-bottom: var(--btn-border-width) solid var(--border);
+}
+
+.mission-manager__sidebar-cta {
+  flex: 1;
+  justify-content: center;
 }
 
 /* Hide duplicate sidebar title; the shared header already labels this view. */
@@ -684,6 +689,17 @@
   background: var(--card);
 }
 
+/* In the narrow sidebar, stack so the title gets full width and action buttons sit on their own row. */
+.mission-manager__sidebar .mission-list__item {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-sm);
+}
+
+.mission-manager__sidebar .mission-list__item-actions {
+  justify-content: flex-end;
+}
+
 .mission-list__item-content {
   flex: 1;
   min-width: 0;
@@ -749,6 +765,10 @@
   display: flex;
   align-items: center;
   gap: var(--space-md);
+  margin-top: var(--space-xs);
+}
+
+.mission-list__item-activity {
   margin-top: var(--space-xs);
 }
 

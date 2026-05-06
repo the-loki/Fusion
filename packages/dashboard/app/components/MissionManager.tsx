@@ -3520,15 +3520,19 @@ export function MissionManager({ isOpen, isInline = false, onClose, addToast, pr
                   {tasksFailed} failed
                 </button>
               )}
-              <span className="mission-relative-time" data-testid={`mission-last-activity-${m.id}`}>
-                Activity {getRelativeTime(health?.lastActivityAt)}
-              </span>
               <div className={`mission-list__item-progress mission-list__item-progress--${healthState}`}>
                 <div
                   className="mission-list__item-progress-bar"
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
+            </div>
+          )}
+          {showSummaryBlock && (
+            <div className="mission-list__item-activity">
+              <span className="mission-relative-time" data-testid={`mission-last-activity-${m.id}`}>
+                Activity {getRelativeTime(health?.lastActivityAt)}
+              </span>
             </div>
           )}
         </div>
@@ -3701,7 +3705,7 @@ export function MissionManager({ isOpen, isInline = false, onClose, addToast, pr
                     <div className="mission-list__footer-actions">
                       <button className="mission-add-btn" onClick={() => setShowInterviewModal(true)}>
                         <Sparkles size={16} />
-                        Create New Mission
+                        Plan New Mission
                       </button>
                     </div>
                   )}
@@ -3853,17 +3857,15 @@ export function MissionManager({ isOpen, isInline = false, onClose, addToast, pr
             style={isMobile ? undefined : { width: `${sidebarWidth}px` }}
           >
             <div className="mission-manager__sidebar-header">
-              <span className="mission-manager__sidebar-title">Missions</span>
-              <div className="mission-manager__sidebar-actions">
-                <button
-                  className="mission-add-btn mission-add-btn--sm"
-                  onClick={() => setShowInterviewModal(true)}
-                  title="Create New Mission"
-                  aria-label="Create New Mission"
-                >
-                  <Sparkles size={14} />
-                </button>
-              </div>
+              <button
+                className="mission-add-btn mission-manager__sidebar-cta"
+                onClick={() => setShowInterviewModal(true)}
+                title="Plan New Mission"
+                aria-label="Plan New Mission"
+              >
+                <Sparkles size={14} />
+                Plan New Mission
+              </button>
             </div>
             <div className="mission-manager__sidebar-list">
               {loading ? (
