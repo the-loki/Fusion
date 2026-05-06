@@ -77,6 +77,7 @@ Features:
 - Multiple terminal tabs
 - PTY-backed shell sessions
 - Mobile-aware virtual keyboard handling and auto-refit behavior
+- Reopen/reconnect/session-recovery flows preserve single-keystroke input forwarding (no duplicate characters, no page refresh required)
 
 ![Interactive terminal](./screenshots/terminal.png)
 
