@@ -562,6 +562,27 @@ vi.mock("../agent-session-helpers.js", async () => {
       pi.promptWithFallback(session, prompt, options as any),
     ),
     describeAgentModel: vi.fn(async (session: any) => pi.describeModel(session)),
+    resolveExecutorSessionModel: vi.fn((taskModelProvider?: string, taskModelId?: string, settings?: any, assignedAgentRuntimeConfig?: Record<string, unknown>) => {
+      const model = typeof assignedAgentRuntimeConfig?.model === "string" ? assignedAgentRuntimeConfig.model : "";
+      const slash = model.indexOf("/");
+      if (slash > 0 && slash < model.length - 1) {
+        return { provider: model.slice(0, slash), modelId: model.slice(slash + 1) };
+      }
+      if (taskModelProvider && taskModelId) return { provider: taskModelProvider, modelId: taskModelId };
+      if (settings?.executionProvider && settings?.executionModelId) {
+        return { provider: settings.executionProvider, modelId: settings.executionModelId };
+      }
+      if (settings?.executionGlobalProvider && settings?.executionGlobalModelId) {
+        return { provider: settings.executionGlobalProvider, modelId: settings.executionGlobalModelId };
+      }
+      if (settings?.defaultProviderOverride && settings?.defaultModelIdOverride) {
+        return { provider: settings.defaultProviderOverride, modelId: settings.defaultModelIdOverride };
+      }
+      if (settings?.defaultProvider && settings?.defaultModelId) {
+        return { provider: settings.defaultProvider, modelId: settings.defaultModelId };
+      }
+      return { provider: undefined, modelId: undefined };
+    }),
   };
 });
 

@@ -553,9 +553,12 @@ export async function reviewStep(
     throw err;
   }
 
-  reviewerLog.log(`${taskId}: reviewer using model ${describeModel(session)}`);
+  const reviewerModelDesc = describeModel(session);
+  const reviewerModelMarker = `Reviewer using model: ${reviewerModelDesc}`;
+  reviewerLog.log(`${taskId}: reviewer using model ${reviewerModelDesc}`);
   if (options.store && options.taskId) {
-    await options.store.logEntry(options.taskId, `Reviewer using model: ${describeModel(session)}`);
+    await options.store.logEntry(options.taskId, reviewerModelMarker);
+    await options.store.appendAgentLog(options.taskId, reviewerModelMarker, "text", undefined, "reviewer").catch(() => undefined);
   }
 
   // Notify the caller so it can track this session in a per-task subagent map.

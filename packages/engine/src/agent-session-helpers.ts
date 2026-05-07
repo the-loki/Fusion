@@ -11,6 +11,7 @@ import type { AgentRuntimeOptions } from "./agent-runtime.js";
 import type { SkillSelectionContext } from "./skill-resolver.js";
 import type { PluginRunner } from "./plugin-runner.js";
 import type { AgentSession } from "@mariozechner/pi-coding-agent";
+import { resolveTaskExecutionModel, type Settings } from "@fusion/core";
 import { resolveRuntime, buildRuntimeResolutionContext, type SessionPurpose } from "./runtime-resolution.js";
 import { createLogger } from "./logger.js";
 import { promptWithFallback, describeModel } from "./pi.js";
@@ -109,6 +110,31 @@ export function extractRuntimeModel(
   return {
     provider: provider || undefined,
     modelId: modelId || undefined,
+  };
+}
+
+export function resolveExecutorSessionModel(
+  taskModelProvider: string | undefined,
+  taskModelId: string | undefined,
+  settings: Partial<Settings> | undefined,
+  assignedAgentRuntimeConfig?: Record<string, unknown>,
+): { provider: string | undefined; modelId: string | undefined } {
+  const assignedRuntimeModel = extractRuntimeModel(assignedAgentRuntimeConfig);
+  if (assignedRuntimeModel.provider && assignedRuntimeModel.modelId) {
+    return assignedRuntimeModel;
+  }
+
+  const resolvedTaskModel = resolveTaskExecutionModel(
+    {
+      modelProvider: taskModelProvider,
+      modelId: taskModelId,
+    },
+    settings,
+  );
+
+  return {
+    provider: resolvedTaskModel.provider,
+    modelId: resolvedTaskModel.modelId,
   };
 }
 

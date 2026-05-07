@@ -99,6 +99,27 @@ Fallback behavior remains unchanged:
 
 Execution-ownership sync intentionally avoids assignment-trigger side effects (`agent:assigned` wakeups) that are intended for control-plane delegation.
 
+### Assigned-agent runtime model precedence for task execution
+
+When a task is executed by an assigned durable agent, executor session model selection now prefers that agent's explicit runtime model when it is fully specified.
+
+Executor precedence for task runs:
+1. Assigned agent `runtimeConfig` model pair (combined `runtimeConfig.model = "provider/modelId"` or separate `runtimeConfig.modelProvider` + `runtimeConfig.modelId`) when both provider and model ID are present
+2. Task `modelProvider` + `modelId`
+3. Project/global execution lane fallbacks (same resolution as unassigned runs)
+
+If the assigned agent runtime model is missing or incomplete, Fusion falls back to the normal task/settings execution hierarchy.
+
+### Task Detail Agent Log model provenance
+
+The Task Detail → Agent Log model header prefers runtime provenance markers written during execution/review:
+
+- `Executor using model: <provider>/<modelId>`
+- `Reviewer using model: <provider>/<modelId>`
+- `Triage using model: <provider>/<modelId>`
+
+This makes the header reflect the model that actually ran. For active runs with no runtime marker yet, the UI can use the currently assigned agent runtime model as a temporary fallback before falling back to task/settings resolution.
+
 ### Ephemeral agent terminal cleanup
 
 Runtime-created ephemeral agents are removed immediately after terminal cleanup paths run:

@@ -74,6 +74,32 @@ vi.mock("../agent-session-helpers.js", async () => {
       const hint = runtimeConfig?.runtimeHint;
       return typeof hint === "string" && hint.trim().length > 0 ? hint.trim() : undefined;
     },
+    resolveExecutorSessionModel: (
+      taskModelProvider: string | undefined,
+      taskModelId: string | undefined,
+      settings: Record<string, unknown> | undefined,
+      assignedAgentRuntimeConfig?: Record<string, unknown>,
+    ) => {
+      const model = typeof assignedAgentRuntimeConfig?.model === "string" ? assignedAgentRuntimeConfig.model : "";
+      const slash = model.indexOf("/");
+      if (slash > 0 && slash < model.length - 1) {
+        return { provider: model.slice(0, slash), modelId: model.slice(slash + 1) };
+      }
+      if (taskModelProvider && taskModelId) return { provider: taskModelProvider, modelId: taskModelId };
+      if (typeof settings?.executionProvider === "string" && typeof settings?.executionModelId === "string") {
+        return { provider: settings.executionProvider as string, modelId: settings.executionModelId as string };
+      }
+      if (typeof settings?.executionGlobalProvider === "string" && typeof settings?.executionGlobalModelId === "string") {
+        return { provider: settings.executionGlobalProvider as string, modelId: settings.executionGlobalModelId as string };
+      }
+      if (typeof settings?.defaultProviderOverride === "string" && typeof settings?.defaultModelIdOverride === "string") {
+        return { provider: settings.defaultProviderOverride as string, modelId: settings.defaultModelIdOverride as string };
+      }
+      if (typeof settings?.defaultProvider === "string" && typeof settings?.defaultModelId === "string") {
+        return { provider: settings.defaultProvider as string, modelId: settings.defaultModelId as string };
+      }
+      return { provider: undefined, modelId: undefined };
+    },
   };
 });
 vi.mock("../worktree-names.js", async () => {
@@ -3919,8 +3945,11 @@ describe("TaskExecutor executor model hot-swap", () => {
     (executor as any).activeSessions.set("FN-001", {
       session: { setModel, dispose: vi.fn() },
       seenSteeringIds: new Set(),
-      lastModelProvider: "anthropic",
-      lastModelId: "claude-sonnet-4-5",
+      lastResolvedModelProvider: "anthropic",
+      lastResolvedModelId: "claude-sonnet-4-5",
+      lastTaskModelProvider: "anthropic",
+      lastTaskModelId: "claude-sonnet-4-5",
+      lastAssignedAgentId: null,
     });
 
     store._trigger("task:updated", buildUpdatedTask({
@@ -3964,8 +3993,11 @@ describe("TaskExecutor executor model hot-swap", () => {
     (executor as any).activeSessions.set("FN-001", {
       session: { setModel, dispose: vi.fn() },
       seenSteeringIds: new Set(),
-      lastModelProvider: "anthropic",
-      lastModelId: "claude-sonnet-4-5",
+      lastResolvedModelProvider: "anthropic",
+      lastResolvedModelId: "claude-sonnet-4-5",
+      lastTaskModelProvider: "anthropic",
+      lastTaskModelId: "claude-sonnet-4-5",
+      lastAssignedAgentId: null,
     });
 
     store._trigger("task:updated", buildUpdatedTask({
@@ -4004,8 +4036,11 @@ describe("TaskExecutor executor model hot-swap", () => {
     (executor as any).activeSessions.set("FN-001", {
       session: { setModel, dispose: vi.fn() },
       seenSteeringIds: new Set(),
-      lastModelProvider: "anthropic",
-      lastModelId: "claude-sonnet-4-5",
+      lastResolvedModelProvider: "anthropic",
+      lastResolvedModelId: "claude-sonnet-4-5",
+      lastTaskModelProvider: "anthropic",
+      lastTaskModelId: "claude-sonnet-4-5",
+      lastAssignedAgentId: null,
     });
 
     store._trigger("task:updated", buildUpdatedTask({
@@ -4044,8 +4079,11 @@ describe("TaskExecutor executor model hot-swap", () => {
     (executor as any).activeSessions.set("FN-001", {
       session: { setModel, dispose: vi.fn() },
       seenSteeringIds: new Set(),
-      lastModelProvider: "openai",
-      lastModelId: "gpt-4o",
+      lastResolvedModelProvider: "openai",
+      lastResolvedModelId: "gpt-4o",
+      lastTaskModelProvider: "openai",
+      lastTaskModelId: "gpt-4o",
+      lastAssignedAgentId: null,
     });
 
     store._trigger("task:updated", buildUpdatedTask({
@@ -4073,8 +4111,11 @@ describe("TaskExecutor executor model hot-swap", () => {
     (executor as any).activeSessions.set("FN-001", {
       session: { setModel, dispose: vi.fn() },
       seenSteeringIds: new Set(),
-      lastModelProvider: "anthropic",
-      lastModelId: "claude-sonnet-4-5",
+      lastResolvedModelProvider: "anthropic",
+      lastResolvedModelId: "claude-sonnet-4-5",
+      lastTaskModelProvider: "anthropic",
+      lastTaskModelId: "claude-sonnet-4-5",
+      lastAssignedAgentId: null,
     });
 
     store._trigger("task:updated", buildUpdatedTask({
@@ -4099,8 +4140,11 @@ describe("TaskExecutor executor model hot-swap", () => {
     (executor as any).activeSessions.set("FN-001", {
       session: { setModel, dispose },
       seenSteeringIds: new Set(),
-      lastModelProvider: "anthropic",
-      lastModelId: "claude-sonnet-4-5",
+      lastResolvedModelProvider: "anthropic",
+      lastResolvedModelId: "claude-sonnet-4-5",
+      lastTaskModelProvider: "anthropic",
+      lastTaskModelId: "claude-sonnet-4-5",
+      lastAssignedAgentId: null,
     });
 
     store._trigger("task:updated", buildUpdatedTask({

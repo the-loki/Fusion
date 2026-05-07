@@ -25,7 +25,11 @@ import { generateWorktreeName, slugify } from "./worktree-names.js";
 import { Type, type Static } from "@mariozechner/pi-ai";
 import { describeModel, promptWithFallback, compactSessionContext } from "./pi.js";
 import { accumulateSessionTokenUsage } from "./session-token-usage.js";
-import { createResolvedAgentSession, extractRuntimeHint } from "./agent-session-helpers.js";
+import {
+  createResolvedAgentSession,
+  extractRuntimeHint,
+  resolveExecutorSessionModel,
+} from "./agent-session-helpers.js";
 import { buildSessionSkillContext } from "./session-skill-context.js";
 import { reviewStep, type ReviewVerdict } from "./reviewer.js";
 import { ModelRegistry, SessionManager, type ToolDefinition, type AgentSession } from "@mariozechner/pi-coding-agent";
@@ -498,40 +502,6 @@ function getExecutorSystemPrompt(settings: Settings): string {
   return customPrompt || EXECUTOR_SYSTEM_PROMPT;
 }
 
-function resolveExecutorModelPair(
-  taskModelProvider: string | undefined,
-  taskModelId: string | undefined,
-  settings: Partial<Settings> | undefined,
-): { provider: string | undefined; modelId: string | undefined } {
-  if (taskModelProvider && taskModelId) {
-    return { provider: taskModelProvider, modelId: taskModelId };
-  }
-  if (settings?.executionProvider && settings?.executionModelId) {
-    return {
-      provider: settings.executionProvider,
-      modelId: settings.executionModelId,
-    };
-  }
-  if (settings?.executionGlobalProvider && settings?.executionGlobalModelId) {
-    return {
-      provider: settings.executionGlobalProvider,
-      modelId: settings.executionGlobalModelId,
-    };
-  }
-  if (settings?.defaultProviderOverride && settings?.defaultModelIdOverride) {
-    return {
-      provider: settings.defaultProviderOverride,
-      modelId: settings.defaultModelIdOverride,
-    };
-  }
-  if (settings?.defaultProvider && settings?.defaultModelId) {
-    return {
-      provider: settings.defaultProvider,
-      modelId: settings.defaultModelId,
-    };
-  }
-  return { provider: undefined, modelId: undefined };
-}
 
 export interface TaskExecutorOptions {
   semaphore?: AgentSemaphore;
@@ -573,8 +543,11 @@ export class TaskExecutor {
   private activeSessions = new Map<string, {
     session: AgentSession;
     seenSteeringIds: Set<string>;
-    lastModelProvider?: string | null;
-    lastModelId?: string | null;
+    lastResolvedModelProvider?: string;
+    lastResolvedModelId?: string;
+    lastTaskModelProvider?: string | null;
+    lastTaskModelId?: string | null;
+    lastAssignedAgentId?: string | null;
   }>();
   /** Active step-session executors per task (mutually exclusive with activeSessions). */
   private activeStepExecutors = new Map<string, StepSessionExecutor>();
@@ -1030,20 +1003,31 @@ export class TaskExecutor {
         // Handle executor model hot-swap on active single-session executions
         if (this.activeSessions.has(task.id) && !task.paused) {
           const activeEntry = this.activeSessions.get(task.id)!;
-          const providerChanged = task.modelProvider !== activeEntry.lastModelProvider;
-          const modelIdChanged = task.modelId !== activeEntry.lastModelId;
+          const taskModelProviderChanged = task.modelProvider !== activeEntry.lastTaskModelProvider;
+          const taskModelIdChanged = task.modelId !== activeEntry.lastTaskModelId;
+          const assignedAgentChanged = (task.assignedAgentId ?? null) !== (activeEntry.lastAssignedAgentId ?? null);
 
-          if (providerChanged || modelIdChanged) {
-            activeEntry.lastModelProvider = task.modelProvider;
-            activeEntry.lastModelId = task.modelId;
+          if (taskModelProviderChanged || taskModelIdChanged || assignedAgentChanged) {
+            activeEntry.lastTaskModelProvider = task.modelProvider;
+            activeEntry.lastTaskModelId = task.modelId;
+            activeEntry.lastAssignedAgentId = task.assignedAgentId ?? null;
 
             const settings = await this.store.getSettings();
-            // Resolve model using canonical lane hierarchy for hot-swap
-            const { provider: newProvider, modelId: newModelId } = resolveExecutorModelPair(
+            const assignedRuntimeConfig = await this.getAssignedAgentRuntimeConfig(task.assignedAgentId);
+            const { provider: newProvider, modelId: newModelId } = resolveExecutorSessionModel(
               task.modelProvider,
               task.modelId,
               settings,
+              assignedRuntimeConfig,
             );
+
+            const providerChanged = newProvider !== activeEntry.lastResolvedModelProvider;
+            const modelIdChanged = newModelId !== activeEntry.lastResolvedModelId;
+            if (!providerChanged && !modelIdChanged) {
+              return;
+            }
+            activeEntry.lastResolvedModelProvider = newProvider;
+            activeEntry.lastResolvedModelId = newModelId;
 
             if (newProvider && newModelId) {
               try {
@@ -1685,7 +1669,7 @@ export class TaskExecutor {
   private async executeReviewHandoff(
     task: Task,
     _session: AgentSession,
-    _sessionEntry: { session: AgentSession; seenSteeringIds: Set<string>; lastModelProvider?: string | null; lastModelId?: string | null },
+    _sessionEntry: { session: AgentSession; seenSteeringIds: Set<string>; lastResolvedModelProvider?: string; lastResolvedModelId?: string; lastTaskModelProvider?: string | null; lastTaskModelId?: string | null; lastAssignedAgentId?: string | null },
   ): Promise<void> {
     try {
       executorLog.log(`Executing review handoff for ${task.id}`);
@@ -1873,6 +1857,15 @@ export class TaskExecutor {
     if (rc.allowParallelExecution !== false) return false;
     const activeRun = await this.options.agentStore.getActiveHeartbeatRun(agentId).catch(() => null);
     return activeRun !== null;
+  }
+
+  private async getAssignedAgentRuntimeConfig(
+    assignedAgentId: string | null | undefined,
+  ): Promise<Record<string, unknown> | undefined> {
+    const normalizedId = assignedAgentId?.trim();
+    if (!normalizedId || !this.options.agentStore) return undefined;
+    const agent = await this.options.agentStore.getAgent(normalizedId).catch(() => null);
+    return (agent?.runtimeConfig ?? undefined) as Record<string, unknown> | undefined;
   }
 
   /**
@@ -2398,6 +2391,7 @@ export class TaskExecutor {
           stuckTaskDetector: this.options.stuckTaskDetector,
           pluginRunner: this.options.pluginRunner,
           runtimeHint: stepSessionRuntimeHint,
+          assignedAgentRuntimeConfig: (stepSessionAgent?.runtimeConfig ?? undefined) as Record<string, unknown> | undefined,
           // Pass skill selection context from the main executor session
           skillSelection: skillContext.skillSelectionContext,
           // Pass agentStore and messageStore for delegation and messaging tools
@@ -2892,10 +2886,11 @@ export class TaskExecutor {
         // 3. Global execution lane pair (executionGlobalProvider + executionGlobalModelId)
         // 4. Project default override pair (defaultProviderOverride + defaultModelIdOverride)
         // 5. Global default pair (defaultProvider + defaultModelId)
-        const { provider: executorProvider, modelId: executorModelId } = resolveExecutorModelPair(
+        const { provider: executorProvider, modelId: executorModelId } = resolveExecutorSessionModel(
           detail.modelProvider,
           detail.modelId,
           settings,
+          (assignedAgent?.runtimeConfig ?? undefined) as Record<string, unknown> | undefined,
         );
         const executorFallbackProvider = settings.fallbackProvider;
         const executorFallbackModelId = settings.fallbackModelId;
@@ -2962,17 +2957,20 @@ export class TaskExecutor {
           }),
         });
 
+        const executorModelDesc = describeModel(session);
+        const executorModelMarker = `Executor using model: ${executorModelDesc}`;
         if (isResuming) {
           executorLog.log(`${task.id}: resumed session from ${task.sessionFile}`);
-          await this.store.logEntry(task.id, `Resumed agent session after unpause (model: ${describeModel(session)})`, undefined, this.currentRunContext);
+          await this.store.logEntry(task.id, `Resumed agent session after unpause (model: ${executorModelDesc})`, undefined, this.currentRunContext);
         } else {
-          executorLog.log(`${task.id}: using model ${describeModel(session)}`);
-          await this.store.logEntry(task.id, `Executor using model: ${describeModel(session)}`, undefined, this.currentRunContext);
+          executorLog.log(`${task.id}: using model ${executorModelDesc}`);
+          await this.store.logEntry(task.id, executorModelMarker, undefined, this.currentRunContext);
           // Persist session file path so pause/resume can reopen it
           if (sessionFile) {
             await this.store.updateTask(task.id, { sessionFile });
           }
         }
+        await this.store.appendAgentLog(task.id, executorModelMarker, "text", undefined, "executor");
 
         // Make session available to custom tools (fn_task_update checkpoint capture, fn_review_step rewind)
         sessionRef.current = session;
@@ -2988,8 +2986,11 @@ export class TaskExecutor {
         this.activeSessions.set(task.id, {
           session,
           seenSteeringIds,
-          lastModelProvider: detail.modelProvider,
-          lastModelId: detail.modelId,
+          lastResolvedModelProvider: executorProvider,
+          lastResolvedModelId: executorModelId,
+          lastTaskModelProvider: detail.modelProvider,
+          lastTaskModelId: detail.modelId,
+          lastAssignedAgentId: detail.assignedAgentId ?? null,
         });
 
         // Register with stuck task detector for heartbeat monitoring
@@ -3274,8 +3275,11 @@ export class TaskExecutor {
               this.activeSessions.set(task.id, {
                 session: retrySession,
                 seenSteeringIds,
-                lastModelProvider: detail.modelProvider,
-                lastModelId: detail.modelId,
+                lastResolvedModelProvider: executorProvider,
+                lastResolvedModelId: executorModelId,
+                lastTaskModelProvider: detail.modelProvider,
+                lastTaskModelId: detail.modelId,
+                lastAssignedAgentId: detail.assignedAgentId ?? null,
               });
               stuckDetector?.trackTask(task.id, retrySession);
 
@@ -4563,10 +4567,12 @@ ${feedback}
       }
 
       // Resolve model using the executor's model hierarchy
-      const { provider: executorProvider, modelId: executorModelId } = resolveExecutorModelPair(
+      const assignedRuntimeConfig = await this.getAssignedAgentRuntimeConfig(task.assignedAgentId);
+      const { provider: executorProvider, modelId: executorModelId } = resolveExecutorSessionModel(
         task.modelProvider,
         task.modelId,
         settings,
+        assignedRuntimeConfig,
       );
 
       // Create the fix agent session
@@ -6919,7 +6925,7 @@ Child agent: ${agent.id} (${name})`;
           // honor project executionProvider/executionModelId overrides (parity
           // with main executor at the top of agentWork()).
           const { provider: childExecutorProvider, modelId: childExecutorModelId } =
-            resolveExecutorModelPair(undefined, undefined, settings);
+            resolveExecutorSessionModel(undefined, undefined, settings, agent.runtimeConfig as Record<string, unknown> | undefined);
 
           // Create child agent session
           const { session: childSession } = await createResolvedAgentSession({

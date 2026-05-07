@@ -23,6 +23,7 @@ import {
   createResolvedAgentSession,
   describeAgentModel,
   promptWithAutoRetry,
+  resolveExecutorSessionModel,
 } from "./agent-session-helpers.js";
 import type { SkillSelectionContext } from "./skill-resolver.js";
 import { generateWorktreeName } from "./worktree-names.js";
@@ -96,6 +97,8 @@ export interface StepSessionExecutorOptions {
   pluginRunner?: import("./plugin-runner.js").PluginRunner;
   /** Optional runtime hint resolved from assigned agent runtimeConfig. */
   runtimeHint?: string;
+  /** Optional assigned-agent runtime config for model override precedence. */
+  assignedAgentRuntimeConfig?: Record<string, unknown>;
   /** Callback invoked when a step starts executing. */
   onStepStart?: (stepIndex: number) => void;
   /** Callback invoked when a step completes (success or failure). */
@@ -564,40 +567,6 @@ interface SessionHandle {
   abortBash: () => void;
 }
 
-function resolveExecutorModelPair(
-  taskModelProvider: string | undefined,
-  taskModelId: string | undefined,
-  settings: Partial<Settings> | undefined,
-): { provider: string | undefined; modelId: string | undefined } {
-  if (taskModelProvider && taskModelId) {
-    return { provider: taskModelProvider, modelId: taskModelId };
-  }
-  if (settings?.executionProvider && settings?.executionModelId) {
-    return {
-      provider: settings.executionProvider,
-      modelId: settings.executionModelId,
-    };
-  }
-  if (settings?.executionGlobalProvider && settings?.executionGlobalModelId) {
-    return {
-      provider: settings.executionGlobalProvider,
-      modelId: settings.executionGlobalModelId,
-    };
-  }
-  if (settings?.defaultProviderOverride && settings?.defaultModelIdOverride) {
-    return {
-      provider: settings.defaultProviderOverride,
-      modelId: settings.defaultModelIdOverride,
-    };
-  }
-  if (settings?.defaultProvider && settings?.defaultModelId) {
-    return {
-      provider: settings.defaultProvider,
-      modelId: settings.defaultModelId,
-    };
-  }
-  return { provider: undefined, modelId: undefined };
-}
 
 /** Fallback store used when step logging persistence is not configured. */
 const NOOP_TASK_STORE: Pick<TaskStore, "appendAgentLog"> = {
@@ -961,10 +930,11 @@ export class StepSessionExecutor {
           // 3. Global execution lane pair (settings.executionGlobalProvider + settings.executionGlobalModelId)
           // 4. Project default override pair (settings.defaultProviderOverride + settings.defaultModelIdOverride)
           // 5. Global default pair (settings.defaultProvider + settings.defaultModelId)
-          const { provider: executorProvider, modelId: executorModelId } = resolveExecutorModelPair(
+          const { provider: executorProvider, modelId: executorModelId } = resolveExecutorSessionModel(
             taskDetail.modelProvider,
             taskDetail.modelId,
             settings,
+            this.options.assignedAgentRuntimeConfig,
           );
 
           const createResult = await createResolvedAgentSession({

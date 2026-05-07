@@ -53,22 +53,100 @@ const ACTIVE_STATUSES = new Set(["planning", "researching", "executing", "finali
  * 1. Per-task modelProvider/modelId (both must be set)
  * 2. Project/global execution lane fallback
  */
+function extractExecutorModelFromLog(entries: AgentLogEntry[]): { provider: string; modelId: string } | null {
+  let result: { provider: string; modelId: string } | null = null;
+  for (const entry of entries) {
+    if (entry.agent !== "executor" || entry.type !== "text") continue;
+    const match = entry.text.match(/^Executor using model: (.+?)\/(.+)$/);
+    if (match) {
+      result = { provider: match[1], modelId: match[2] };
+    }
+  }
+  return result;
+}
+
+function extractReviewerModelFromLog(entries: AgentLogEntry[]): { provider: string; modelId: string } | null {
+  let result: { provider: string; modelId: string } | null = null;
+  for (const entry of entries) {
+    if (entry.agent !== "reviewer" || entry.type !== "text") continue;
+    const match = entry.text.match(/^Reviewer using model: (.+?)\/(.+)$/);
+    if (match) {
+      result = { provider: match[1], modelId: match[2] };
+    }
+  }
+  return result;
+}
+
+function extractAssignedRuntimeModel(agent: Agent | null | undefined): ModelSelection {
+  const runtimeConfig = (agent?.runtimeConfig ?? undefined) as Record<string, unknown> | undefined;
+  const model = typeof runtimeConfig?.model === "string" ? runtimeConfig.model.trim() : "";
+  if (model) {
+    const slashIdx = model.indexOf("/");
+    if (slashIdx > 0 && slashIdx < model.length - 1) {
+      return {
+        provider: model.slice(0, slashIdx),
+        modelId: model.slice(slashIdx + 1),
+      };
+    }
+  }
+
+  const provider = typeof runtimeConfig?.modelProvider === "string" ? runtimeConfig.modelProvider.trim() : "";
+  const modelId = typeof runtimeConfig?.modelId === "string" ? runtimeConfig.modelId.trim() : "";
+  return {
+    provider: provider || undefined,
+    modelId: modelId || undefined,
+  };
+}
+
+/**
+ * Resolve the effective executor model following the engine's resolution order:
+ * 1. Runtime executor model from agent log marker
+ * 2. Assigned agent runtime model (active runs only)
+ * 3. Per-task modelProvider/modelId override
+ * 4. Project/global execution lane fallback
+ */
 function resolveEffectiveExecutor(
   task: Task | TaskDetail,
+  logEntries: AgentLogEntry[],
+  assignedAgent: Agent | null,
   settings?: Settings,
 ): ModelSelection {
+  const fromLog = extractExecutorModelFromLog(logEntries);
+  if (fromLog) return fromLog;
+
+  if (ACTIVE_STATUSES.has(task.status ?? "") || task.column === "in-progress") {
+    const assignedModel = extractAssignedRuntimeModel(assignedAgent);
+    if (assignedModel.provider && assignedModel.modelId) {
+      return assignedModel;
+    }
+  }
+
   return resolveTaskExecutionModel(task, settings);
 }
 
 /**
  * Resolve the effective validator model following the engine's resolution order:
- * 1. Per-task validatorModelProvider/validatorModelId (both must be set)
- * 2. Project/global validator lane fallback
+ * 1. Runtime reviewer model from agent log marker
+ * 2. Assigned agent runtime model (active runs only)
+ * 3. Per-task validatorModelProvider/validatorModelId override
+ * 4. Project/global validator lane fallback
  */
 function resolveEffectiveValidator(
   task: Task | TaskDetail,
+  logEntries: AgentLogEntry[],
+  assignedAgent: Agent | null,
   settings?: Settings,
 ): ModelSelection {
+  const fromLog = extractReviewerModelFromLog(logEntries);
+  if (fromLog) return fromLog;
+
+  if (ACTIVE_STATUSES.has(task.status ?? "") || task.column === "in-progress") {
+    const assignedModel = extractAssignedRuntimeModel(assignedAgent);
+    if (assignedModel.provider && assignedModel.modelId) {
+      return assignedModel;
+    }
+  }
+
   return resolveTaskValidatorModel(task, settings);
 }
 
@@ -1952,8 +2030,8 @@ export function TaskDetailContent({
                 <AgentLogViewer
                   entries={agentLogEntries}
                   loading={agentLogLoading}
-                  executorModel={resolveEffectiveExecutor(task, settings)}
-                  validatorModel={resolveEffectiveValidator(task, settings)}
+                  executorModel={resolveEffectiveExecutor(task, agentLogEntries, assignedAgent, settings)}
+                  validatorModel={resolveEffectiveValidator(task, agentLogEntries, assignedAgent, settings)}
                   planningModel={resolveEffectivePlanning(task, agentLogEntries, settings)}
                   hasMore={agentLogHasMore}
                   onLoadMore={loadMoreAgentLogs}

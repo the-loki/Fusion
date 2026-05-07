@@ -478,6 +478,113 @@ describe("TaskDetailModal", () => {
     });
   });
 
+    it("shows executor/reviewer models from runtime agent-log markers", async () => {
+      const { fetchSettings } = await import("../../api");
+      const { useAgentLogs } = await import("../../hooks/useAgentLogs");
+
+      vi.mocked(fetchSettings).mockResolvedValueOnce({
+        modelPresets: [],
+        autoSelectModelPreset: false,
+        defaultPresetBySize: {},
+        defaultProvider: "anthropic",
+        defaultModelId: "claude-sonnet-4-5",
+      } as any);
+
+      vi.mocked(useAgentLogs).mockReturnValue({
+        entries: [
+          { timestamp: "2026-01-01T00:00:01Z", taskId: "FN-099", text: "Executor using model: openai/gpt-4o", type: "text" as const, agent: "executor" },
+          { timestamp: "2026-01-01T00:00:02Z", taskId: "FN-099", text: "Reviewer using model: google/gemini-2.5-pro", type: "text" as const, agent: "reviewer" },
+        ],
+        loading: false,
+        clear: vi.fn(),
+        loadMore: vi.fn(async () => {}),
+        hasMore: false,
+        total: null,
+        loadingMore: false,
+      });
+
+      const { container } = render(
+        <TaskDetailModal
+          task={makeTask({ prompt: "# Hello\n\nContent" })}
+          onClose={noop}
+          onMoveTask={noopMove}
+          onDeleteTask={noopDelete}
+          onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
+          addToast={noop}
+        />,
+      );
+
+      fireEvent.click(screen.getByText("Logs"));
+      fireEvent.click(screen.getByText("Agent Log"));
+      await waitFor(() => {
+        const header = container.querySelector("[data-testid='agent-log-model-header']");
+        expect(header).toBeTruthy();
+      });
+      const expandButton = screen.getByTestId("agent-log-model-expand") as HTMLButtonElement;
+      if (expandButton.getAttribute("aria-expanded") !== "true") {
+        fireEvent.click(expandButton);
+      }
+      const header = container.querySelector("[data-testid='agent-log-model-header']") as HTMLElement;
+      expect(header.textContent).toContain("openai/gpt-4o");
+      expect(header.textContent).toContain("google/gemini-2.5-pro");
+    });
+
+    it("falls back to assigned-agent runtime model when no runtime marker exists", async () => {
+      const { fetchSettings, fetchAgent } = await import("../../api");
+      const { useAgentLogs } = await import("../../hooks/useAgentLogs");
+
+      vi.mocked(fetchSettings).mockResolvedValueOnce({
+        modelPresets: [],
+        autoSelectModelPreset: false,
+        defaultPresetBySize: {},
+        defaultProvider: "anthropic",
+        defaultModelId: "claude-sonnet-4-5",
+      } as any);
+      vi.mocked(fetchAgent).mockResolvedValueOnce({
+        id: "agent-1",
+        name: "Agent One",
+        role: "executor",
+        state: "active",
+        runtimeConfig: { model: "openai/gpt-4.1" },
+      } as any);
+
+      vi.mocked(useAgentLogs).mockReturnValue({
+        entries: [{ timestamp: "2026-01-01T00:00:00Z", taskId: "FN-099", text: "hello", type: "text" as const }],
+        loading: false,
+        clear: vi.fn(),
+        loadMore: vi.fn(async () => {}),
+        hasMore: false,
+        total: null,
+        loadingMore: false,
+      });
+
+      const { container } = render(
+        <TaskDetailModal
+          task={makeTask({ prompt: "# Hello\n\nContent", assignedAgentId: "agent-1", status: "executing", column: "in-progress" })}
+          onClose={noop}
+          onMoveTask={noopMove}
+          onDeleteTask={noopDelete}
+          onMergeTask={noopMerge}
+          onOpenDetail={noopOpenDetail}
+          addToast={noop}
+        />,
+      );
+
+      fireEvent.click(screen.getByText("Logs"));
+      fireEvent.click(screen.getByText("Agent Log"));
+      await waitFor(() => {
+        const header = container.querySelector("[data-testid='agent-log-model-header']");
+        expect(header).toBeTruthy();
+      });
+      const expandButton = screen.getByTestId("agent-log-model-expand") as HTMLButtonElement;
+      if (expandButton.getAttribute("aria-expanded") !== "true") {
+        fireEvent.click(expandButton);
+      }
+      const header = container.querySelector("[data-testid='agent-log-model-header']") as HTMLElement;
+      expect(header.textContent).toContain("openai/gpt-4.1");
+    });
+
   describe("step progress", () => {
     it("renders step progress section when steps exist", () => {
       const { container } = render(

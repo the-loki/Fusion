@@ -436,12 +436,13 @@ Fusion uses a dual-scope model settings system with five lanes. Global settings 
 
 ### Executor model
 
-1. Per-task `modelProvider` + `modelId`
-2. Project `executionProvider` + `executionModelId`
-3. Global `executionGlobalProvider` + `executionGlobalModelId`
-4. Project `defaultProviderOverride` + `defaultModelIdOverride`
-5. Global `defaultProvider` + `defaultModelId`
-6. Automatic provider/model resolution
+1. Assigned durable agent runtime model (`runtimeConfig.model` or `runtimeConfig.modelProvider` + `runtimeConfig.modelId`) when both provider and model ID are set
+2. Per-task `modelProvider` + `modelId`
+3. Project `executionProvider` + `executionModelId`
+4. Global `executionGlobalProvider` + `executionGlobalModelId`
+5. Project `defaultProviderOverride` + `defaultModelIdOverride`
+6. Global `defaultProvider` + `defaultModelId`
+7. Automatic provider/model resolution
 
 ### Reviewer model
 
