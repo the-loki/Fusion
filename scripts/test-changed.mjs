@@ -680,6 +680,7 @@ export function decideExecutionPlan({
   comparisonBase,
   changedFiles,
   packageNameByDir,
+  reverseDependencyMap,
 }) {
   if (forceFullSuite) return { mode: "full", reason: "forced" };
   if (!comparisonBase) return { mode: "full", reason: "missing-comparison-base" };
@@ -690,7 +691,12 @@ export function decideExecutionPlan({
   const affectedPackages = resolveAffectedPackages(changedFiles, packageNameByDir);
   if (!affectedPackages || affectedPackages.length === 0) return { mode: "full", reason: "no-affected-package" };
 
-  return { mode: "changed", packages: affectedPackages };
+  return {
+    mode: "changed",
+    packages: reverseDependencyMap
+      ? expandWithReverseDependents(affectedPackages, reverseDependencyMap)
+      : affectedPackages,
+  };
 }
 
 export function main(argv = process.argv.slice(2)) {
@@ -722,12 +728,14 @@ export function main(argv = process.argv.slice(2)) {
   const workspacePackages = listWorkspacePackageInfos();
   const packageNameByDir = listWorkspacePackages(workspacePackages);
   const packageDirByName = buildPackageDirByName(workspacePackages);
+  const reverseDependencyMap = buildReverseDependencyMap(workspacePackages);
 
   const plan = decideExecutionPlan({
     forceFullSuite,
     comparisonBase,
     changedFiles,
     packageNameByDir,
+    reverseDependencyMap,
   });
 
   if (plan.mode === "full") {

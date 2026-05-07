@@ -230,6 +230,23 @@ test("decideExecutionPlan: only package files changed → changed mode", () => {
   assert.deepEqual(plan.packages, ["@fusion/engine"]);
 });
 
+test("decideExecutionPlan: expands changed packages with reverse dependents", () => {
+  const plan = decideExecutionPlan({
+    forceFullSuite: false,
+    comparisonBase: "abc123",
+    changedFiles: ["packages/core/src/store.ts"],
+    packageNameByDir: basePackageMap,
+    reverseDependencyMap: new Map([
+      ["@fusion/core", ["@fusion/engine"]],
+      ["@fusion/engine", ["@fusion/dashboard"]],
+      ["@fusion/dashboard", []],
+    ]),
+  });
+
+  assert.equal(plan.mode, "changed");
+  assert.deepEqual(plan.packages, ["@fusion/core", "@fusion/engine", "@fusion/dashboard"]);
+});
+
 test("decideExecutionPlan: no affected package resolved → full", () => {
   const plan = decideExecutionPlan({
     forceFullSuite: false,
