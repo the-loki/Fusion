@@ -1,7 +1,7 @@
 import { Maximize, ZoomIn, ZoomOut } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import type { Task } from "@fusion/core";
-import { TaskCard } from "@fusion/dashboard/app/components/TaskCard";
+import { GraphTaskNode } from "./GraphTaskNode";
 import { GraphEdges } from "./edges";
 import { filterGraphTasks } from "./filters";
 import { computeAutoLayout } from "./layout";
@@ -15,10 +15,42 @@ const NODE_HEIGHT = 100;
 export interface DependencyGraphProps {
   tasks: Task[];
   projectId?: string;
-  onOpenTaskDetail: (taskId: string) => void;
+  onOpenTaskDetail?: (taskId: string) => void;
+  onOpenDetail?: (task: Task) => void;
+  addToast?: (message: string, type?: "success" | "error" | "info" | "warning") => void;
+  globalPaused?: boolean;
+  onUpdateTask?: (id: string, updates: { title?: string; description?: string; dependencies?: string[] }) => Promise<Task>;
+  onArchiveTask?: (id: string) => Promise<Task>;
+  onUnarchiveTask?: (id: string) => Promise<Task>;
+  onDeleteTask?: (id: string, options?: { removeDependencyReferences?: boolean }) => Promise<Task>;
+  onRetryTask?: (id: string) => Promise<Task>;
+  onOpenDetailWithTab?: (task: Task, initialTab: "changes") => void;
+  taskStuckTimeoutMs?: number;
+  onOpenMission?: (missionId: string) => void;
+  onMoveTask?: (id: string, column: Task["column"], optionsOrPosition?: { preserveProgress?: boolean } | number) => Promise<Task>;
+  lastFetchTimeMs?: number;
+  workflowStepNameLookup?: ReadonlyMap<string, string>;
 }
 
-export function DependencyGraph({ tasks, projectId, onOpenTaskDetail }: DependencyGraphProps) {
+export function DependencyGraph({
+  tasks,
+  projectId,
+  onOpenTaskDetail,
+  onOpenDetail,
+  addToast,
+  globalPaused,
+  onUpdateTask,
+  onArchiveTask,
+  onUnarchiveTask,
+  onDeleteTask,
+  onRetryTask,
+  onOpenDetailWithTab,
+  taskStuckTimeoutMs,
+  onOpenMission,
+  onMoveTask,
+  lastFetchTimeMs,
+  workflowStepNameLookup,
+}: DependencyGraphProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const filteredTasks = useMemo(() => filterGraphTasks(tasks), [tasks]);
   const graphData = useGraphData(filteredTasks);
@@ -78,26 +110,35 @@ export function DependencyGraph({ tasks, projectId, onOpenTaskDetail }: Dependen
         ) : (
           <div className="dependency-graph__canvas" style={{ transform, width: `${bounds.width}px`, height: `${bounds.height}px` }}>
             <GraphEdges edges={graphData.edges} positions={positions} nodeWidth={NODE_WIDTH} nodeHeight={NODE_HEIGHT} />
-            {graphData.nodes.map((node) => {
-              const position = positions.get(node.task.id);
-              if (!position) return null;
+            <div className="dependency-graph__nodes-layer">
+              {graphData.nodes.map((node) => {
+                const position = positions.get(node.task.id);
+                if (!position) return null;
 
-              return (
-                <div
-                  key={node.task.id}
-                  className="dependency-graph__node"
-                  style={{ width: `${NODE_WIDTH}px`, minHeight: `${NODE_HEIGHT}px`, left: `${position.x}px`, top: `${position.y}px` }}
-                >
-                  <TaskCard
+                return (
+                  <GraphTaskNode
+                    key={node.task.id}
                     task={node.task}
                     projectId={projectId}
-                    onOpenDetail={() => onOpenTaskDetail(node.task.id)}
-                    addToast={() => {}}
-                    disableDrag={true}
+                    style={{ minHeight: `${NODE_HEIGHT}px`, left: `${position.x}px`, top: `${position.y}px` }}
+                    onOpenDetail={onOpenDetail ?? ((task) => onOpenTaskDetail?.(task.id))}
+                    addToast={addToast ?? (() => {})}
+                    globalPaused={globalPaused}
+                    onUpdateTask={onUpdateTask}
+                    onArchiveTask={onArchiveTask}
+                    onUnarchiveTask={onUnarchiveTask}
+                    onDeleteTask={onDeleteTask}
+                    onRetryTask={onRetryTask}
+                    onOpenDetailWithTab={onOpenDetailWithTab}
+                    taskStuckTimeoutMs={taskStuckTimeoutMs}
+                    onOpenMission={onOpenMission}
+                    onMoveTask={onMoveTask}
+                    lastFetchTimeMs={lastFetchTimeMs}
+                    workflowStepNameLookup={workflowStepNameLookup}
                   />
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         )}
       </div>

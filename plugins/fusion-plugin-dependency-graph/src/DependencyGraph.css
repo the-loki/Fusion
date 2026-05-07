@@ -20,6 +20,15 @@
   transform-origin: top left;
 }
 
+.dependency-graph__nodes-layer {
+  position: relative;
+  z-index: 1;
+}
+
+.dependency-graph__nodes-layer .graph-task-node {
+  max-width: min(100%, calc(var(--space-2xl) * 9));
+}
+
 .dependency-graph-edges {
   position: absolute;
   inset: 0;
@@ -29,13 +38,6 @@
   overflow: visible;
 }
 
-.dependency-graph__node {
-  position: absolute;
-}
-
-.dependency-graph__node .card {
-  height: 100%;
-}
 
 .dependency-graph__empty {
   color: var(--text-muted);

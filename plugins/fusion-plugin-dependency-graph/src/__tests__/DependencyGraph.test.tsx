@@ -7,7 +7,7 @@ const fitToGraph = vi.fn();
 
 vi.mock("@fusion/dashboard/app/components/TaskCard", () => ({
   TaskCard: ({ task, onOpenDetail }: { task: Task; onOpenDetail: () => void }) => (
-    <button data-testid={`task-${task.id}`} onClick={onOpenDetail}>{task.id}</button>
+    <button data-testid={`task-${task.id}`} onClick={() => onOpenDetail(task)}>{task.id}</button>
   ),
 }));
 
@@ -42,15 +42,23 @@ describe("DependencyGraph", () => {
     expect(screen.getByText(/No active tasks/i)).toBeTruthy();
   });
 
-  it("renders positioned nodes and edges for included tasks", () => {
-    render(<DependencyGraph tasks={[
+  it("renders graph task nodes at layout coordinates and edges", () => {
+    const { container } = render(<DependencyGraph tasks={[
       createTask("A", "todo"),
       createTask("B", "in-progress", ["A"]),
     ]} onOpenTaskDetail={vi.fn()} />);
 
-    expect(screen.getByTestId("task-A")).toBeTruthy();
-    expect(screen.getByTestId("task-B")).toBeTruthy();
+    expect(screen.getByTestId("graph-task-node-A")).toBeTruthy();
+    expect(screen.getByTestId("graph-task-node-B")).toBeTruthy();
+    expect(container.querySelector(".dependency-graph__nodes-layer")).toBeTruthy();
     expect(screen.getAllByTestId("dependency-edge")).toHaveLength(1);
+
+    const nodeAStyle = screen.getByTestId("graph-task-node-A").getAttribute("style") ?? "";
+    const nodeBStyle = screen.getByTestId("graph-task-node-B").getAttribute("style") ?? "";
+    expect(nodeAStyle).toContain("left:");
+    expect(nodeAStyle).toContain("top:");
+    expect(nodeBStyle).toContain("left:");
+    expect(nodeBStyle).toContain("top:");
   });
 
   it("excludes done and archived nodes", () => {
@@ -60,9 +68,16 @@ describe("DependencyGraph", () => {
       createTask("C", "archived"),
     ]} onOpenTaskDetail={vi.fn()} />);
 
-    expect(screen.getByTestId("task-A")).toBeTruthy();
-    expect(screen.queryByTestId("task-B")).toBeNull();
-    expect(screen.queryByTestId("task-C")).toBeNull();
+    expect(screen.getByTestId("graph-task-node-A")).toBeTruthy();
+    expect(screen.queryByTestId("graph-task-node-B")).toBeNull();
+    expect(screen.queryByTestId("graph-task-node-C")).toBeNull();
+  });
+
+  it("clicking a card triggers onOpenDetail", () => {
+    const onOpenDetail = vi.fn();
+    render(<DependencyGraph tasks={[createTask("A", "in-progress")]} onOpenDetail={onOpenDetail} />);
+    fireEvent.click(screen.getByTestId("task-A"));
+    expect(onOpenDetail).toHaveBeenCalledWith(expect.objectContaining({ id: "A" }));
   });
 
   it("fit-to-screen button triggers fitToGraph", () => {

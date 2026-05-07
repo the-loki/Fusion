@@ -1,12 +1,27 @@
 declare module "@fusion/dashboard/app/components/TaskCard" {
-  import type { Task } from "@fusion/core";
+  import type { Column, Task, TaskDetail } from "@fusion/core";
   import type { ReactElement } from "react";
 
   interface TaskCardProps {
     task: Task;
     projectId?: string;
-    onOpenDetail: (task: Task) => void;
-    addToast: (message: string, type?: "success" | "error" | "info") => void;
+    onOpenDetail: (task: Task | TaskDetail) => void;
+    addToast: (message: string, type?: "success" | "error" | "info" | "warning") => void;
+    globalPaused?: boolean;
+    onUpdateTask?: (
+      id: string,
+      updates: { title?: string; description?: string; dependencies?: string[] }
+    ) => Promise<Task>;
+    onArchiveTask?: (id: string) => Promise<Task>;
+    onUnarchiveTask?: (id: string) => Promise<Task>;
+    onDeleteTask?: (id: string, options?: { removeDependencyReferences?: boolean }) => Promise<Task>;
+    onRetryTask?: (id: string) => Promise<Task>;
+    onOpenDetailWithTab?: (task: Task | TaskDetail, initialTab: "changes") => void;
+    taskStuckTimeoutMs?: number;
+    onOpenMission?: (missionId: string) => void;
+    onMoveTask?: (id: string, column: Column, optionsOrPosition?: { preserveProgress?: boolean } | number) => Promise<Task>;
+    lastFetchTimeMs?: number;
+    workflowStepNameLookup?: ReadonlyMap<string, string>;
     disableDrag?: boolean;
   }
 
