@@ -2182,6 +2182,17 @@ export async function commitOrAmendMergeWithFixes(
     const headMoved = currentHead !== preAttemptHeadSha;
 
     if (!hasStaged && !headMoved) {
+      // Defense-in-depth: if HEAD already carries this task's `Fusion-Task-Id`
+      // trailer, the merge commit landed on a prior code path (e.g. AI commit
+      // in an earlier attempt) and there's simply nothing left for the fix to
+      // fold in. Record success rather than tripping the phantom-merge guard
+      // and stranding the task in In Review when the work is already on main.
+      if (await headCarriesTaskIdTrailer(rootDir, taskId)) {
+        mergerLog.log(
+          `${taskId}: HEAD already carries Fusion-Task-Id trailer — treating in-merge fix finalize as no-op success`,
+        );
+        return true;
+      }
       // Truly nothing happened — neither a commit nor staged changes. Refuse
       // to fabricate a successful merge: the caller will report failure.
       mergerLog.warn(
@@ -2707,6 +2718,28 @@ export const FUSION_TASK_ID_TRAILER_KEY = "Fusion-Task-Id";
 function buildTaskIdTrailerArg(taskId: string): string {
   // Task IDs are constrained ([A-Z]+-[0-9]+) so embedding directly is safe.
   return ` -m "${FUSION_TASK_ID_TRAILER_KEY}: ${taskId}"`;
+}
+
+/** True iff HEAD's commit message contains the `Fusion-Task-Id: <taskId>`
+ *  trailer. Used by the in-merge fix finalizer to recognize that the merge
+ *  commit already landed on HEAD (e.g. via the AI commit on a prior attempt)
+ *  before tripping the phantom-merge guard. Best-effort: any error returns
+ *  false so callers fall back to the conservative "refuse to fabricate" path. */
+async function headCarriesTaskIdTrailer(rootDir: string, taskId: string): Promise<boolean> {
+  try {
+    const { stdout } = await execAsync("git log -1 --pretty=%B HEAD", {
+      cwd: rootDir,
+      encoding: "utf-8",
+    });
+    // Anchor to line boundaries so e.g. FN-37 doesn't match a body line
+    // mentioning FN-3727. Trailer lines are produced by git itself, so the
+    // exact `Key: Value` form is what we look for.
+    const escapedId = taskId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`(?:^|\\n)${FUSION_TASK_ID_TRAILER_KEY}: ${escapedId}\\s*(?:\\n|$)`);
+    return pattern.test(stdout);
+  } catch {
+    return false;
+  }
 }
 
 /** Idempotently add the Fusion-Task-Id trailer to HEAD's commit. Used after
@@ -5576,13 +5609,25 @@ async function executeMergeAttempt(
     if (error.message?.includes("Build verification failed")) {
       throw error; // Fatal - don't retry build failures
     }
-    
+
     // Check if it's a non-conflict merge failure
     if (error.message?.includes("Merge failed")) {
       throw error; // Fatal
     }
 
-    // For attempt 1, return false to trigger attempt 2
+    // VerificationError must propagate so mergeAttempt's catch can run the
+    // in-merge fix against THIS attempt's preAttemptHeadSha baseline. Falling
+    // through to the attempt-1 retry path here would swallow the error,
+    // trigger attempt 2 with a stale baseline (= AI's commit from attempt 1),
+    // and then the in-merge fix's finalizer would see !hasStaged && !headMoved
+    // and trip the phantom-merge guard even though the task's content is
+    // already on HEAD. Retrying with auto-conflict-resolution can't help a
+    // verification failure anyway — there are no conflicts to resolve.
+    if (error?.name === "VerificationError") {
+      throw error;
+    }
+
+    // For attempt 1, return false to trigger attempt 2 (conflict-only path)
     if (attemptNum === 1 && smartConflictResolution) {
       return false;
     }

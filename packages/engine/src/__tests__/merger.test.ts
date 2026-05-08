@@ -6981,13 +6981,17 @@ describe("aiMergeTask — in-merge verification fix", () => {
       name: "VerificationError",
     });
 
-    // Verify that fix agent was spawned (3 calls: summarizer + merger + fix)
-    expect(mockedCreateFnAgent).toHaveBeenCalledTimes(3);
+    // 2 calls: merge AI agent (attempt 1) + verification-fix agent.
+    // VerificationError no longer triggers a redundant attempt 2 — the
+    // in-merge fix runs immediately on attempt 1's catch with the correct
+    // preAttemptHeadSha baseline.
+    expect(mockedCreateFnAgent).toHaveBeenCalledTimes(2);
 
     // Verify the fix agent was called with correct options
     const fixAgentCall = mockedCreateFnAgent.mock.calls[1];
     expect(fixAgentCall[0].tools).toBe("coding");
     expect(fixAgentCall[0].cwd).toBe("/tmp/root");
+    expect(fixAgentCall[0].systemPrompt).toContain("verification fix agent");
   });
 
   it("logs fix-agent startup metadata, streams callbacks, and logs rerun lifecycle", async () => {
@@ -7206,8 +7210,9 @@ describe("aiMergeTask — in-merge verification fix", () => {
       name: "VerificationError",
     });
 
-    // Verify fix agent was NOT spawned (summarizer + merger only)
-    expect(mockedCreateFnAgent).toHaveBeenCalledTimes(2);
+    // Verify fix agent was NOT spawned — only the merge AI agent (attempt 1).
+    // VerificationError propagates without triggering attempt 2.
+    expect(mockedCreateFnAgent).toHaveBeenCalledTimes(1);
 
     // Verify no fix attempt was logged
     const logCalls = (store.logEntry as ReturnType<typeof vi.fn>).mock.calls;
@@ -7432,8 +7437,8 @@ describe("aiMergeTask — in-merge verification fix", () => {
       name: "VerificationError",
     });
 
-    // Should have 3 fix attempts (capped at 3) + summarizer + merger = 5 calls
-    expect(mockedCreateFnAgent).toHaveBeenCalledTimes(5);
+    // 1 merger AI agent (attempt 1) + 3 fix agent attempts (capped) = 4 calls
+    expect(mockedCreateFnAgent).toHaveBeenCalledTimes(4);
   });
 
   it("default verificationFixRetries (omitted) results in 3 fix attempts", async () => {
@@ -7483,8 +7488,8 @@ describe("aiMergeTask — in-merge verification fix", () => {
       name: "VerificationError",
     });
 
-    // Should have 3 fix attempts (default) + summarizer + merger = 5 calls
-    expect(mockedCreateFnAgent).toHaveBeenCalledTimes(5);
+    // 1 merger AI agent (attempt 1) + 3 fix agent attempts (default) = 4 calls
+    expect(mockedCreateFnAgent).toHaveBeenCalledTimes(4);
 
     // Verify the log shows 3 fix attempts (2 log entries per attempt: start + failure)
     const logCalls = (store.logEntry as ReturnType<typeof vi.fn>).mock.calls;
