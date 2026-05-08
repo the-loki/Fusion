@@ -115,6 +115,19 @@ Dashboard and node workflows should use dedicated mapping endpoints rather than 
 
 These APIs persist/read `projectNodePathMappings` (`projectId` + `nodeId` key). They do **not** assign runtime hosting, and they do **not** change task routing defaults.
 
+### Node onboarding path-capture flow
+
+When adding a node from the dashboard, onboarding now supports attaching already-registered projects and capturing a node-specific absolute path for each selected project.
+
+- Step 1: register the node (`POST /api/nodes`)
+- Step 2: upsert one `projectNodePathMappings` record per selected project (`PUT /api/projects/:id/path-mappings/:nodeId`)
+
+This onboarding mapping capture is intentionally separate from:
+- `projects.nodeId` (runtime host-node assignment)
+- `projects.path` / `ProjectInfo.path` (canonical registered project path)
+
+So node onboarding records where a given node can access a project on disk, without changing which node hosts the runtime or task-routing defaults.
+
 ### Runtime placement (`projects.nodeId`)
 
 `ProjectManager` uses project registration data plus isolation mode to pick runtime type:

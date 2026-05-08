@@ -32,7 +32,7 @@ export function NodesView({ addToast, onClose }: NodesViewProps) {
     patchDockerConfig,
     fetchDockerDiff,
   } = useNodes();
-  const { projects } = useProjects();
+  const { projects, refresh: refreshProjects } = useProjects();
   const { syncStatusMap, pushSettings, pullSettings, syncAuth, trackNode, getAuthSyncState, getAuthProviders } = useNodeSettingsSync();
   const {
     dockerNodes,
@@ -74,7 +74,8 @@ export function NodesView({ addToast, onClose }: NodesViewProps) {
 
   const handleRegister = useCallback(async (input: AddNodeInput) => {
     await register(input);
-  }, [register]);
+    await refreshProjects();
+  }, [refreshProjects, register]);
 
   const handleCreateDockerNode = useCallback(async (input: ManagedDockerNodeInput) => {
     try {
@@ -249,6 +250,7 @@ export function NodesView({ addToast, onClose }: NodesViewProps) {
         onClose={() => setAddModalOpen(false)}
         onSubmit={handleRegister}
         addToast={addToast}
+        projects={projects}
       />
 
       <DockerNodeOnboardingModal

@@ -10,21 +10,25 @@ import {
   fetchNodeSettingsSyncStatus,
   syncNodeAuth,
   fetchNodeProjectPathMappings,
+  persistNodeProjectPathMappings,
 } from "../api-node";
 import * as apiModule from "../api";
 
 vi.mock("../api", () => ({
   proxyApi: vi.fn(),
   api: vi.fn(),
+  upsertProjectPathMapping: vi.fn(),
 }));
 
 const mockProxyApi = vi.mocked(apiModule.proxyApi);
 const mockApi = vi.mocked(apiModule.api);
+const mockUpsertProjectPathMapping = vi.mocked(apiModule.upsertProjectPathMapping);
 
 describe("api-node", () => {
   beforeEach(() => {
     mockProxyApi.mockReset();
     mockApi.mockReset();
+    mockUpsertProjectPathMapping.mockReset();
   });
 
   describe("fetchRemoteNodeHealth", () => {
@@ -228,6 +232,45 @@ describe("api-node", () => {
       await fetchNodeProjectPathMappings("node/abc+def");
 
       expect(mockApi).toHaveBeenCalledWith("/nodes/node%2Fabc%2Bdef/path-mappings");
+    });
+  });
+
+  describe("persistNodeProjectPathMappings", () => {
+    it("upserts one mapping per selected project", async () => {
+      mockUpsertProjectPathMapping
+        .mockResolvedValueOnce({ projectId: "proj-1", nodeId: "node-1", path: "/node/proj-1", createdAt: "t", updatedAt: "t" })
+        .mockResolvedValueOnce({ projectId: "proj-2", nodeId: "node-1", path: "/node/proj-2", createdAt: "t", updatedAt: "t" });
+
+      const result = await persistNodeProjectPathMappings("node-1", [
+        { projectId: "proj-1", path: "/node/proj-1" },
+        { projectId: "proj-2", path: "/node/proj-2" },
+      ]);
+
+      expect(mockUpsertProjectPathMapping).toHaveBeenNthCalledWith(1, "proj-1", "node-1", "/node/proj-1");
+      expect(mockUpsertProjectPathMapping).toHaveBeenNthCalledWith(2, "proj-2", "node-1", "/node/proj-2");
+      expect(result).toHaveLength(2);
+    });
+
+    it("preserves encoded project ids through delegated helper calls", async () => {
+      mockUpsertProjectPathMapping.mockResolvedValueOnce({
+        projectId: "proj/1+2",
+        nodeId: "node/1+2",
+        path: "/path",
+        createdAt: "t",
+        updatedAt: "t",
+      });
+
+      await persistNodeProjectPathMappings("node/1+2", [{ projectId: "proj/1+2", path: "/path" }]);
+
+      expect(mockUpsertProjectPathMapping).toHaveBeenCalledWith("proj/1+2", "node/1+2", "/path");
+    });
+
+    it("propagates the first upsert failure", async () => {
+      mockUpsertProjectPathMapping.mockRejectedValueOnce(new Error("mapping failed"));
+
+      await expect(
+        persistNodeProjectPathMappings("node-1", [{ projectId: "proj-1", path: "/node/proj-1" }]),
+      ).rejects.toThrow("mapping failed");
     });
   });
 

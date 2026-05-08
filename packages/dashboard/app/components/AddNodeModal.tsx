@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { NodeProjectMappingInput, ProjectInfo } from "../api";
+import { validateProjectPath } from "../utils/projectDetection";
 import type { ToastType } from "../hooks/useToast";
 import { useMobileScrollLock } from "../hooks/useMobileScrollLock";
 import "./AddNodeModal.css";
@@ -9,6 +11,7 @@ export interface AddNodeInput {
   url?: string;
   apiKey?: string;
   maxConcurrent: number;
+  projectMappings: NodeProjectMappingInput[];
   apiKeyMode?: "auto-generate" | "provide";
   extraClis?: Array<"claude-cli" | "droid-cli">;
   persistentStorage?: boolean;
@@ -30,19 +33,21 @@ interface AddNodeModalProps {
   onClose: () => void;
   onSubmit: (input: AddNodeInput) => Promise<void>;
   addToast: (message: string, type?: ToastType) => void;
+  projects: ProjectInfo[];
 }
 
 interface FormErrors {
   name?: string;
   url?: string;
   maxConcurrent?: string;
+  projectMappings: Record<string, string>;
 }
 
 const MAX_CONCURRENT_MIN = 1;
 const MAX_CONCURRENT_MAX = 10;
 
 function validateInput(input: AddNodeInput): FormErrors {
-  const errors: FormErrors = {};
+  const errors: FormErrors = { projectMappings: {} };
 
   if (!input.name.trim()) {
     errors.name = "Name is required";
@@ -56,10 +61,17 @@ function validateInput(input: AddNodeInput): FormErrors {
     errors.maxConcurrent = `Concurrency must be between ${MAX_CONCURRENT_MIN} and ${MAX_CONCURRENT_MAX}`;
   }
 
+  for (const mapping of input.projectMappings) {
+    const validation = validateProjectPath(mapping.path);
+    if (!validation.valid) {
+      errors.projectMappings[mapping.projectId] = validation.error ?? "Path is invalid";
+    }
+  }
+
   return errors;
 }
 
-export function AddNodeModal({ isOpen, onClose, onSubmit, addToast }: AddNodeModalProps) {
+export function AddNodeModal({ isOpen, onClose, onSubmit, addToast, projects }: AddNodeModalProps) {
   useMobileScrollLock(isOpen);
   const [name, setName] = useState("");
   const [type, setType] = useState<"local" | "remote">("local");
@@ -67,7 +79,8 @@ export function AddNodeModal({ isOpen, onClose, onSubmit, addToast }: AddNodeMod
   const [apiKey, setApiKey] = useState("");
   const [maxConcurrent, setMaxConcurrent] = useState(2);
   const [apiKeyMode, setApiKeyMode] = useState<"auto-generate" | "provide">("auto-generate");
-  const [errors, setErrors] = useState<FormErrors>({});
+  const [selectedProjectPaths, setSelectedProjectPaths] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<FormErrors>({ projectMappings: {} });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const resetForm = useCallback(() => {
@@ -77,7 +90,8 @@ export function AddNodeModal({ isOpen, onClose, onSubmit, addToast }: AddNodeMod
     setApiKey("");
     setMaxConcurrent(2);
     setApiKeyMode("auto-generate");
-    setErrors({});
+    setSelectedProjectPaths({});
+    setErrors({ projectMappings: {} });
     setIsSubmitting(false);
   }, []);
 
@@ -113,7 +127,8 @@ export function AddNodeModal({ isOpen, onClose, onSubmit, addToast }: AddNodeMod
     apiKey: type === "remote" && apiKeyMode === "provide" ? apiKey || undefined : undefined,
     maxConcurrent,
     apiKeyMode,
-  }), [apiKey, apiKeyMode, maxConcurrent, name, type, url]);
+    projectMappings: Object.entries(selectedProjectPaths).map(([projectId, path]) => ({ projectId, path: path.trim() })),
+  }), [apiKey, apiKeyMode, maxConcurrent, name, selectedProjectPaths, type, url]);
 
   const handleSubmit = useCallback(async () => {
     if (isSubmitting) return;
@@ -121,7 +136,12 @@ export function AddNodeModal({ isOpen, onClose, onSubmit, addToast }: AddNodeMod
     const validationErrors = validateInput(input);
     setErrors(validationErrors);
 
-    if (Object.keys(validationErrors).length > 0) {
+    if (
+      validationErrors.name
+      || validationErrors.url
+      || validationErrors.maxConcurrent
+      || Object.keys(validationErrors.projectMappings).length > 0
+    ) {
       return;
     }
 
@@ -138,6 +158,20 @@ export function AddNodeModal({ isOpen, onClose, onSubmit, addToast }: AddNodeMod
       setIsSubmitting(false);
     }
   }, [addToast, closeModal, input, isSubmitting, onSubmit]);
+
+  const toggleProjectSelection = (project: ProjectInfo) => {
+    setSelectedProjectPaths((current) => {
+      if (project.id in current) {
+        const { [project.id]: _removed, ...remaining } = current;
+        return remaining;
+      }
+      return { ...current, [project.id]: project.path };
+    });
+  };
+
+  const updateProjectPath = (projectId: string, path: string) => {
+    setSelectedProjectPaths((current) => ({ ...current, [projectId]: path }));
+  };
 
   if (!isOpen) return null;
 
@@ -252,6 +286,49 @@ export function AddNodeModal({ isOpen, onClose, onSubmit, addToast }: AddNodeMod
             <span className="add-node-modal__hint">Max simultaneous task agents (1–10)</span>
             {errors.maxConcurrent && <span className="form-error add-node-modal__error">{errors.maxConcurrent}</span>}
           </label>
+
+          <section className="add-node-modal__projects" aria-label="Project path mappings">
+            <h4 className="add-node-modal__projects-title">Attach Existing Projects</h4>
+            <p className="add-node-modal__hint">Select existing projects to run on this node and provide the node-specific absolute path for each one.</p>
+            {projects.length === 0 ? (
+              <p className="add-node-modal__hint">No projects are currently registered.</p>
+            ) : (
+              <div className="add-node-modal__project-list">
+                {projects.map((project) => {
+                  const selected = project.id in selectedProjectPaths;
+                  const error = errors.projectMappings[project.id];
+                  return (
+                    <div key={project.id} className="card add-node-modal__project-card">
+                      <label className="checkbox-label add-node-modal__project-toggle">
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => toggleProjectSelection(project)}
+                          disabled={isSubmitting}
+                        />
+                        <span>{project.name}</span>
+                      </label>
+                      {selected && (
+                        <label className="add-node-modal__field">
+                          <span>Path on this node</span>
+                          <input
+                            className="input"
+                            type="text"
+                            value={selectedProjectPaths[project.id] ?? ""}
+                            onChange={(event) => updateProjectPath(project.id, event.target.value)}
+                            disabled={isSubmitting}
+                            placeholder="/absolute/path/to/project"
+                            aria-invalid={Boolean(error)}
+                          />
+                          {error && <span className="form-error add-node-modal__error">{error}</span>}
+                        </label>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
 
         </div>
 

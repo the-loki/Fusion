@@ -5542,6 +5542,22 @@ export interface NodeCreateInput {
   dockerConfig?: DockerNodeConfigInfo;
 }
 
+/** Input for assigning a project path for a specific node during onboarding. */
+export interface NodeProjectMappingInput {
+  projectId: string;
+  path: string;
+}
+
+/**
+ * Node onboarding payload used by dashboard UI.
+ *
+ * `projectMappings` is intentionally separate from `ProjectInfo.path` and `projects.nodeId`.
+ * It captures node-specific filesystem paths for selected existing projects.
+ */
+export interface NodeOnboardingInput extends NodeCreateInput {
+  projectMappings: NodeProjectMappingInput[];
+}
+
 /** Input for updating an existing node */
 export type NodeUpdateInput = Partial<Pick<NodeCreateInput, "name" | "type" | "url" | "apiKey" | "maxConcurrent" | "dockerConfig">> & {
   status?: NodeStatus;

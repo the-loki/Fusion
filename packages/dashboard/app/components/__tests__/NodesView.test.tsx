@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { NodesView } from "../NodesView";
 import type { NodeInfo, ProjectInfo } from "../../api";
 import { useNodes } from "../../hooks/useNodes";
@@ -215,6 +215,35 @@ describe("NodesView", () => {
 
     fireEvent.click(screen.getByText("Add Node"));
     expect(screen.getByRole("dialog", { name: "Add Node" })).toBeDefined();
+  });
+
+  it("refreshes projects after node registration succeeds", async () => {
+    const register = vi.fn().mockResolvedValue(makeNode({ id: "node-new", name: "New Node" }));
+    const refreshProjects = vi.fn().mockResolvedValue(undefined);
+    mockUseNodes.mockReturnValue(makeUseNodesResult({ nodes: [], register }));
+    mockUseProjects.mockReturnValue({
+      projects: [makeProject()],
+      loading: false,
+      error: null,
+      refresh: refreshProjects,
+      register: vi.fn(),
+      update: vi.fn(),
+      unregister: vi.fn(),
+    });
+
+    render(<NodesView addToast={vi.fn()} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByText("Add Node"));
+    fireEvent.change(screen.getByPlaceholderText("Build Machine"), { target: { value: "New Node" } });
+    fireEvent.click(screen.getByTestId("add-node-submit"));
+
+    await waitFor(() => {
+      expect(register).toHaveBeenCalledWith(expect.objectContaining({
+        name: "New Node",
+        projectMappings: [],
+      }));
+      expect(refreshProjects).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("opens Node Detail modal when a node card is clicked", () => {

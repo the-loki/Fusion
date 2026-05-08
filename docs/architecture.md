@@ -758,6 +758,12 @@ Custom-provider settings routes are registered in `register-custom-provider-rout
 
 This API surface is intentionally separate from `projects.nodeId` (runtime host placement metadata) and from task-level routing defaults (`defaultNodeId` / `Task.nodeId`).
 
+Dashboard node onboarding (`AddNodeModal` → `useNodes.register`) uses a two-phase flow:
+1. Register node metadata first via `POST /api/nodes`.
+2. Persist selected project↔node path mappings with per-project `PUT /api/projects/:id/path-mappings/:nodeId` upserts.
+
+The client treats mapping persistence as part of onboarding success. If mapping writes fail after node creation, onboarding attempts rollback via `DELETE /api/nodes/:id` and refreshes node state to avoid a silent half-configured node.
+
 ### Node settings sync and update-check endpoints
 
 | Method | Path | Description |

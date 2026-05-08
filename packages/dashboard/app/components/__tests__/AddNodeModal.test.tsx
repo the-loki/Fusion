@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { AddNodeModal } from "../AddNodeModal";
-import type { NodeInfo } from "../../api";
 
 describe("AddNodeModal", () => {
   const defaultProps = {
@@ -9,6 +8,24 @@ describe("AddNodeModal", () => {
     onClose: vi.fn(),
     onSubmit: vi.fn().mockResolvedValue(undefined),
     addToast: vi.fn(),
+    projects: [
+      {
+        id: "proj-1",
+        name: "Project One",
+        path: "/workspace/project-one",
+        status: "active" as const,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "proj-2",
+        name: "Project Two",
+        path: "/workspace/project-two",
+        status: "active" as const,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ],
   };
 
   beforeEach(() => {
@@ -92,6 +109,7 @@ describe("AddNodeModal", () => {
         url: undefined,
         apiKey: undefined,
         maxConcurrent: 2,
+        projectMappings: [],
       }));
       expect(defaultProps.addToast).toHaveBeenCalledWith('Node "Test Node" registered', "success");
       expect(defaultProps.onClose).toHaveBeenCalled();
@@ -249,7 +267,74 @@ describe("AddNodeModal", () => {
         url: "https://node.example.com",
         apiKey: "secret-key",
         maxConcurrent: 2,
+        projectMappings: [],
       }));
     });
+  });
+
+  it("validates selected project path is required", async () => {
+    render(<AddNodeModal {...defaultProps} />);
+
+    fireEvent.change(screen.getByPlaceholderText("Build Machine"), {
+      target: { value: "Node With Project" },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Project One" }));
+    fireEvent.change(screen.getByDisplayValue("/workspace/project-one"), {
+      target: { value: "" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add Node" }));
+
+    expect(await screen.findByText("Path is required")).toBeInTheDocument();
+    expect(defaultProps.onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("validates selected project path is absolute", async () => {
+    render(<AddNodeModal {...defaultProps} />);
+
+    fireEvent.change(screen.getByPlaceholderText("Build Machine"), {
+      target: { value: "Node With Project" },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Project One" }));
+    fireEvent.change(screen.getByDisplayValue("/workspace/project-one"), {
+      target: { value: "relative/path" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add Node" }));
+
+    expect(await screen.findByText("Path must be absolute")).toBeInTheDocument();
+    expect(defaultProps.onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("submits selected project mappings", async () => {
+    render(<AddNodeModal {...defaultProps} />);
+
+    fireEvent.change(screen.getByPlaceholderText("Build Machine"), {
+      target: { value: "Node With Project" },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Project One" }));
+    fireEvent.change(screen.getByDisplayValue("/workspace/project-one"), {
+      target: { value: "/mnt/node/project-one" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add Node" }));
+
+    await waitFor(() => {
+      expect(defaultProps.onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+        name: "Node With Project",
+        projectMappings: [{ projectId: "proj-1", path: "/mnt/node/project-one" }],
+      }));
+    });
+  });
+
+  it("removes path input when project is deselected", () => {
+    render(<AddNodeModal {...defaultProps} />);
+
+    const checkbox = screen.getByRole("checkbox", { name: "Project One" });
+    fireEvent.click(checkbox);
+    expect(screen.getByDisplayValue("/workspace/project-one")).toBeInTheDocument();
+
+    fireEvent.click(checkbox);
+    expect(screen.queryByDisplayValue("/workspace/project-one")).not.toBeInTheDocument();
   });
 });

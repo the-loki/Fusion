@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { DockerNodeConfigInfo, NodeCreateInput, NodeInfo, NodeUpdateInput } from "../api";
+import type { DockerNodeConfigInfo, NodeCreateInput, NodeInfo, NodeOnboardingInput, NodeUpdateInput } from "../api";
 import {
   fetchDockerConfigDiff,
   fetchDockerNodeConfig,
@@ -10,13 +10,14 @@ import {
   unregisterNode,
   checkNodeHealth,
 } from "../api";
+import { persistNodeProjectPathMappings } from "../api-node";
 
 export interface UseNodesResult {
   nodes: NodeInfo[];
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
-  register: (input: NodeCreateInput) => Promise<NodeInfo>;
+  register: (input: NodeOnboardingInput) => Promise<NodeInfo>;
   update: (id: string, updates: NodeUpdateInput) => Promise<NodeInfo>;
   unregister: (id: string) => Promise<void>;
   healthCheck: (id: string) => Promise<void>;
@@ -112,11 +113,36 @@ export function useNodes(): UseNodesResult {
     };
   }, [loading, refresh]);
 
-  const register = useCallback(async (input: NodeCreateInput): Promise<NodeInfo> => {
-    const node = await registerNode(input);
-    setNodes((prev) => [...prev, node]);
+  const register = useCallback(async (input: NodeOnboardingInput): Promise<NodeInfo> => {
+    const { projectMappings, ...nodeInput } = input;
+    const node = await registerNode(nodeInput as NodeCreateInput);
+
+    if (projectMappings.length > 0) {
+      try {
+        await persistNodeProjectPathMappings(node.id, projectMappings);
+      } catch (error) {
+        const mappingError = error instanceof Error ? error.message : "Failed to persist project mappings";
+        let cleanupErrorMessage = "";
+        try {
+          await unregisterNode(node.id);
+        } catch (cleanupError) {
+          cleanupErrorMessage = cleanupError instanceof Error
+            ? cleanupError.message
+            : "Failed to unregister node after mapping failure";
+        }
+
+        await refresh();
+
+        if (cleanupErrorMessage) {
+          throw new Error(`${mappingError}. Cleanup also failed: ${cleanupErrorMessage}`);
+        }
+        throw new Error(mappingError);
+      }
+    }
+
+    await refresh();
     return node;
-  }, []);
+  }, [refresh]);
 
   const update = useCallback(async (id: string, updates: NodeUpdateInput): Promise<NodeInfo> => {
     const node = await updateNode(id, updates);
