@@ -38,7 +38,7 @@
 
 .project-card-errored {
   border-color: var(--color-error);
-  box-shadow: 0 0 0 1px var(--color-error);
+  box-shadow: 0 0 0 calc(var(--space-xs) / 4) var(--color-error);
 }
 
 .project-card-header {
@@ -51,8 +51,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: calc(var(--space-xl) + var(--space-md));
+  height: calc(var(--space-xl) + var(--space-md));
   background: var(--surface);
   border-radius: var(--radius-md);
   color: var(--todo);
@@ -64,11 +64,11 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-xs);
 }
 
 .project-card-name {
-  font-size: 15px;
+  font-size: calc(var(--space-md) + var(--space-xs) * 0.75);
   font-weight: 600;
   color: var(--text);
   margin: 0;
@@ -78,7 +78,7 @@
 }
 
 .project-card-path {
-  font-size: 12px;
+  font-size: calc(var(--space-sm) + var(--space-xs));
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -91,10 +91,10 @@
   gap: var(--space-xs);
   padding: var(--space-xs) var(--space-sm);
   border-radius: var(--radius-sm);
-  font-size: 11px;
+  font-size: calc(var(--space-sm) + var(--space-xs) * 0.75);
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: calc(var(--space-xs) / 8);
   border: 1px solid currentColor;
   flex-shrink: 0;
 }
@@ -110,11 +110,11 @@
 .project-card-metric {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-xs);
 }
 
 .project-card-metric-value {
-  font-size: 18px;
+  font-size: calc(var(--space-lg) + var(--space-xs) * 0.5);
   font-weight: 700;
   color: var(--text);
   font-family: var(--font-mono);
@@ -124,7 +124,7 @@
   font-size: calc(var(--space-sm) + var(--space-xs) * 0.75);
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: calc(var(--space-xs) / 8);
 }
 
 .project-card-metric-empty {
@@ -143,8 +143,8 @@
 .project-card-activity {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: calc(var(--space-sm) - var(--space-xs) * 0.5);
+  font-size: calc(var(--space-sm) + var(--space-xs));
 }
 
 .project-card-activity-label {
@@ -165,12 +165,12 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
-  padding: 6px 10px;
+  padding: calc(var(--space-sm) - var(--space-xs) * 0.5) calc(var(--space-sm) + var(--space-xs) * 0.5);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: calc(var(--space-sm) + var(--space-xs));
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -224,7 +224,7 @@
 }
 
 .project-card-action-remove {
-  padding: 6px;
+  padding: calc(var(--space-sm) - var(--space-xs) * 0.5);
   color: var(--color-error);
 }
 

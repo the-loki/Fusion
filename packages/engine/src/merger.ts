@@ -2680,24 +2680,52 @@ export async function commitOrAmendMergeWithFixes(
     const headMoved = currentHead !== preAttemptHeadSha;
 
     if (!hasStaged && !headMoved) {
-      // Defense-in-depth: if HEAD already carries this task's `Fusion-Task-Id`
-      // trailer, the merge commit landed on a prior code path (e.g. AI commit
-      // in an earlier attempt) and there's simply nothing left for the fix to
-      // fold in. Record success rather than tripping the phantom-merge guard
-      // and stranding the task in In Review when the work is already on main.
+      // FN-1858 guardrail: never claim merge success when we cannot prove this
+      // task produced commit content. This finalize path distinguishes three
+      // terminal states: (1) committed-by-AI (HEAD already has this task ID),
+      // (2) no-op fix where squash state was cleared and must be restored, and
+      // (3) real phantom where there is truly no task content to commit.
       if (await headCarriesTaskIdTrailer(rootDir, taskId)) {
         mergerLog.log(
           `${taskId}: HEAD already carries Fusion-Task-Id trailer — treating in-merge fix finalize as no-op success`,
         );
         return true;
       }
-      // Truly nothing happened — neither a commit nor staged changes. Refuse
-      // to fabricate a successful merge: the caller will report failure.
-      mergerLog.warn(
-        `${taskId}: refusing to record merge — no commit was created and no changes are staged. ` +
-        `This usually means the AI agent never ran git commit and the in-merge fix had nothing to add.`,
-      );
-      return false;
+
+      // No commit and no staged content can still be recoverable when the
+      // in-merge fix path cleared the previous squash index state. Rebuild the
+      // squash from branch -> preAttemptHeadSha and continue normally.
+      try {
+        await execAsync(`git reset --hard ${preAttemptHeadSha}`, {
+          cwd: rootDir,
+          encoding: "utf-8",
+        });
+        await execAsync("git clean -fd", {
+          cwd: rootDir,
+          encoding: "utf-8",
+        });
+        await execAsync(`git merge --squash ${branch}`, {
+          cwd: rootDir,
+          encoding: "utf-8",
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        mergerLog.warn(`${taskId}: failed to restore squash state before finalize: ${msg}`);
+      }
+
+      const { stdout: restoredStagedOut } = await execAsync("git diff --cached --name-only", {
+        cwd: rootDir,
+        encoding: "utf-8",
+      });
+      if (restoredStagedOut.trim().length === 0) {
+        mergerLog.warn(
+          `${taskId}: refusing to record merge — no commit was created and no changes are staged. ` +
+          `This usually means the AI agent never ran git commit and the in-merge fix had nothing to add.`,
+        );
+        return false;
+      }
+
+      mergerLog.log(`${taskId}: restored squash state after no-op verification fix; proceeding to commit`);
     }
 
     // Build the message from the actual commit content rather than the
