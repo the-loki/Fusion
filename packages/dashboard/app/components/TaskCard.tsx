@@ -1289,6 +1289,7 @@ function TaskCardComponent({
         ref={cardRef}
         className={cardClass}
         data-id={task.id}
+        data-column={task.column}
         onDoubleClick={handleDoubleClick}
       >
         <div className="card-editing-content">
@@ -1319,6 +1320,7 @@ function TaskCardComponent({
       ref={cardRef}
       className={cardClass}
       data-id={task.id}
+      data-column={task.column}
       draggable={isDraggable}
       onDragStart={isDraggable ? handleDragStart : undefined}
       onDragEnd={isDraggable ? handleDragEnd : undefined}

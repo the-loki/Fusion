@@ -2446,7 +2446,8 @@ describe("SelfHealingManager", () => {
       const result = await managerWithRecovery.recoverAlreadyMergedReviewTasks();
 
       expect(result).toBe(1);
-      expect(store.updateTask).toHaveBeenCalledWith("FN-hit", expect.objectContaining({ column: "done" }));
+      expect(store.updateTask).toHaveBeenCalledWith("FN-hit", expect.objectContaining({ status: null, mergeRetries: 0 }));
+      expect(store.moveTask).toHaveBeenCalledWith("FN-hit", "done");
       expect(store.updateTask).not.toHaveBeenCalledWith("FN-throw", expect.anything());
 
       managerWithRecovery.stop();
