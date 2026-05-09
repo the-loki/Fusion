@@ -2431,6 +2431,75 @@ describe("ChatView sidebar structure", () => {
   });
 });
 
+describe("Direct/Rooms scope toggle", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("defaults to Direct with sidebar list visible", () => {
+    setupMockChat({
+      sessions: [{ id: "session-001", agentId: "agent-001", status: "active", title: "Test Chat", createdAt: "2026-04-08T00:00:00.000Z", updatedAt: "2026-04-08T00:00:00.000Z" }],
+      filteredSessions: [{ id: "session-001", agentId: "agent-001", status: "active", title: "Test Chat", createdAt: "2026-04-08T00:00:00.000Z", updatedAt: "2026-04-08T00:00:00.000Z" }],
+    });
+
+    render(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+
+    expect(screen.getByTestId("chat-sidebar-scope-direct")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("chat-sidebar-scope-rooms")).toHaveAttribute("aria-selected", "false");
+    expect(document.querySelector(".chat-session-list")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-sidebar-rooms-empty")).toBeNull();
+  });
+
+  it("shows rooms placeholder and hides direct search/list in Rooms scope", async () => {
+    setupMockChat({
+      sessions: [{ id: "session-001", agentId: "agent-001", status: "active", title: "Test Chat", createdAt: "2026-04-08T00:00:00.000Z", updatedAt: "2026-04-08T00:00:00.000Z" }],
+      filteredSessions: [{ id: "session-001", agentId: "agent-001", status: "active", title: "Test Chat", createdAt: "2026-04-08T00:00:00.000Z", updatedAt: "2026-04-08T00:00:00.000Z" }],
+    });
+
+    render(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+
+    await userEvent.click(screen.getByTestId("chat-sidebar-scope-rooms"));
+
+    expect(screen.getByTestId("chat-sidebar-scope-rooms")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("chat-sidebar-rooms-empty")).toBeInTheDocument();
+    expect(document.querySelector(".chat-session-list")).toBeNull();
+    expect(screen.queryByTestId("chat-search-input")).toBeNull();
+  });
+
+  it("switching back to Direct restores search/list and keeps active session highlight", async () => {
+    setupMockChat({
+      activeSession: { id: "session-001", agentId: "agent-001", status: "active", title: "Test Chat", createdAt: "2026-04-08T00:00:00.000Z", updatedAt: "2026-04-08T00:00:00.000Z" },
+      sessions: [{ id: "session-001", agentId: "agent-001", status: "active", title: "Test Chat", createdAt: "2026-04-08T00:00:00.000Z", updatedAt: "2026-04-08T00:00:00.000Z" }],
+      filteredSessions: [{ id: "session-001", agentId: "agent-001", status: "active", title: "Test Chat", createdAt: "2026-04-08T00:00:00.000Z", updatedAt: "2026-04-08T00:00:00.000Z" }],
+    });
+
+    render(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+
+    await userEvent.click(screen.getByTestId("chat-sidebar-scope-rooms"));
+    await userEvent.click(screen.getByTestId("chat-sidebar-scope-direct"));
+
+    expect(screen.getByTestId("chat-search-input")).toBeInTheDocument();
+    expect(document.querySelector(".chat-session-list")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-session-session-001")).toHaveClass("chat-session-item--active");
+  });
+
+  it("persists scope in localStorage and restores Rooms on next mount", async () => {
+    setupMockChat({ sessions: [], filteredSessions: [] });
+
+    const { unmount } = render(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+
+    await userEvent.click(screen.getByTestId("chat-sidebar-scope-rooms"));
+    expect(localStorage.getItem("fusion:chat-scope")).toBe("rooms");
+
+    unmount();
+
+    render(<ChatView projectId="proj-123" addToast={vi.fn()} />);
+
+    expect(screen.getByTestId("chat-sidebar-scope-rooms")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("chat-sidebar-rooms-empty")).toBeInTheDocument();
+  });
+});
+
 describe("resizable sidebar", () => {
   beforeEach(() => {
     localStorage.clear();

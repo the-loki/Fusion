@@ -278,6 +278,7 @@ const CHAT_SIDEBAR_DEFAULT_WIDTH = 280;
 const CHAT_SIDEBAR_MIN_WIDTH = 180;
 const CHAT_SIDEBAR_MAX_WIDTH = 500;
 const CHAT_SIDEBAR_STORAGE_KEY = "fusion:chat-sidebar-width";
+const CHAT_SCOPE_STORAGE_KEY = "fusion:chat-scope";
 
 interface PendingAttachment {
   file: File;
@@ -733,6 +734,12 @@ export function ChatView({ projectId, addToast }: ChatViewProps) {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(CHAT_SIDEBAR_DEFAULT_WIDTH);
+  /**
+   * FN-3805: sidebar scope scaffold for Direct vs Rooms tabs.
+   * Rooms remains placeholder-only here; follow-up tasks FN-3806…FN-3813
+   * add room data models, APIs, and routing.
+   */
+  const [chatScope, setChatScope] = useState<"direct" | "rooms">("direct");
   const [agentsMap, setAgentsMap] = useState<Map<string, Agent>>(new Map());
   const [discoveredSkills, setDiscoveredSkills] = useState<DiscoveredSkill[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(true);
@@ -800,6 +807,25 @@ export function ChatView({ projectId, addToast }: ChatViewProps) {
       // Ignore storage errors.
     }
   }, []);
+
+  useEffect(() => {
+    try {
+      const persistedScope = localStorage.getItem(CHAT_SCOPE_STORAGE_KEY);
+      if (persistedScope === "direct" || persistedScope === "rooms") {
+        setChatScope(persistedScope);
+      }
+    } catch {
+      // Ignore storage errors.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CHAT_SCOPE_STORAGE_KEY, chatScope);
+    } catch {
+      // Ignore storage errors.
+    }
+  }, [chatScope]);
 
   const { keyboardOverlap, viewportHeight, viewportOffsetTop, keyboardOpen } = useMobileKeyboard({
     enabled: isMobile && !!activeSession,
@@ -1671,75 +1697,105 @@ export function ChatView({ projectId, addToast }: ChatViewProps) {
         className={`chat-sidebar${!sidebarVisible ? " chat-sidebar--hidden" : ""}`}
         style={isMobile ? undefined : { width: `${sidebarWidth}px` }}
       >
-        {/* Search section */}
-        <div className="chat-sidebar-search">
-          <div className="chat-sidebar-search-wrapper">
-            <Search size={14} className="chat-sidebar-search-icon" />
-            <input
-              type="text"
-              className="chat-sidebar-search"
-              placeholder="Search conversations..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              data-testid="chat-search-input"
-            />
-          </div>
+        <div className="chat-sidebar-scope-toggle" role="tablist" data-testid="chat-sidebar-scope-toggle">
+          <button
+            type="button"
+            role="tab"
+            className={`chat-sidebar-scope-btn${chatScope === "direct" ? " chat-sidebar-scope-btn--active" : ""}`}
+            aria-selected={chatScope === "direct"}
+            data-testid="chat-sidebar-scope-direct"
+            onClick={() => setChatScope("direct")}
+          >
+            Direct
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={`chat-sidebar-scope-btn${chatScope === "rooms" ? " chat-sidebar-scope-btn--active" : ""}`}
+            aria-selected={chatScope === "rooms"}
+            data-testid="chat-sidebar-scope-rooms"
+            onClick={() => setChatScope("rooms")}
+          >
+            Rooms
+          </button>
         </div>
-        {/* Session list section */}
-        <div className="chat-session-list chat-sidebar-list">
-          {sessionsLoading ? (
-            <div style={{ padding: "12px", color: "var(--text-secondary)", fontSize: "13px" }}>
-              Loading...
-            </div>
-          ) : filteredSessions.length === 0 ? (
-            <div style={{ padding: "12px", color: "var(--text-secondary)", fontSize: "13px" }}>
-              No conversations yet
-            </div>
-          ) : (
-            filteredSessions.map((session) => (
-              <div
-                key={session.id}
-                className={`chat-session-item${activeSession?.id === session.id ? " chat-session-item--active" : ""}`}
-                onClick={() => handleSessionClick(session.id)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setContextMenu({ sessionId: session.id, x: e.clientX, y: e.clientY });
-                }}
-                data-testid={`chat-session-${session.id}`}
-              >
-                <button
-                  className="chat-session-delete-btn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setConfirmDelete(session.id);
-                  }}
-                  data-testid="chat-session-delete-btn"
-                  aria-label="Delete conversation"
-                >
-                  <Trash2 size={14} />
-                </button>
-                <div className="chat-session-title">{session.title || "Untitled"}</div>
-                <div className="chat-session-preview">
-                  {session.lastMessagePreview || "No messages"}
-                </div>
-                <div className="chat-session-meta">
-                  <span className="chat-session-meta-model">
-                    {session.modelProvider && (
-                      <ProviderIcon provider={session.modelProvider} size="sm" />
-                    )}
-                    <span>
-                      {agentsMap.get(session.agentId)?.name ||
-                        (session.agentId === FN_AGENT_ID
-                          ? (formatModelTag(session.modelProvider, session.modelId) ?? "Fusion")
-                          : session.agentId.slice(0, 30))}
-                    </span>
-                  </span>
-                  <span>{session.updatedAt ? formatRelativeTime(session.updatedAt) : ""}</span>
-                </div>
+        {chatScope === "direct" ? (
+          <>
+            {/* Search section */}
+            <div className="chat-sidebar-search">
+              <div className="chat-sidebar-search-wrapper">
+                <Search size={14} className="chat-sidebar-search-icon" />
+                <input
+                  type="text"
+                  className="chat-sidebar-search"
+                  placeholder="Search conversations..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  data-testid="chat-search-input"
+                />
               </div>
-            ))
-          )}
-        </div>
+            </div>
+            {/* Session list section */}
+            <div className="chat-session-list chat-sidebar-list">
+              {sessionsLoading ? (
+                <div style={{ padding: "12px", color: "var(--text-secondary)", fontSize: "13px" }}>
+                  Loading...
+                </div>
+              ) : filteredSessions.length === 0 ? (
+                <div style={{ padding: "12px", color: "var(--text-secondary)", fontSize: "13px" }}>
+                  No conversations yet
+                </div>
+              ) : (
+                filteredSessions.map((session) => (
+                  <div
+                    key={session.id}
+                    className={`chat-session-item${activeSession?.id === session.id ? " chat-session-item--active" : ""}`}
+                    onClick={() => handleSessionClick(session.id)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setContextMenu({ sessionId: session.id, x: e.clientX, y: e.clientY });
+                    }}
+                    data-testid={`chat-session-${session.id}`}
+                  >
+                    <button
+                      className="chat-session-delete-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirmDelete(session.id);
+                      }}
+                      data-testid="chat-session-delete-btn"
+                      aria-label="Delete conversation"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                    <div className="chat-session-title">{session.title || "Untitled"}</div>
+                    <div className="chat-session-preview">
+                      {session.lastMessagePreview || "No messages"}
+                    </div>
+                    <div className="chat-session-meta">
+                      <span className="chat-session-meta-model">
+                        {session.modelProvider && (
+                          <ProviderIcon provider={session.modelProvider} size="sm" />
+                        )}
+                        <span>
+                          {agentsMap.get(session.agentId)?.name ||
+                            (session.agentId === FN_AGENT_ID
+                              ? (formatModelTag(session.modelProvider, session.modelId) ?? "Fusion")
+                              : session.agentId.slice(0, 30))}
+                        </span>
+                      </span>
+                      <span>{session.updatedAt ? formatRelativeTime(session.updatedAt) : ""}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="chat-sidebar-rooms-empty" data-testid="chat-sidebar-rooms-empty">
+            No rooms yet — room creation lands in a follow-up task.
+          </div>
+        )}
         {/* Mobile footer with New Chat action */}
         <div className="chat-sidebar-footer">
           <button
