@@ -106,7 +106,6 @@ describe("TaskDetailModal", () => {
       );
 
       expect(screen.queryByLabelText("GitHub source issue")).toBeNull();
-      expect(document.querySelector(".detail-source-provider-badge")).toBeNull();
       expect(screen.getByRole("link", { name: "(#42)" })).toBeTruthy();
     });
 
@@ -2125,10 +2124,27 @@ describe("TaskDetailModal", () => {
       expect(screen.getByRole("link", { name: "runfusion/fusion#123" })).toHaveAttribute("href", "https://github.com/runfusion/fusion/issues/123");
     });
 
-    it("hides section when tracking is disabled and no issue exists", () => {
+    it("shows section when tracking is disabled and task is in an eligible column", () => {
       render(
         <TaskDetailModal
-          task={makeTask({ githubTracking: { enabled: false } })}
+          task={makeTask({ column: "todo", githubTracking: { enabled: false } })}
+          onClose={noop}
+          onOpenDetail={noopOpenDetail}
+          onMoveTask={noopMove}
+          onDeleteTask={noopDelete}
+          onMergeTask={noopMerge}
+          addToast={noop}
+        />,
+      );
+
+      expect(screen.getByText("GitHub tracking")).toBeTruthy();
+      expect(screen.getByText("Tracking is currently disabled")).toBeTruthy();
+    });
+
+    it("hides section when tracking is disabled and task is not in an eligible column", () => {
+      render(
+        <TaskDetailModal
+          task={makeTask({ column: "done", githubTracking: { enabled: false } })}
           onClose={noop}
           onOpenDetail={noopOpenDetail}
           onMoveTask={noopMove}
@@ -2141,7 +2157,7 @@ describe("TaskDetailModal", () => {
       expect(screen.queryByText("GitHub tracking")).toBeNull();
     });
 
-    it("sends githubTracking enabled toggle payload", async () => {
+    it("sends githubTracking disabled→enabled toggle payload", async () => {
       const { updateTask } = await import("../../api");
       const mockUpdate = vi.mocked(updateTask);
       mockUpdate.mockResolvedValueOnce({ id: "FN-001" } as Task);
@@ -2174,6 +2190,35 @@ describe("TaskDetailModal", () => {
       fireEvent.click(screen.getByLabelText("Enable GitHub tracking"));
       await waitFor(() => {
         expect(mockUpdate).toHaveBeenCalledWith("FN-001", { githubTracking: { enabled: true } }, undefined);
+      });
+    });
+
+    it("sends githubTracking enabled→disabled toggle payload", async () => {
+      const { updateTask } = await import("../../api");
+      const mockUpdate = vi.mocked(updateTask);
+      mockUpdate.mockResolvedValueOnce({ id: "FN-001" } as Task);
+
+      render(
+        <TaskDetailModal
+          task={makeTask({
+            id: "FN-001",
+            column: "in-progress",
+            githubTracking: {
+              enabled: true,
+            },
+          })}
+          onClose={noop}
+          onOpenDetail={noopOpenDetail}
+          onMoveTask={noopMove}
+          onDeleteTask={noopDelete}
+          onMergeTask={noopMerge}
+          addToast={noop}
+        />,
+      );
+
+      fireEvent.click(screen.getByLabelText("Enable GitHub tracking"));
+      await waitFor(() => {
+        expect(mockUpdate).toHaveBeenCalledWith("FN-001", { githubTracking: { enabled: false } }, undefined);
       });
     });
 

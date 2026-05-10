@@ -397,6 +397,8 @@ Inspect task definition, logs, review feedback, comments, documents, workflow ou
 - The priority chip in task metadata is an inline picker: you can change priority directly without entering full edit mode.
 - Execution mode has a read-mode inline lightning-bolt toggle for Fast mode on/off without opening the full edit form.
 - These two metadata controls share matched sizing/alignment in read mode (including mobile wrapping) so they behave like a single polished control group.
+- Eligible existing tasks (triage, todo, in-progress, in-review) expose a **GitHub tracking** section directly in Task Detail, even when tracking is currently disabled.
+- From this section you can explicitly enable/disable tracking and manage a per-task repo override (`owner/repo`). Clearing the override saves `null` and falls back to project/global defaults.
 - The **Review** tab is separate from **Comments**: Review shows actionable PR/reviewer feedback and same-task revision controls, while Comments remains the general collaboration thread.
 - **Request revision** in Review resumes work on the same task ID (no refinement task): `in-progress` tasks get steering injection, while `in-review` tasks are moved back to `in-progress` for the same branch/worktree revision pass.
 - Review supports a manual **Refresh** action in-place: PR mode pulls latest GitHub review state/decision, while direct mode rehydrates reviewer-agent feedback from persisted task data (no GitHub call).

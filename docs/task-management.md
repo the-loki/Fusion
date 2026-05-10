@@ -387,6 +387,8 @@ Tracking behavior is controlled per task:
 
 - `task.githubTracking.enabled` turns tracking on for that task.
 - `task.githubTracking.repoOverride` optionally forces a specific target repo (`owner/repo`).
+- In the dashboard **Task Detail** modal, eligible existing tasks (`triage`, `todo`, `in-progress`, `in-review`) always show GitHub tracking controls so tracking can be enabled, disabled, or retargeted without reopening the task in a creation flow.
+- Clearing the Task Detail repo override stores `null`, which reverts repo resolution to project/global defaults.
 
 Repository resolution order:
 

@@ -384,6 +384,7 @@ function getProvenanceLabel(task: Task | TaskDetail, options: ProvenanceLabelOpt
 const DESCRIPTION_TRUNCATE_LENGTH = 200;
 
 const EDITABLE_COLUMNS: Set<Column> = new Set(["triage", "todo"]);
+const GITHUB_TRACKING_EDITABLE_COLUMNS: Set<Column> = new Set(["triage", "todo", "in-progress", "in-review"]);
 
 export function TaskDetailContent({
   task,
@@ -775,14 +776,16 @@ export function TaskDetailContent({
 
   // Check if task can be edited
   const canEdit = EDITABLE_COLUMNS.has(task.column) && !isSaving;
+  const canEditGithubTracking = GITHUB_TRACKING_EDITABLE_COLUMNS.has(task.column) && !isSaving;
   const githubTrackingEnabled = task.githubTracking?.enabled === true;
   const githubTrackedIssue = task.githubTracking?.issue;
-  const showGithubTrackingSection = githubTrackingEnabled || Boolean(githubTrackedIssue);
+  const showGithubTrackingSection = canEditGithubTracking || githubTrackingEnabled || Boolean(githubTrackedIssue);
+  const githubTrackingStatus = githubTrackedIssue ? "Linked" : githubTrackingEnabled ? "Enabled" : "Disabled";
   const effectiveGithubRepoDefault = resolveEffectiveGithubRepoDefault(settings ?? null, globalSettings);
   const githubRepoOverrideTrimmed = githubRepoOverrideDraft.trim();
 
   const handleToggleGithubTracking = useCallback(async () => {
-    if (!canEdit || isSavingGithubTracking) return;
+    if (!canEditGithubTracking || isSavingGithubTracking) return;
     setIsSavingGithubTracking(true);
     try {
       const updatedTask = await updateTask(task.id, {
@@ -796,10 +799,10 @@ export function TaskDetailContent({
     } finally {
       if (mountedRef.current) setIsSavingGithubTracking(false);
     }
-  }, [addToast, canEdit, githubTrackingEnabled, isSavingGithubTracking, onTaskUpdated, projectId, task.id]);
+  }, [addToast, canEditGithubTracking, githubTrackingEnabled, isSavingGithubTracking, onTaskUpdated, projectId, task.id]);
 
   const handleSaveGithubRepoOverride = useCallback(async () => {
-    if (!canEdit || isSavingGithubTracking) return;
+    if (!canEditGithubTracking || isSavingGithubTracking) return;
     if (githubRepoOverrideTrimmed.length > 0 && !REPO_OVERRIDE_RE.test(githubRepoOverrideTrimmed)) {
       setGithubRepoOverrideError("Repository override must be in owner/repo format");
       return;
@@ -818,7 +821,7 @@ export function TaskDetailContent({
     } finally {
       if (mountedRef.current) setIsSavingGithubTracking(false);
     }
-  }, [addToast, canEdit, githubRepoOverrideTrimmed, isSavingGithubTracking, onTaskUpdated, projectId, task.id]);
+  }, [addToast, canEditGithubTracking, githubRepoOverrideTrimmed, isSavingGithubTracking, onTaskUpdated, projectId, task.id]);
 
   const enterEditMode = useCallback(() => {
     if (!canEdit) return;
@@ -2333,9 +2336,13 @@ export function TaskDetailContent({
                   <span className="detail-source-label">GitHub tracking</span>
                   <span className="detail-source-provider-badge" aria-label="GitHub tracking status">
                     <GitBranch aria-hidden="true" />
-                    <span>{githubTrackedIssue ? "Linked" : "Pending"}</span>
+                    <span>{githubTrackingStatus}</span>
                   </span>
-                  {!githubTrackedIssue && <span className="detail-source-empty">Not yet created</span>}
+                  {!githubTrackedIssue && (
+                    <span className="detail-source-empty">
+                      {githubTrackingEnabled ? "Issue not yet created" : "Tracking is currently disabled"}
+                    </span>
+                  )}
                 </div>
               </div>
               {githubTrackedIssue && (
@@ -2362,7 +2369,7 @@ export function TaskDetailContent({
                   </div>
                 </dl>
               )}
-              {canEdit && (
+              {canEditGithubTracking && (
                 <div className="detail-github-tracking-controls">
                   <label className="checkbox-label" htmlFor="detail-github-tracking-toggle">
                     <input

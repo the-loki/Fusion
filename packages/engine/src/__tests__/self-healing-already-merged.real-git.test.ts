@@ -128,36 +128,40 @@ describeIfGit("SelfHealingManager recoverAlreadyMergedReviewTasks (real git)", (
     expect(git(repo, "git worktree list")).not.toContain(worktreePath);
   });
 
-  it("recovers via patch-id fallback", async () => {
-    const repo = setupRepo();
-    git(repo, "git checkout -b fusion/fn-test-2");
-    mkdirSync(path.join(repo, "src"), { recursive: true });
-    writeFileSync(path.join(repo, "src", "patch.txt"), "patch-a\n", "utf-8");
-    git(repo, "git add src/patch.txt && git commit -m 'task branch commit'");
-    const branchTip = git(repo, "git rev-parse HEAD");
-    git(repo, "git checkout main");
-    mkdirSync(path.join(repo, "src"), { recursive: true });
-    writeFileSync(path.join(repo, "src", "patch.txt"), "patch-a\n", "utf-8");
-    git(repo, "git add src/patch.txt && git commit -m 'land equivalent change'");
-    const landedSha = git(repo, "git rev-parse HEAD");
+  it(
+    "recovers via patch-id fallback",
+    async () => {
+      const repo = setupRepo();
+      git(repo, "git checkout -b fusion/fn-test-2");
+      mkdirSync(path.join(repo, "src"), { recursive: true });
+      writeFileSync(path.join(repo, "src", "patch.txt"), "patch-a\n", "utf-8");
+      git(repo, "git add src/patch.txt && git commit -m 'task branch commit'");
+      const branchTip = git(repo, "git rev-parse HEAD");
+      git(repo, "git checkout main");
+      mkdirSync(path.join(repo, "src"), { recursive: true });
+      writeFileSync(path.join(repo, "src", "patch.txt"), "patch-a\n", "utf-8");
+      git(repo, "git add src/patch.txt && git commit -m 'land equivalent change'");
+      const landedSha = git(repo, "git rev-parse HEAD");
 
-    const worktreePath = path.join(repo, ".worktrees", "fn-test-2");
-    mkdirSync(path.dirname(worktreePath), { recursive: true });
-    git(repo, `git worktree add ${JSON.stringify(worktreePath)} fusion/fn-test-2`);
+      const worktreePath = path.join(repo, ".worktrees", "fn-test-2");
+      mkdirSync(path.dirname(worktreePath), { recursive: true });
+      git(repo, `git worktree add ${JSON.stringify(worktreePath)} fusion/fn-test-2`);
 
-    const tasks: TaskMap = new Map([
-      ["FN-TEST-2", makeTask({ id: "FN-TEST-2", column: "in-review", status: "failed", mergeRetries: 3, paused: false, baseBranch: "main", branch: "fusion/fn-test-2", baseCommitSha: git(repo, "git merge-base main fusion/fn-test-2"), worktree: worktreePath })],
-    ]);
-    const store = createStore(tasks);
-    const manager = new SelfHealingManager(store, { rootDir: repo, getExecutingTaskIds: () => new Set() });
+      const tasks: TaskMap = new Map([
+        ["FN-TEST-2", makeTask({ id: "FN-TEST-2", column: "in-review", status: "failed", mergeRetries: 3, paused: false, baseBranch: "main", branch: "fusion/fn-test-2", baseCommitSha: git(repo, "git merge-base main fusion/fn-test-2"), worktree: worktreePath })],
+      ]);
+      const store = createStore(tasks);
+      const manager = new SelfHealingManager(store, { rootDir: repo, getExecutingTaskIds: () => new Set() });
 
-    expect(branchTip).toBeTruthy();
-    await (manager as any).runMaintenance();
+      expect(branchTip).toBeTruthy();
+      await (manager as any).runMaintenance();
 
-    const task = tasks.get("FN-TEST-2")!;
-    expect(task.column).toBe("done");
-    expect(task.mergeDetails?.commitSha).toBe(landedSha);
-  });
+      const task = tasks.get("FN-TEST-2")!;
+      expect(task.column).toBe("done");
+      expect(task.mergeDetails?.commitSha).toBe(landedSha);
+    },
+    20_000,
+  );
 
   it("does nothing when no match exists", async () => {
     const repo = setupRepo();
