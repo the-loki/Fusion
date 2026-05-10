@@ -135,6 +135,21 @@ const mockRoadmapHierarchy: RoadmapWithHierarchy = {
 const mockAddToast = vi.fn();
 
 describe("RoadmapsView", () => {
+  it.each(["dark", "light"])("renders roadmap host content without console errors in %s theme", async (theme) => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    document.documentElement.setAttribute("data-theme", theme);
+
+    render(<RoadmapsView addToast={mockAddToast} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmaps")).toBeInTheDocument();
+      expect(screen.getByText("Q2 Roadmap")).toBeInTheDocument();
+    });
+
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+    consoleErrorSpy.mockRestore();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockConfirm.mockReset();
