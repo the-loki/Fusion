@@ -1598,6 +1598,126 @@ describe("Planning Mode Routes", () => {
         );
       });
 
+      it("applies branchSelection when creating a planning task", async () => {
+        (store.createTask as ReturnType<typeof vi.fn>).mockResolvedValue({
+          id: "FN-200",
+          description: "A task created from planning",
+          column: "triage",
+          dependencies: [],
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+
+        const startRes = await REQUEST(
+          buildApp(),
+          "POST",
+          "/api/planning/start",
+          JSON.stringify({ initialPlan: "Build a user auth system" }),
+          { "Content-Type": "application/json" }
+        );
+        const sessionId = startRes.body.sessionId;
+
+        await REQUEST(buildApp(), "POST", "/api/planning/respond", JSON.stringify({ sessionId, responses: { scope: "medium" } }), { "Content-Type": "application/json" });
+        await REQUEST(buildApp(), "POST", "/api/planning/respond", JSON.stringify({ sessionId, responses: { requirements: "Must have login" } }), { "Content-Type": "application/json" });
+        await REQUEST(buildApp(), "POST", "/api/planning/respond", JSON.stringify({ sessionId, responses: { confirm: true } }), { "Content-Type": "application/json" });
+
+        const res = await REQUEST(
+          buildApp(),
+          "POST",
+          "/api/planning/create-task",
+          JSON.stringify({
+            sessionId,
+            branchSelection: {
+              mode: "existing",
+              branchName: "feature/shared-auth",
+              baseBranch: "develop",
+            },
+          }),
+          { "Content-Type": "application/json" }
+        );
+
+        expect(res.status).toBe(201);
+        expect(store.createTask).toHaveBeenCalledWith(
+          expect.objectContaining({
+            branch: "feature/shared-auth",
+            baseBranch: "develop",
+          }),
+        );
+      });
+
+      it("applies shared branchSelection to all planning subtasks", async () => {
+        (store.createTask as ReturnType<typeof vi.fn>)
+          .mockResolvedValueOnce({
+            id: "FN-201",
+            description: "First",
+            column: "triage",
+            dependencies: [],
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          })
+          .mockResolvedValueOnce({
+            id: "FN-202",
+            description: "Second",
+            column: "triage",
+            dependencies: [],
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          });
+        (store.updateTask as ReturnType<typeof vi.fn>).mockResolvedValue({});
+        (store.logEntry as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+        const startRes = await REQUEST(
+          buildApp(),
+          "POST",
+          "/api/planning/start",
+          JSON.stringify({ initialPlan: "Build a user auth system" }),
+          { "Content-Type": "application/json" }
+        );
+        const planningSessionId = startRes.body.sessionId;
+
+        await REQUEST(buildApp(), "POST", "/api/planning/respond", JSON.stringify({ sessionId: planningSessionId, responses: { scope: "medium" } }), { "Content-Type": "application/json" });
+        await REQUEST(buildApp(), "POST", "/api/planning/respond", JSON.stringify({ sessionId: planningSessionId, responses: { requirements: "Must have login" } }), { "Content-Type": "application/json" });
+        await REQUEST(buildApp(), "POST", "/api/planning/respond", JSON.stringify({ sessionId: planningSessionId, responses: { confirm: true } }), { "Content-Type": "application/json" });
+
+        const res = await REQUEST(
+          buildApp(),
+          "POST",
+          "/api/planning/create-tasks",
+          JSON.stringify({
+            planningSessionId,
+            branchSelection: { mode: "custom-new", branchName: "feature/auth-slice", baseBranch: "main" },
+            subtasks: [
+              {
+                id: "subtask-1",
+                title: "Auth backend",
+                description: "Implement backend",
+                suggestedSize: "M",
+                priority: "urgent",
+                dependsOn: [],
+              },
+              {
+                id: "subtask-2",
+                title: "Auth UI",
+                description: "Implement UI",
+                suggestedSize: "S",
+                dependsOn: ["subtask-1"],
+              },
+            ],
+          }),
+          { "Content-Type": "application/json" }
+        );
+
+        expect(res.status).toBe(201);
+        expect(store.createTask).toHaveBeenNthCalledWith(
+          1,
+          expect.objectContaining({ branch: "feature/auth-slice", baseBranch: "main" }),
+        );
+        expect(store.createTask).toHaveBeenNthCalledWith(
+          2,
+          expect.objectContaining({ branch: "feature/auth-slice", baseBranch: "main" }),
+        );
+      });
+
       it("returns 400 if session is not complete", async () => {
         // Create a session but don't complete it
         const startRes = await REQUEST(

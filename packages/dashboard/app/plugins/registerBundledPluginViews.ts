@@ -16,7 +16,7 @@ function createMissingPluginView(moduleId: string, exportName: string): PluginVi
 async function loadDependencyGraphView(): Promise<{ default: PluginViewComponent }> {
   const moduleId = "@fusion-plugin-examples/dependency-graph/dashboard-view";
   const exportName = "DependencyGraphDashboardView";
-  const mod = await import("@fusion-plugin-examples/dependency-graph/dashboard-view") as Record<string, ComponentType<{ context?: PluginDashboardViewContext }>>;
+  const mod = await import("@fusion-plugin-examples/dependency-graph/dashboard-view") as unknown as Record<string, ComponentType<{ context?: PluginDashboardViewContext }>>;
   const component = mod[exportName];
   if (!component) {
     console.warn(`[plugin-views] Missing export ${exportName} from ${moduleId}`);
@@ -28,7 +28,7 @@ async function loadDependencyGraphView(): Promise<{ default: PluginViewComponent
 async function loadRoadmapView(): Promise<{ default: PluginViewComponent }> {
   const moduleId = "@fusion-plugin-examples/roadmap/dashboard-view";
   const exportName = "RoadmapDashboardView";
-  const mod = await import("@fusion-plugin-examples/roadmap/dashboard-view") as Record<string, ComponentType<{ context?: PluginDashboardViewContext }>>;
+  const mod = await import("@fusion-plugin-examples/roadmap/dashboard-view") as unknown as Record<string, ComponentType<{ context?: PluginDashboardViewContext }>>;
   const component = mod[exportName];
   if (!component) {
     console.warn(`[plugin-views] Missing export ${exportName} from ${moduleId}`);

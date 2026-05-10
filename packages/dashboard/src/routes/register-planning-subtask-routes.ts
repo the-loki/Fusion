@@ -10,6 +10,7 @@ import { ApiError, badRequest, notFound, rateLimited } from "../api-error.js";
 import { writeSSEEvent, type SessionBufferedEvent } from "../sse-buffer.js";
 import type { AiSessionStore } from "../ai-session-store.js";
 import type { ApiRoutesContext } from "./types.js";
+import { derivePerTaskBranch, resolveBranchAssignmentContext, resolveBranchSelection } from "./branch-selection.js";
 
 interface PlanningSubtaskRouteDeps {
   store: TaskStore;
@@ -170,10 +171,14 @@ export function registerPlanningSubtaskRoutes(ctx: ApiRoutesContext, deps: Plann
 
   router.post("/subtasks/create-tasks", async (req, res) => {
     try {
-      const { sessionId, subtasks, parentTaskId } = req.body as {
+      const { sessionId, subtasks, parentTaskId, branch, baseBranch, branchSelection, branchAssignment } = req.body as {
         sessionId?: string;
         subtasks?: Array<{ tempId: string; title: string; description: string; size?: "S" | "M" | "L"; dependsOn?: string[] }>;
         parentTaskId?: string;
+        branch?: unknown;
+        baseBranch?: unknown;
+        branchSelection?: unknown;
+        branchAssignment?: unknown;
       };
 
       if (!sessionId || typeof sessionId !== "string") {
@@ -202,6 +207,10 @@ export function registerPlanningSubtaskRoutes(ctx: ApiRoutesContext, deps: Plann
         }
       }
 
+      const { branch: resolvedBranch, baseBranch: resolvedBaseBranch } =
+        resolveBranchSelection(branchSelection, branch, baseBranch);
+      const { mode: branchMode } = resolveBranchAssignmentContext(branchAssignment);
+
       const createdTasks = [] as Awaited<ReturnType<TaskStore["createTask"]>>[];
       const tempIdToTaskId = new Map<string, string>();
 
@@ -209,6 +218,10 @@ export function registerPlanningSubtaskRoutes(ctx: ApiRoutesContext, deps: Plann
         if (!item || typeof item.tempId !== "string" || typeof item.title !== "string" || !item.title.trim()) {
           throw badRequest("Each subtask must include tempId and title");
         }
+
+        const taskBranch = branchMode === "per-task-derived"
+          ? derivePerTaskBranch(resolvedBranch, item.title || item.tempId)
+          : resolvedBranch;
 
         const task = await scopedStore.createTask({
           title: item.title.trim(),
@@ -221,6 +234,8 @@ export function registerPlanningSubtaskRoutes(ctx: ApiRoutesContext, deps: Plann
           validatorModelProvider: parentTask?.validatorModelProvider,
           validatorModelId: parentTask?.validatorModelId,
           source: { sourceType: "api", sourceParentTaskId: typeof parentTaskId === "string" ? parentTaskId : undefined },
+          branch: taskBranch,
+          baseBranch: resolvedBaseBranch,
         });
 
         tempIdToTaskId.set(item.tempId, task.id);
@@ -941,9 +956,12 @@ export function registerPlanningSubtaskRoutes(ctx: ApiRoutesContext, deps: Plann
    */
   router.post("/planning/create-task", async (req, res) => {
     try {
-      const { sessionId, summary: summaryInput } = req.body as {
+      const { sessionId, summary: summaryInput, branch, baseBranch, branchSelection } = req.body as {
         sessionId?: unknown;
         summary?: unknown;
+        branch?: unknown;
+        baseBranch?: unknown;
+        branchSelection?: unknown;
       };
 
       if (!sessionId || typeof sessionId !== "string") {
@@ -1037,6 +1055,9 @@ export function registerPlanningSubtaskRoutes(ctx: ApiRoutesContext, deps: Plann
         throw badRequest("Planning session is not complete");
       }
 
+      const { branch: resolvedBranch, baseBranch: resolvedBaseBranch } =
+        resolveBranchSelection(branchSelection, branch, baseBranch);
+
       // Create the task
       const task = await scopedStore.createTask({
         title: summary.title,
@@ -1045,6 +1066,8 @@ export function registerPlanningSubtaskRoutes(ctx: ApiRoutesContext, deps: Plann
         dependencies: summary.suggestedDependencies.length > 0 ? summary.suggestedDependencies : undefined,
         priority: isTaskPriority(summary.priority) ? summary.priority : DEFAULT_TASK_PRIORITY,
         source: { sourceType: "api" },
+        branch: resolvedBranch,
+        baseBranch: resolvedBaseBranch,
       });
 
       // Update task with suggested size if provided
@@ -1129,7 +1152,7 @@ export function registerPlanningSubtaskRoutes(ctx: ApiRoutesContext, deps: Plann
    */
   router.post("/planning/create-tasks", async (req, res) => {
     try {
-      const { planningSessionId, subtasks } = req.body as {
+      const { planningSessionId, subtasks, branch, baseBranch, branchSelection, branchAssignment } = req.body as {
         planningSessionId?: string;
         subtasks?: Array<{
           id: string;
@@ -1139,6 +1162,10 @@ export function registerPlanningSubtaskRoutes(ctx: ApiRoutesContext, deps: Plann
           priority?: TaskPriority;
           dependsOn: string[];
         }>;
+        branch?: unknown;
+        baseBranch?: unknown;
+        branchSelection?: unknown;
+        branchAssignment?: unknown;
       };
 
       if (!planningSessionId || typeof planningSessionId !== "string") {
@@ -1176,11 +1203,19 @@ export function registerPlanningSubtaskRoutes(ctx: ApiRoutesContext, deps: Plann
         }
       }
 
+      const { branch: resolvedBranch, baseBranch: resolvedBaseBranch } =
+        resolveBranchSelection(branchSelection, branch, baseBranch);
+      const { mode: branchMode } = resolveBranchAssignmentContext(branchAssignment);
+
       const createdTasks = [] as Awaited<ReturnType<TaskStore["createTask"]>>[];
       const tempIdToTaskId = new Map<string, string>();
 
       // Create tasks
       for (const item of subtasks) {
+        const taskBranch = branchMode === "per-task-derived"
+          ? derivePerTaskBranch(resolvedBranch, item.title || item.id)
+          : resolvedBranch;
+
         const task = await scopedStore.createTask({
           title: item.title.trim(),
           description: typeof item.description === "string" ? item.description.trim() : item.title.trim(),
@@ -1188,6 +1223,8 @@ export function registerPlanningSubtaskRoutes(ctx: ApiRoutesContext, deps: Plann
           dependencies: undefined,
           priority: isTaskPriority(item.priority) ? item.priority : DEFAULT_TASK_PRIORITY,
           source: { sourceType: "api", sourceMetadata: { planningSessionId } },
+          branch: taskBranch,
+          baseBranch: resolvedBaseBranch,
         });
 
         tempIdToTaskId.set(item.id, task.id);

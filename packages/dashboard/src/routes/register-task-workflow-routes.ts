@@ -19,6 +19,7 @@ import { planTaskWorktreePath } from "@fusion/engine";
 import { ApiError, badRequest, conflict, notFound } from "../api-error.js";
 import { fetchFromRemoteNode } from "./register-settings-sync-helpers.js";
 import type { ApiRoutesContext } from "./types.js";
+import { resolveBranchSelection } from "./branch-selection.js";
 
 const REVIEW_BLOCK_RE = /##\s+(Code|Plan)\s+Review:[\s\S]*?(?=\n##\s+(?:Code|Plan)\s+Review:|$)/gi;
 const REVIEW_VERDICT_RE = /###\s+Verdict:\s*(APPROVE|REVISE|RETHINK|UNAVAILABLE)\b/i;
@@ -180,6 +181,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         source,
         branch,
         baseBranch,
+        branchSelection,
         nodeId,
       } = req.body;
       if (!description || typeof description !== "string") {
@@ -274,17 +276,8 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
           ? source
           : { sourceType: "api" as const };
 
-      const validateOptionalBranchString = (value: unknown, fieldName: string): string | undefined => {
-        if (value === undefined || value === null) return undefined;
-        if (typeof value !== "string") {
-          throw badRequest(`${fieldName} must be a string`);
-        }
-        const trimmed = value.trim();
-        return trimmed.length > 0 ? trimmed : undefined;
-      };
-
-      const normalizedBranch = validateOptionalBranchString(branch, "branch");
-      const normalizedBaseBranch = validateOptionalBranchString(baseBranch, "baseBranch");
+      const { branch: normalizedBranch, baseBranch: normalizedBaseBranch } =
+        resolveBranchSelection(branchSelection, branch, baseBranch);
 
       const createInput = {
         title,

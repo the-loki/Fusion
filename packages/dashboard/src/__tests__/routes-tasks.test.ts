@@ -1909,6 +1909,77 @@ describe("POST /subtasks/*", () => {
     expect(store.updateTask).toHaveBeenCalledWith("FN-102", { dependencies: ["FN-101"] });
   });
 
+  it("applies explicit branch selection to created subtasks", async () => {
+    (store.createTask as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ...FAKE_TASK_DETAIL, id: "FN-201", title: "First", column: "triage" });
+
+    const start = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/subtasks/start-streaming",
+      JSON.stringify({ description: "Break this feature into subtasks" }),
+      { "Content-Type": "application/json" },
+    );
+
+    const createRes = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/subtasks/create-tasks",
+      JSON.stringify({
+        sessionId: start.body.sessionId,
+        branchSelection: { mode: "custom-new", branchName: "feature/planning", baseBranch: "main" },
+        subtasks: [
+          { tempId: "subtask-1", title: "First", description: "Do first" },
+        ],
+      }),
+      { "Content-Type": "application/json" },
+    );
+
+    expect(createRes.status).toBe(201);
+    expect(store.createTask).toHaveBeenCalledWith(expect.objectContaining({
+      branch: "feature/planning",
+      baseBranch: "main",
+    }));
+  });
+
+  it("derives per-task branches when requested", async () => {
+    (store.createTask as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ...FAKE_TASK_DETAIL, id: "FN-301", title: "First", column: "triage" })
+      .mockResolvedValueOnce({ ...FAKE_TASK_DETAIL, id: "FN-302", title: "Second", column: "triage" });
+
+    const start = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/subtasks/start-streaming",
+      JSON.stringify({ description: "Break this feature into subtasks" }),
+      { "Content-Type": "application/json" },
+    );
+
+    const createRes = await REQUEST(
+      buildApp(),
+      "POST",
+      "/api/subtasks/create-tasks",
+      JSON.stringify({
+        sessionId: start.body.sessionId,
+        branchSelection: { mode: "custom-new", branchName: "feature/planning" },
+        branchAssignment: { mode: "per-task-derived" },
+        subtasks: [
+          { tempId: "subtask-1", title: "First Task", description: "Do first" },
+          { tempId: "subtask-2", title: "Second Task", description: "Do second" },
+        ],
+      }),
+      { "Content-Type": "application/json" },
+    );
+
+    expect(createRes.status).toBe(201);
+    expect(store.createTask).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      branch: "feature/planning/first-task",
+    }));
+    expect(store.createTask).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      branch: "feature/planning/second-task",
+    }));
+  });
+
   it("returns 404 for invalid subtask session during batch creation", async () => {
     const res = await REQUEST(
       buildApp(),

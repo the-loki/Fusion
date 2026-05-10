@@ -4618,12 +4618,26 @@ export function createTasksFromBreakdown(
   subtasks: SubtaskItem[],
   parentTaskId?: string,
   projectId?: string,
+  options?: {
+    branch?: string;
+    baseBranch?: string;
+    branchSelection?: {
+      mode: "project-default" | "auto-new" | "existing" | "custom-new";
+      branchName?: string;
+      baseBranch?: string;
+    };
+    branchAssignment?: { mode: "shared" | "per-task-derived" };
+  },
 ): Promise<{ tasks: Task[]; parentTaskClosed?: boolean }> {
   return api<{ tasks: Task[]; parentTaskClosed?: boolean }>(withProjectId("/subtasks/create-tasks", projectId), {
     method: "POST",
     body: JSON.stringify({
       sessionId,
       parentTaskId,
+      ...(options?.branch !== undefined ? { branch: options.branch } : {}),
+      ...(options?.baseBranch !== undefined ? { baseBranch: options.baseBranch } : {}),
+      ...(options?.branchSelection ? { branchSelection: options.branchSelection } : {}),
+      ...(options?.branchAssignment ? { branchAssignment: options.branchAssignment } : {}),
       subtasks: subtasks.map((subtask) => ({
         tempId: subtask.id,
         title: subtask.title,
@@ -6917,11 +6931,28 @@ export function cancelMissionInterview(sessionId: string, projectId?: string, ta
 export function createMissionFromInterview(
   sessionId: string,
   summary?: MissionPlanSummary,
-  projectId?: string
+  projectId?: string,
+  options?: {
+    branch?: string;
+    baseBranch?: string;
+    branchSelection?: {
+      mode: "project-default" | "auto-new" | "existing" | "custom-new";
+      branchName?: string;
+      baseBranch?: string;
+    };
+    branchAssignment?: { mode: "shared" | "per-task-derived" };
+  },
 ): Promise<MissionWithHierarchy> {
   return api<MissionWithHierarchy>(withProjectId("/missions/interview/create-mission", projectId), {
     method: "POST",
-    body: JSON.stringify({ sessionId, summary }),
+    body: JSON.stringify({
+      sessionId,
+      summary,
+      ...(options?.branch !== undefined ? { branch: options.branch } : {}),
+      ...(options?.baseBranch !== undefined ? { baseBranch: options.baseBranch } : {}),
+      ...(options?.branchSelection ? { branchSelection: options.branchSelection } : {}),
+      ...(options?.branchAssignment ? { branchAssignment: options.branchAssignment } : {}),
+    }),
   });
 }
 
