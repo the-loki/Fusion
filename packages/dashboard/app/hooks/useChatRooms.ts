@@ -174,20 +174,32 @@ export function useChatRooms(
       throw new Error("Select a room before sending a message");
     }
 
-    const postResult = await postChatRoomMessage(roomId, {
-      content,
-      ...(opts?.attachments ? { attachments: opts.attachments } : {}),
-    }, projectId);
+    try {
+      const postResult = await postChatRoomMessage(roomId, {
+        content,
+        ...(opts?.attachments ? { attachments: opts.attachments } : {}),
+      }, projectId);
 
-    if (postResult.message?.createdAt && activeRoomSnapshot) {
-      setRooms((previous) => upsertRoom(previous, { ...activeRoomSnapshot, updatedAt: postResult.message.createdAt }));
-    }
+      if (postResult.message?.createdAt && activeRoomSnapshot) {
+        setRooms((previous) => upsertRoom(previous, { ...activeRoomSnapshot, updatedAt: postResult.message.createdAt }));
+      }
 
-    const latestMessages = await fetchChatRoomMessages(roomId, { limit: 100 }, projectId);
-    if (activeRoomRef.current?.id !== roomId) {
-      return;
+      const latestMessages = await fetchChatRoomMessages(roomId, { limit: 100 }, projectId);
+      if (activeRoomRef.current?.id !== roomId) {
+        return;
+      }
+      setMessages(latestMessages.messages);
+    } catch (error) {
+      try {
+        const latestMessages = await fetchChatRoomMessages(roomId, { limit: 100 }, projectId);
+        if (activeRoomRef.current?.id === roomId) {
+          setMessages(latestMessages.messages);
+        }
+      } catch {
+        // Ignore refresh failures and preserve the original error.
+      }
+      throw error;
     }
-    setMessages(latestMessages.messages);
   }, [projectId]);
 
   useEffect(() => {

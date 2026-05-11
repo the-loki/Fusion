@@ -1,5 +1,5 @@
 import { AgentStore, ChatStore, type MessageStore, type TaskStore } from "@fusion/core";
-import type { PluginRunner, ProjectEngineManager } from "@fusion/engine";
+import type { ProjectEngineManager } from "@fusion/engine";
 import { ChatManager } from "./chat.js";
 import { getOrCreateProjectStore } from "./project-store-resolver.js";
 
@@ -34,17 +34,24 @@ export async function resolveProjectChatContext(options: {
   }
 
   const engine = engineManager?.getEngine(projectId);
-  const scopedStore = engine?.getTaskStore() ?? await getOrCreateProjectStore(projectId);
-  return {
-    store: scopedStore,
-    chatStore: getOrCreateScopedChatStore(scopedStore),
-  };
+  try {
+    const scopedStore = engine?.getTaskStore() ?? await getOrCreateProjectStore(projectId);
+    return {
+      store: scopedStore,
+      chatStore: getOrCreateScopedChatStore(scopedStore),
+    };
+  } catch {
+    return {
+      store: defaultStore,
+      chatStore: getOrCreateScopedChatStore(defaultStore, defaultChatStore),
+    };
+  }
 }
 
 export async function createProjectScopedChatManager(options: {
   store: TaskStore;
   chatStore: ChatStore;
-  pluginRunner?: PluginRunner;
+  pluginRunner?: ConstructorParameters<typeof ChatManager>[3];
   messageStore?: MessageStore;
 }): Promise<ChatManager> {
   const agentStore = new AgentStore({ rootDir: options.store.getFusionDir() });

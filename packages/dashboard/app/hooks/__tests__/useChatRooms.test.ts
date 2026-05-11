@@ -224,8 +224,13 @@ describe("useChatRooms", () => {
     mockPostChatRoomMessage.mockRejectedValueOnce(new Error("No active room responders available for room room-1"));
     mockFetchChatRoomMessages.mockResolvedValueOnce({ messages: [persistedUserMessage] });
 
-    await expect(result.current.sendRoomMessage("hello")).rejects.toThrow("No active room responders available for room room-1");
-    expect(result.current.messages.map((message) => message.id)).toEqual(["msg-user"]);
+    const sendPromise = act(async () => {
+      await expect(result.current.sendRoomMessage("hello")).rejects.toThrow("No active room responders available for room room-1");
+    });
+    await sendPromise;
+    await waitFor(() => {
+      expect(result.current.messages.map((message) => message.id)).toEqual(["msg-user"]);
+    });
   });
 
   it("tears down sse subscription on unmount", async () => {
