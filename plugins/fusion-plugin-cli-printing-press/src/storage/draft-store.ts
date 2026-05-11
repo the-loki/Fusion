@@ -33,6 +33,15 @@ export function createDraftStore({ rootDir }: { rootDir: string }) {
 
   async function ensureDir() { await mkdir(draftsDir, { recursive: true }); }
 
+  function nextUpdatedAt(previous?: string): string {
+    const now = Date.now();
+    const previousTime = previous ? Date.parse(previous) : Number.NaN;
+    if (Number.isFinite(previousTime) && now <= previousTime) {
+      return new Date(previousTime + 1).toISOString();
+    }
+    return new Date(now).toISOString();
+  }
+
   async function writeAtomic(path: string, draft: ServiceDraft): Promise<void> {
     const tempPath = `${path}.tmp-${randomUUID()}`;
     await writeFile(tempPath, JSON.stringify(draft, null, 2), "utf8");
@@ -42,7 +51,7 @@ export function createDraftStore({ rootDir }: { rootDir: string }) {
   return {
     async create(input: ServiceDraft) {
       await ensureDir();
-      const now = new Date().toISOString();
+      const now = nextUpdatedAt();
       const draft: ServiceDraft = { ...input, id: input.id || randomUUID(), createdAt: input.createdAt || now, updatedAt: now };
       await writeAtomic(join(draftsDir, `${draft.id}.json`), draft);
       return draft;
@@ -64,7 +73,7 @@ export function createDraftStore({ rootDir }: { rootDir: string }) {
         ...mergeDraft(current, patch),
         id: current.id,
         createdAt: current.createdAt,
-        updatedAt: new Date().toISOString(),
+        updatedAt: nextUpdatedAt(current.updatedAt),
       };
       await writeAtomic(join(draftsDir, `${id}.json`), updated);
       return updated;

@@ -1087,11 +1087,11 @@
   /* Card edit button: always visible on mobile (no hover) */
   .card-edit-btn {
     opacity: 1;
-    width: 32px;
-    height: 32px;
-    margin-right: -8px;
-    margin-top: -8px;
-    margin-bottom: -8px;
+    width: calc(var(--space-xl) + var(--space-md));
+    height: calc(var(--space-xl) + var(--space-md));
+    margin-right: calc(-1 * var(--space-sm));
+    margin-top: calc(-1 * var(--space-sm));
+    margin-bottom: calc(-1 * var(--space-sm));
     border-radius: var(--radius-md);
   }
 
@@ -1103,11 +1103,11 @@
   /* Card delete button: always visible on mobile (no hover) */
   .card-delete-btn {
     opacity: 1;
-    width: 32px;
-    height: 32px;
-    margin-right: -8px;
-    margin-top: -8px;
-    margin-bottom: -8px;
+    width: calc(var(--space-xl) + var(--space-md));
+    height: calc(var(--space-xl) + var(--space-md));
+    margin-right: calc(-1 * var(--space-sm));
+    margin-top: calc(-1 * var(--space-sm));
+    margin-bottom: calc(-1 * var(--space-sm));
     border-radius: var(--radius-md);
   }
 

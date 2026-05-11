@@ -1623,7 +1623,7 @@ function AppInner() {
         />
       )}
       <div
-        className={`project-content${viewMode === "project" && currentProject ? " project-content--with-footer" : ""}${isMobile && !mobileKeyboardOpen ? " project-content--with-mobile-nav" : ""}`}
+        className={`project-content${viewMode === "project" && currentProject && (!isMobile || !mobileKeyboardOpen) ? " project-content--with-footer" : ""}${isMobile && !mobileKeyboardOpen ? " project-content--with-mobile-nav" : ""}`}
       >
         {renderMainContent()}
       </div>
