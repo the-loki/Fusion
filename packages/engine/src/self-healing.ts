@@ -117,7 +117,7 @@ const ORPHANED_WITH_WORKTREE_GRACE_MS = 300_000;
 
 /**
  * Maximum times a task can be auto-requeued after the agent exits without
- * calling `task_done`. Bounded so a persistently-broken task cannot loop
+ * calling `fn_task_done`. Bounded so a persistently-broken task cannot loop
  * forever; when exhausted the task stays in `in-review` for human inspection.
  */
 const MAX_TASK_DONE_RETRIES = 3;
@@ -1901,7 +1901,7 @@ export class SelfHealingManager {
   /**
    * Recover tasks in `in-review` marked as `failed` where all steps are
    * actually done. This catches the case where an agent completed all work
-   * but the session ended without calling `task_done` (e.g., context
+   * but the session ended without calling `fn_task_done` (e.g., context
    * overflow, compaction losing tool awareness). The executor marks these
    * as failed, but the work is complete — clear the error so the normal
    * review flow can proceed.
@@ -1916,7 +1916,7 @@ export class SelfHealingManager {
         t.column === "in-review" &&
         !t.paused &&
         t.status === "failed" &&
-        t.error?.includes("without calling task_done") &&
+        isNoTaskDoneFailure(t) &&
         t.steps.length > 0 &&
         t.steps.every((s) => s.status === "done" || s.status === "skipped"),
       );
@@ -1934,7 +1934,7 @@ export class SelfHealingManager {
           });
           await this.store.logEntry(
             task.id,
-            "Auto-recovered: all steps complete despite 'no task_done' failure — cleared error for normal review",
+            "Auto-recovered: all steps complete despite 'no fn_task_done' failure — cleared error for normal review",
           );
           log.log(`Recovered misclassified failure ${task.id}: ${task.title || task.description?.slice(0, 60) || "(untitled)"}`);
           recovered++;
@@ -2199,7 +2199,7 @@ export class SelfHealingManager {
 
   /**
    * Recover `in-progress` tasks that failed only because the agent exited
-   * without calling task_done, and where there is no sign of work to preserve.
+   * without calling fn_task_done, and where there is no sign of work to preserve.
    *
    * These are safe to requeue automatically when no steps progressed and git
    * has neither worktree changes nor branch commits. Cases with any evidence
@@ -2312,7 +2312,7 @@ export class SelfHealingManager {
 
   /**
    * Recover `in-review` tasks marked as `failed` because the agent exited
-   * without calling `task_done` *with partial step progress* (some steps done,
+   * without calling `fn_task_done` *with partial step progress* (some steps done,
    * some still pending). The work-in-progress is valuable but incomplete —
    * the existing worktree and branch are preserved and the task is moved back
    * to `todo` so the scheduler re-dispatches it for a fresh execution that
@@ -2362,7 +2362,7 @@ export class SelfHealingManager {
           });
           await this.store.logEntry(
             task.id,
-            `Auto-retry ${nextCount}/${MAX_TASK_DONE_RETRIES}: agent finished without task_done — requeuing to todo to resume partial work`,
+            `Auto-retry ${nextCount}/${MAX_TASK_DONE_RETRIES}: agent finished without fn_task_done — requeuing to todo to resume partial work`,
           );
           await this.store.moveTask(task.id, "todo", { preserveProgress: true });
           recovered++;
@@ -2810,7 +2810,8 @@ function isTaskWorkComplete(task: Task): boolean {
 }
 
 function isNoTaskDoneFailure(task: Task): boolean {
-  return task.error?.includes("without calling task_done") === true;
+  const error = task.error?.toLowerCase() ?? "";
+  return error.includes("without calling fn_task_done") || error.includes("without calling task_done");
 }
 
 function hasStepProgress(task: Task): boolean {
