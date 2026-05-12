@@ -28,7 +28,7 @@ import { validateNodeOverrideChange } from "./node-override-guard.js";
 import { sanitizeTitle } from "./ai-summarize.js";
 import { assertProjectRootDir } from "./project-root-guard.js";
 import { generateTaskLineageId, normalizeTaskCommitAssociation } from "./task-lineage.js";
-import { createDistributedTaskIdAllocator, type DistributedTaskIdAllocator } from "./distributed-task-id.js";
+import { createDistributedTaskIdAllocator, resolveLocalNodeId, type DistributedTaskIdAllocator } from "./distributed-task-id.js";
 import {
   buildBootstrapPrompt,
   replicationCollisionError,
@@ -2146,39 +2146,57 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
     }
   }
 
-  private async allocateId(): Promise<string> {
-    // Use withConfigLock to ensure the entire ID allocation + config sync is serialized
-    return this.withConfigLock(async () => {
-      const id = this.db.transaction(() => {
-        const row = this.db.prepare("SELECT nextId, settings FROM config WHERE id = 1").get() as unknown as { nextId: number; settings: string | null } | undefined;
-        const settings = fromJson<Settings>(row?.settings ?? null);
-        const prefix = settings?.taskPrefix || "KB";
-        const nextId = row?.nextId || 1;
-        const taskId = `${prefix}-${String(nextId).padStart(3, "0")}`;
-        this.db.prepare("UPDATE config SET nextId = ? WHERE id = 1").run(nextId + 1);
-        this.db.bumpLastModified();
-        return taskId;
-      }); // Database.transaction() directly executes and returns the result
+  async resolveLocalNodeIdForTaskAllocation(): Promise<string> {
+    if (process.env.VITEST === "true") {
+      return "local";
+    }
+    const central = new CentralCore();
+    await central.init();
+    try {
+      const nodes = await central.listNodes();
+      return resolveLocalNodeId(nodes.map((node) => ({ id: node.id, type: node.type })));
+    } catch {
+      return "local";
+    } finally {
+      await central.close();
+    }
+  }
 
-      // Sync config.json to disk for backward compatibility.
-      // Use readConfigFast() to avoid the expensive listWorkflowSteps() query.
-      try {
-        const config = this.readConfigFast();
-        const tmpPath = this.configPath + ".tmp";
-        await writeFile(tmpPath, JSON.stringify(config, null, 2));
-        await rename(tmpPath, this.configPath);
-      } catch (err) {
-        // Non-fatal: SQLite is the primary store
-        storeLog.warn("Backward-compat config.json sync failed after ID allocation", {
-          phase: "allocateId:disk-sync",
-          configPath: this.configPath,
-          taskId: id,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-
-      return id;
+  private async createTaskWithDistributedReservation(
+    input: TaskCreateInput,
+    options?: {
+      onSummarize?: (description: string) => Promise<string | null>;
+      settings?: { autoSummarizeTitles?: boolean };
+      createTaskWithId?: (taskId: string) => Promise<Task>;
+    },
+  ): Promise<Task> {
+    const settings = await this.getSettingsFast();
+    const prefix = (settings.taskPrefix || "KB").trim().toUpperCase();
+    const allocator = this.getDistributedTaskIdAllocator();
+    const nodeId = await this.resolveLocalNodeIdForTaskAllocation();
+    const reservation = await allocator.reserveDistributedTaskId({
+      prefix,
+      nodeId,
     });
+
+    let createdTask: Task | null = null;
+    try {
+      createdTask = options?.createTaskWithId
+        ? await options.createTaskWithId(reservation.taskId)
+        : await this.createTaskWithReservedId(input, { taskId: reservation.taskId });
+      await allocator.commitDistributedTaskIdReservation({
+        reservationId: reservation.reservationId,
+        nodeId,
+      });
+      return createdTask;
+    } catch (error) {
+      await allocator.abortDistributedTaskIdReservation({
+        reservationId: reservation.reservationId,
+        nodeId,
+        reason: "failed-create",
+      }).catch(() => undefined);
+      throw error;
+    }
   }
 
   private taskDir(id: string): string {
@@ -2347,26 +2365,18 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       throw new Error("Description is required and cannot be empty");
     }
 
-    const id = await this.allocateId();
-    // Validate that task doesn't depend on itself
-    if (input.dependencies?.includes(id)) {
-      throw new Error(`Task ${id} cannot depend on itself`);
-    }
-
     // Determine if we should try to summarize the title
     const title = input.title?.trim() || undefined;
     const shouldSummarize =
-      !title && // Only if no title provided
-      input.description.length > 200 && // Only if description is long enough
-      (input.summarize === true || // Explicit request
-        options?.settings?.autoSummarizeTitles === true); // Auto-enabled
+      !title &&
+      input.description.length > 200 &&
+      (input.summarize === true || options?.settings?.autoSummarizeTitles === true);
 
     // Determine enabledWorkflowSteps: explicit input takes precedence, otherwise auto-apply default-on steps
     let resolvedWorkflowSteps: string[] | undefined = input.enabledWorkflowSteps?.length
       ? await this.resolveEnabledWorkflowSteps(input.enabledWorkflowSteps)
       : undefined;
 
-    // When enabledWorkflowSteps is not provided at all (undefined), auto-apply default-on workflow steps
     if (input.enabledWorkflowSteps === undefined) {
       try {
         const allSteps = await this.listWorkflowSteps();
@@ -2377,7 +2387,6 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
           resolvedWorkflowSteps = defaultOnSteps;
         }
       } catch (err) {
-        // Non-fatal: default-on resolution is best-effort
         storeLog.warn("Failed to auto-apply default workflow steps during task creation; auto-defaulting skipped", {
           phase: "createTask:workflow-auto-default",
           skippedAutoDefaulting: true,
@@ -2386,22 +2395,25 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         });
       }
     } else if (input.enabledWorkflowSteps.length === 0) {
-      // Explicitly empty array — user intentionally selected no steps
       resolvedWorkflowSteps = undefined;
     }
 
-    // Create the task immediately with current title (may be undefined)
-    const task = await this._createTaskInternal(input, title, resolvedWorkflowSteps, id);
+    const task = await this.createTaskWithDistributedReservation(input, {
+      createTaskWithId: async (taskId) => {
+        if (input.dependencies?.includes(taskId)) {
+          throw new Error(`Task ${taskId} cannot depend on itself`);
+        }
+        return this._createTaskInternal(input, title, resolvedWorkflowSteps, taskId);
+      },
+    });
 
-    // Fire async background handler for title summarization (non-blocking)
     if (shouldSummarize && options?.onSummarize) {
+      const id = task.id;
       Promise.resolve().then(async () => {
         try {
           const generatedTitle = await options.onSummarize!(input.description);
           const normalizedTitle = sanitizeTitle(generatedTitle);
           if (normalizedTitle) {
-            // Guard against races: read directly from SQLite to avoid extra
-            // prompt/step file I/O in this background path.
             const currentTask = this.readTaskFromDb(id);
             if (currentTask && !currentTask.title) {
               await this.updateTask(id, { title: normalizedTitle });
@@ -2601,50 +2613,42 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
    * execution state. The new task will be re-specified by the AI.
    */
   async duplicateTask(id: string): Promise<Task> {
-    // Read the source task with its prompt
     const sourceTask = await this.getTask(id);
-
-    // Allocate a new ID
-    const newId = await this.allocateId();
     const now = new Date().toISOString();
 
-    // Create new task with copied title/description, but fresh state
-    const newTask: Task = {
-      id: newId,
-      lineageId: generateTaskLineageId(),
-      title: sourceTask.title,
-      description: `${sourceTask.description}\n\n(Duplicated from ${id})`,
-      priority: normalizeTaskPriority(sourceTask.priority),
-      column: "triage",
-      modelPresetId: sourceTask.modelPresetId,
-      sourceType: "task_duplicate",
-      sourceParentTaskId: id,
-      dependencies: [], // Fresh task should have no dependencies
-      steps: [], // Reset execution state
-      currentStep: 0,
-      log: [{ timestamp: now, action: `Duplicated from ${id}` }],
-      columnMovedAt: now,
-      createdAt: now,
-      updatedAt: now,
-      // Explicitly NOT copied: worktree, status, blockedBy, paused, executionStartBranch,
-      // attachments, comments, prInfo, agent logs, size, reviewLevel
-      baseBranch: sourceTask.baseBranch,
-    };
+    return this.createTaskWithDistributedReservation({ description: sourceTask.description }, {
+      createTaskWithId: async (newId) => {
+        const newTask: Task = {
+          id: newId,
+          lineageId: generateTaskLineageId(),
+          title: sourceTask.title,
+          description: `${sourceTask.description}\n\n(Duplicated from ${id})`,
+          priority: normalizeTaskPriority(sourceTask.priority),
+          column: "triage",
+          modelPresetId: sourceTask.modelPresetId,
+          sourceType: "task_duplicate",
+          sourceParentTaskId: id,
+          dependencies: [],
+          steps: [],
+          currentStep: 0,
+          log: [{ timestamp: now, action: `Duplicated from ${id}` }],
+          columnMovedAt: now,
+          createdAt: now,
+          updatedAt: now,
+          baseBranch: sourceTask.baseBranch,
+        };
 
-    const newDir = this.taskDir(newId);
-    await mkdir(newDir, { recursive: true });
-    await this.atomicWriteTaskJson(newDir, newTask);
+        const newDir = this.taskDir(newId);
+        await mkdir(newDir, { recursive: true });
+        await this.atomicWriteTaskJson(newDir, newTask);
+        await mkdir(newDir, { recursive: true });
+        await writeFile(join(newDir, "PROMPT.md"), sourceTask.prompt);
 
-    // Copy source PROMPT.md content (the AI will re-specify it in triage)
-    const sourcePrompt = sourceTask.prompt;
-    await mkdir(newDir, { recursive: true });
-    await writeFile(join(newDir, "PROMPT.md"), sourcePrompt);
-
-    // Update cache if watcher is active
-    if (this.isWatching) this.taskCache.set(newId, { ...newTask });
-
-    this.emit("task:created", newTask);
-    return newTask;
+        if (this.isWatching) this.taskCache.set(newId, { ...newTask });
+        this.emit("task:created", newTask);
+        return newTask;
+      },
+    });
   }
 
   /**
@@ -2653,27 +2657,19 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
    * Validates the original is in 'done' or 'in-review' column.
    */
   async refineTask(id: string, feedback: string): Promise<Task> {
-    // Read the source task with its prompt
     const sourceTask = await this.getTask(id);
 
-    // Validate task is in done or in-review column
     if (sourceTask.column !== "done" && sourceTask.column !== "in-review") {
       throw new Error(
         `Cannot refine ${id}: task is in '${sourceTask.column}', must be in 'done' or 'in-review'`,
       );
     }
 
-    // Validate feedback is not empty
     if (!feedback?.trim()) {
       throw new Error("Feedback is required and cannot be empty");
     }
 
-    // Allocate a new ID
-    const newId = await this.allocateId();
     const now = new Date().toISOString();
-
-    // Derive a readable source label for the refinement title.
-    // Precedence: title → first non-empty line of description (collapsed) → task ID
     let sourceLabel: string;
     if (sourceTask.title?.trim()) {
       sourceLabel = sourceTask.title.trim();
@@ -2682,65 +2678,56 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         .split("\n")
         .map((line: string) => line.trim())
         .find((line: string) => line.length > 0);
-      if (firstLine) {
-        sourceLabel = firstLine.replace(/\s+/g, " ");
-      } else {
-        sourceLabel = sourceTask.id;
-      }
+      sourceLabel = firstLine ? firstLine.replace(/\s+/g, " ") : sourceTask.id;
     }
 
-    // Create new refinement task
-    const newTask: Task = {
-      id: newId,
-      lineageId: generateTaskLineageId(),
-      title: `Refinement: ${sourceLabel}`,
-      description: `${feedback.trim()}\n\nRefines: ${id}`,
-      priority: normalizeTaskPriority(sourceTask.priority),
-      column: "triage",
-      dependencies: [id], // Refinement depends on the original being complete
-      sourceType: "task_refine",
-      sourceParentTaskId: id,
-      steps: [], // Reset execution state
-      currentStep: 0,
-      log: [{ timestamp: now, action: `Created as refinement of ${id}` }],
-      columnMovedAt: now,
-      createdAt: now,
-      updatedAt: now,
-      // Copy attachments from original for context (defensive copy)
-      attachments: sourceTask.attachments ? [...sourceTask.attachments] : undefined,
-    };
+    return this.createTaskWithDistributedReservation({ description: feedback.trim() }, {
+      createTaskWithId: async (newId) => {
+        const newTask: Task = {
+          id: newId,
+          lineageId: generateTaskLineageId(),
+          title: `Refinement: ${sourceLabel}`,
+          description: `${feedback.trim()}\n\nRefines: ${id}`,
+          priority: normalizeTaskPriority(sourceTask.priority),
+          column: "triage",
+          dependencies: [id],
+          sourceType: "task_refine",
+          sourceParentTaskId: id,
+          steps: [],
+          currentStep: 0,
+          log: [{ timestamp: now, action: `Created as refinement of ${id}` }],
+          columnMovedAt: now,
+          createdAt: now,
+          updatedAt: now,
+          attachments: sourceTask.attachments ? [...sourceTask.attachments] : undefined,
+        };
 
-    const newDir = this.taskDir(newId);
-    await mkdir(newDir, { recursive: true });
-    await this.atomicWriteTaskJson(newDir, newTask);
+        const newDir = this.taskDir(newId);
+        await mkdir(newDir, { recursive: true });
+        await this.atomicWriteTaskJson(newDir, newTask);
+        const prompt = `# ${newTask.title}\n\n${newTask.description}\n`;
+        await mkdir(newDir, { recursive: true });
+        await writeFile(join(newDir, "PROMPT.md"), prompt);
 
-    // Create a PROMPT.md for the refinement
-    const heading = newTask.title;
-    const prompt = `# ${heading}\n\n${newTask.description}\n`;
-    await mkdir(newDir, { recursive: true });
-    await writeFile(join(newDir, "PROMPT.md"), prompt);
-
-    // Copy attachments from source if any
-    if (sourceTask.attachments && sourceTask.attachments.length > 0) {
-      const sourceAttachDir = join(this.taskDir(id), "attachments");
-      const targetAttachDir = join(newDir, "attachments");
-      await mkdir(targetAttachDir, { recursive: true });
-
-      for (const attachment of sourceTask.attachments) {
-        const sourcePath = join(sourceAttachDir, attachment.filename);
-        const targetPath = join(targetAttachDir, attachment.filename);
-        if (existsSync(sourcePath)) {
-          const content = await readFile(sourcePath);
-          await writeFile(targetPath, content);
+        if (sourceTask.attachments && sourceTask.attachments.length > 0) {
+          const sourceAttachDir = join(this.taskDir(id), "attachments");
+          const targetAttachDir = join(newDir, "attachments");
+          await mkdir(targetAttachDir, { recursive: true });
+          for (const attachment of sourceTask.attachments) {
+            const sourcePath = join(sourceAttachDir, attachment.filename);
+            const targetPath = join(targetAttachDir, attachment.filename);
+            if (existsSync(sourcePath)) {
+              const content = await readFile(sourcePath);
+              await writeFile(targetPath, content);
+            }
+          }
         }
-      }
-    }
 
-    // Update cache if watcher is active
-    if (this.isWatching) this.taskCache.set(newId, { ...newTask });
-
-    this.emit("task:created", newTask);
-    return newTask;
+        if (this.isWatching) this.taskCache.set(newId, { ...newTask });
+        this.emit("task:created", newTask);
+        return newTask;
+      },
+    });
   }
 
   /**

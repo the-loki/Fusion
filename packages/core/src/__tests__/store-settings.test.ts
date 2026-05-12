@@ -2054,7 +2054,7 @@ describe("TaskStore", () => {
       expect(task.id).toBe("PROJ-001");
     });
 
-    it("prefix change mid-stream continues sequence", async () => {
+    it("prefix change mid-stream starts a fresh per-prefix sequence", async () => {
       const t1 = await harness.store().createTask({ description: "First" });
       const t2 = await harness.store().createTask({ description: "Second" });
       expect(t1.id).toBe("FN-001");
@@ -2062,7 +2062,7 @@ describe("TaskStore", () => {
 
       await harness.store().updateSettings({ taskPrefix: "PROJ" });
       const t3 = await harness.store().createTask({ description: "Third" });
-      expect(t3.id).toBe("PROJ-003");
+      expect(t3.id).toBe("PROJ-001");
     });
 
     it("listTasks returns tasks regardless of prefix", async () => {
@@ -2072,7 +2072,7 @@ describe("TaskStore", () => {
 
       const tasks = await harness.store().listTasks();
       expect(tasks).toHaveLength(2);
-      expect(tasks.map((t) => t.id).sort()).toEqual(["FN-001", "PROJ-002"]);
+      expect(tasks.map((t) => t.id).sort()).toEqual(["FN-001", "PROJ-001"]);
     });
 
     it("supports pagination with limit and offset", async () => {

@@ -671,6 +671,8 @@ A lease is recoverable only when there is **no active local executor session for
   - `committedClusterTaskCount` from allocator state is the only authoritative cluster-wide committed-task count. Local task-row counts and ID suffix math are not authoritative.
   - Mesh allocator write routes (`/api/mesh/task-ids/reserve|commit|abort`) return `503` when the coordinator node is unreachable; they never fall back to local-only cluster ID issuance.
 - Cluster task creation now uses a strong-write reserve → create → replicate → commit/abort sequence.
+  - Ordinary local task creation (`TaskStore.createTask()`, duplicate, and refine flows) now allocates IDs through the same distributed reserve/commit/abort lifecycle owned by `TaskStore`.
+  - `POST /api/tasks` uses the store-owned allocator path for local creates rather than maintaining a separate route-local allocator implementation.
   - `POST /api/tasks` reserves a distributed ID, creates the authoritative local task with that reserved ID, then POSTs authenticated replication payloads to peer nodes.
   - Creation self-heals stale ID overlap state: if a reserved `FN-*` collides with an existing task (`Task ID already exists...` or replicated-create collision), the route aborts that reservation, cleans up partial local state, reserves the next ID, and retries up to a bounded limit.
   - Replica apply uses `TaskStore.applyReplicatedTaskCreate(...)`, which is idempotent by task ID: replaying the same payload returns the existing task without creating duplicates.

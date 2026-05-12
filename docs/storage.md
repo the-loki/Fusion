@@ -1,5 +1,12 @@
 # Fusion Dashboard Storage Audit (FN-1202)
 
+## Task-ID allocator authority and compatibility
+
+- `distributed_task_id_state` is the authoritative local task-ID allocator state. `nextSequence` is the active high-water mark used for local ID reservations.
+- `distributed_task_id_reservations` tracks reserve/commit/abort lifecycle entries. Aborted/expired reservations are burned and never reissued.
+- `config.nextId` is retained only as a legacy compatibility field and optional seed source; runtime task creation no longer mutates it as allocator truth.
+- Startup allocator reconciliation bumps each active prefix sequence to `max(current nextSequence, max(existing task suffix)+1)` across live + archived tasks to self-heal stale allocator drift.
+
 ## 1) Summary
 
 - **localStorage keys in runtime dashboard code:** **20**

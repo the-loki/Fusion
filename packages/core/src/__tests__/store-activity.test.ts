@@ -562,28 +562,20 @@ describe("TaskStore", () => {
       }
     });
 
-    it("logs allocateId disk sync failures while preserving task creation", async () => {
+    it("creates tasks through distributed allocation without config.json sync dependency", async () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const storeAny = store as any;
       const originalConfigPath = storeAny.configPath;
       storeAny.configPath = join(rootDir, ".fusion", "missing-sync", "config.json");
 
       try {
-        const task = await store.createTask({ description: "allocate despite sync failure" });
+        const task = await store.createTask({ description: "allocate without config sync" });
         expect(task.id).toBe("FN-001");
 
         const warningCall = warnSpy.mock.calls.find(
-          (call) => typeof call[0] === "string" && call[0].includes("[task-store] Backward-compat config.json sync failed after ID allocation"),
+          (call) => typeof call[0] === "string" && call[0].includes("after ID allocation"),
         );
-        expect(warningCall).toBeDefined();
-
-        const [, context] = warningCall as [string, Record<string, unknown>];
-        expect(context).toMatchObject({
-          phase: "allocateId:disk-sync",
-          configPath: join(rootDir, ".fusion", "missing-sync", "config.json"),
-          taskId: task.id,
-        });
-        expect(typeof context.error).toBe("string");
+        expect(warningCall).toBeUndefined();
       } finally {
         storeAny.configPath = originalConfigPath;
         warnSpy.mockRestore();

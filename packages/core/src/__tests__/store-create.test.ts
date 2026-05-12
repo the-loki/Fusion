@@ -707,6 +707,53 @@ describe("TaskStore", () => {
 
 
   describe("distributed task-id allocator seam", () => {
+    it("commits allocator reservations for createTask, duplicateTask, and refineTask", async () => {
+      const created = await store.createTask({ description: "created with allocator" });
+      const duplicate = await store.duplicateTask(created.id);
+
+      await store.moveTask(created.id, "todo");
+      await store.moveTask(created.id, "in-progress");
+      await store.moveTask(created.id, "in-review");
+      await store.moveTask(created.id, "done");
+      const refined = await store.refineTask(created.id, "refine this");
+
+      const reservationRows = store
+        .getDatabase()
+        .prepare("SELECT taskId, status FROM distributed_task_id_reservations WHERE taskId IN (?, ?, ?) ORDER BY taskId")
+        .all(created.id, duplicate.id, refined.id) as Array<{ taskId: string; status: string }>;
+
+      expect(reservationRows).toEqual([
+        { taskId: created.id, status: "committed" },
+        { taskId: duplicate.id, status: "committed" },
+        { taskId: refined.id, status: "committed" },
+      ]);
+    });
+
+    it("keeps IDs collision-free across mixed store and direct reservation creates", async () => {
+      // Regression for FN-4053: before unifying local allocation, store.createTask()
+      // used config.nextId while direct distributed reservations advanced
+      // distributed_task_id_state. Interleaving both paths could reuse IDs.
+      const first = await store.createTask({ description: "first via store" });
+
+      const allocator = store.getDistributedTaskIdAllocator();
+      const reservation = await allocator.reserveDistributedTaskId({ prefix: "FN", nodeId: "node-a" });
+      const second = await store.createTaskWithReservedId(
+        { description: "second via direct reservation" },
+        { taskId: reservation.taskId },
+      );
+      await allocator.commitDistributedTaskIdReservation({
+        reservationId: reservation.reservationId,
+        nodeId: "node-a",
+      });
+
+      const third = await store.createTask({ description: "third via store" });
+
+      expect(first.id).toBe("FN-001");
+      expect(second.id).toBe("FN-002");
+      expect(third.id).toBe("FN-003");
+      expect(third.id).not.toBe(second.id);
+    });
+
     it("returns a stable allocator instance", () => {
       const first = store.getDistributedTaskIdAllocator();
       const second = store.getDistributedTaskIdAllocator();

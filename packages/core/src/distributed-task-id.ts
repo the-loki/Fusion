@@ -21,6 +21,14 @@ export interface DistributedTaskIdAllocator {
   getDistributedTaskIdState(input: DistributedTaskIdStateInput): Promise<DistributedTaskIdStateResult>;
 }
 
+export function resolveLocalNodeId(
+  nodes: Array<{ id: string; type: string }> | undefined,
+  fallback = "local",
+): string {
+  const localNode = nodes?.find((node) => node.type === "local");
+  return localNode?.id ?? fallback;
+}
+
 export class DistributedTaskIdError extends Error {
   constructor(
     message: string,
@@ -147,11 +155,18 @@ export function createDistributedTaskIdAllocator(db: Database): DistributedTaskI
     };
     probeTable("tasks");
     probeTable("archivedTasks");
+    const nowIso = new Date().toISOString();
     db.prepare(
       `INSERT OR IGNORE INTO distributed_task_id_state (
         prefix, nextSequence, committedClusterTaskCount, lastCommittedTaskId, updatedAt
       ) VALUES (?, ?, 0, NULL, ?)`
-    ).run(prefix, seedSequence, new Date().toISOString());
+    ).run(prefix, seedSequence, nowIso);
+    db.prepare(
+      `UPDATE distributed_task_id_state
+       SET nextSequence = MAX(nextSequence, ?),
+           updatedAt = ?
+       WHERE prefix = ?`
+    ).run(seedSequence, nowIso, prefix);
   };
 
   return {
