@@ -8,6 +8,46 @@ describe("TaskStore", () => {
   afterEach(harness.afterEach);
 
   describe("watcher and polling", () => {
+    it("memoizes repeated startup slim list reads for matching options", async () => {
+      await harness.createTestTask();
+      const storeAny = harness.store() as any;
+      const prepareSpy = vi.spyOn(storeAny.db, "prepare");
+
+      await harness.store().listTasks({ slim: true, includeArchived: false, startupMemo: true });
+      await harness.store().listTasks({ slim: true, includeArchived: false, startupMemo: true });
+
+      const taskSelectCalls = prepareSpy.mock.calls.filter(([sql]) =>
+        typeof sql === "string" && sql.includes("FROM tasks") && sql.includes("ORDER BY createdAt ASC"),
+      );
+      expect(taskSelectCalls).toHaveLength(1);
+    });
+
+    it("separates startup memo entries by list options", async () => {
+      await harness.createTestTask();
+      const storeAny = harness.store() as any;
+      const prepareSpy = vi.spyOn(storeAny.db, "prepare");
+
+      await harness.store().listTasks({ slim: true, includeArchived: false, startupMemo: true });
+      await harness.store().listTasks({ slim: true, includeArchived: true, startupMemo: true });
+
+      const taskSelectCalls = prepareSpy.mock.calls.filter(([sql]) =>
+        typeof sql === "string" && sql.includes("FROM tasks") && sql.includes("ORDER BY createdAt ASC"),
+      );
+      expect(taskSelectCalls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("invalidates startup memo once watch handoff is active", async () => {
+      await harness.createTestTask();
+      const storeAny = harness.store() as any;
+
+      await harness.store().listTasks({ slim: true, includeArchived: false, startupMemo: true });
+      expect(storeAny.startupSlimListMemo.size).toBeGreaterThan(0);
+
+      await harness.store().watch();
+      expect(storeAny.startupSlimListMemo.size).toBe(0);
+
+      harness.store().stopWatching();
+    });
     it("cache is updated when polling is active even without fs.watch", async () => {
       await harness.store().watch();
 

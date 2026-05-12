@@ -1581,7 +1581,7 @@ export function setupBadgeWebSocket(
   };
 
   // Prime cache with existing tasks from default store
-  void store.listTasks({ slim: true, includeArchived: false }).then((tasks) => {
+  void store.listTasks({ slim: true, includeArchived: false, startupMemo: true }).then((tasks) => {
     for (const task of tasks) {
       badgeSnapshots.set(`default:${task.id}`, {
         prInfo: task.prInfo ?? null,

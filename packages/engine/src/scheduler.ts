@@ -516,7 +516,7 @@ export class Scheduler {
       return;
     }
 
-    void this.store.listTasks({ slim: true, includeArchived: false })
+    void this.store.listTasks({ slim: true, includeArchived: false, startupMemo: true })
       .then((tasks) => {
         const repo = getCurrentRepo(this.store.getRootDir());
         if (!repo) return;

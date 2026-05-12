@@ -1698,6 +1698,23 @@ describe("Scheduler", () => {
   });
 
   describe("pr monitoring", () => {
+    it("hydrates PR monitoring with startup memoized slim reads", async () => {
+      const prMonitor = {
+        startMonitoring: vi.fn(),
+        stopMonitoring: vi.fn(),
+        updatePrInfo: vi.fn(),
+        getTrackedPrs: vi.fn().mockReturnValue(new Map()),
+        stopAll: vi.fn(),
+      } as unknown as PrMonitor;
+
+      const store = createMockStore();
+      const scheduler = new Scheduler(store, {});
+      scheduler.configurePrMonitoring({ prMonitor });
+      await flushAsyncWork();
+
+      expect(store.listTasks).toHaveBeenCalledWith({ slim: true, includeArchived: false, startupMemo: true });
+    });
+
     it("stops monitoring when task moves out of in-review based on from column", () => {
       const prMonitor = {
         startMonitoring: vi.fn(),

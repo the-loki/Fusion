@@ -599,6 +599,9 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   private lastKnownModified: number = 0;
   /** ISO timestamp of last poll — used to filter changed tasks */
   private lastPollTime: string | null = null;
+  /** Short-lived startup memo for repeated slim listTasks reads before steady-state watch/polling. */
+  private startupSlimListMemo = new Map<string, { expiresAt: number; promise: Promise<Task[]> }>();
+  private static readonly STARTUP_SLIM_LIST_MEMO_TTL_MS = 2_500;
 
   /** Whether the store is actively watching for changes (watcher or polling). */
   private get isWatching(): boolean {
@@ -2784,10 +2787,36 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
     slim?: boolean;
     /** Restrict to a single column (e.g. 'in-review' for the auto-merge sweep). */
     column?: Column;
+    /** Opt-in startup-only memo for repeated slim reads during boot choreography. */
+    startupMemo?: boolean;
   }): Promise<Task[]> {
     const includeArchived = options?.includeArchived ?? true;
     const slim = options?.slim ?? false;
     const columnFilter = options?.column;
+    const startupMemoEnabled = options?.startupMemo ?? (!this.isWatching && slim);
+
+    if (startupMemoEnabled && slim && options?.limit === undefined && options?.offset === undefined) {
+      const memoKey = `${includeArchived ? "all" : "active"}:${columnFilter ?? "*"}`;
+      const now = Date.now();
+      const cached = this.startupSlimListMemo.get(memoKey);
+      if (cached && cached.expiresAt > now) {
+        const memoTasks = await cached.promise;
+        return JSON.parse(JSON.stringify(memoTasks)) as Task[];
+      }
+
+      const fetchPromise = this.listTasks({ ...options, startupMemo: false });
+      this.startupSlimListMemo.set(memoKey, {
+        expiresAt: now + TaskStore.STARTUP_SLIM_LIST_MEMO_TTL_MS,
+        promise: fetchPromise,
+      });
+      try {
+        const memoTasks = await fetchPromise;
+        return JSON.parse(JSON.stringify(memoTasks)) as Task[];
+      } catch (error) {
+        this.startupSlimListMemo.delete(memoKey);
+        throw error;
+      }
+    }
 
     // Slim mode drops ONLY the agent log column. On busy boards `log` accounts
     // for ~99% of the row payload (60+ MB across 1200 tasks); every other JSON
@@ -2853,6 +2882,10 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
     }
 
     return sorted.slice(offset, offset + Math.max(0, limit));
+  }
+
+  private clearStartupSlimListMemo(): void {
+    this.startupSlimListMemo.clear();
   }
 
   /**
@@ -4932,11 +4965,12 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
    */
   async watch(): Promise<void> {
     if (this.watcher || this.pollInterval) return; // already watching
+    this.clearStartupSlimListMemo();
 
     // Populate cache with current state. The watcher only needs metadata to
     // detect created/updated/moved/deleted events; full task logs stay on the
     // detail path.
-    const tasks = await this.listTasks({ slim: true });
+    const tasks = await this.listTasks({ slim: true, startupMemo: true });
     this.taskCache.clear();
     for (const task of tasks) {
       this.taskCache.set(task.id, { ...task });
@@ -4975,6 +5009,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
     this.pollInterval = setInterval(() => {
       void this.checkForChanges();
     }, 1000);
+    this.clearStartupSlimListMemo();
   }
 
   /**
@@ -5097,6 +5132,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
     this.debounceTimers.clear();
     this.taskCache.clear();
     this.recentlyWritten.clear();
+    this.clearStartupSlimListMemo();
   }
 
   /**
