@@ -268,6 +268,7 @@ describe("PluginManager", () => {
     expect(screen.getByText("Droid Runtime")).toBeTruthy();
     expect(screen.getByText("Dependency Graph")).toBeTruthy();
     expect(screen.getByText("WhatsApp Chat")).toBeTruthy();
+    expect(screen.getByText("CLI Printing Press")).toBeTruthy();
     expect(screen.getByText(/Pairs to WhatsApp Web \(multi-device\) with QR or pairing code/i)).toBeTruthy();
   });
 
@@ -422,6 +423,26 @@ describe("PluginManager", () => {
     await waitFor(() => {
       expect(installPlugin).toHaveBeenCalledWith({ path: "./plugins/fusion-plugin-dependency-graph" }, undefined);
       expect(addToast).toHaveBeenCalledWith("Dependency Graph installed globally", "success");
+    });
+  });
+
+  it("installs CLI Printing Press from the built-in section", async () => {
+    render(<PluginManager addToast={addToast} />);
+
+    await waitFor(() => {
+      expect(fetchPlugins).toHaveBeenCalled();
+    });
+
+    const printingPressLabel = await screen.findByText("CLI Printing Press");
+    const printingPressCard = printingPressLabel.closest(".plugin-builtins-item");
+    expect(printingPressCard).toBeTruthy();
+
+    const installButton = within(printingPressCard as HTMLElement).getByRole("button", { name: /Install CLI Printing Press/i });
+    await userEvent.click(installButton);
+
+    await waitFor(() => {
+      expect(installPlugin).toHaveBeenCalledWith({ path: "./plugins/fusion-plugin-cli-printing-press" }, undefined);
+      expect(addToast).toHaveBeenCalledWith("CLI Printing Press installed globally", "success");
     });
   });
 

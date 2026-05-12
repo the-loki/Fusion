@@ -131,6 +131,13 @@ const BUILTIN_PLUGINS: BuiltinPlugin[] = [
     path: "./plugins/fusion-plugin-whatsapp-chat",
   },
   {
+    id: "fusion-plugin-cli-printing-press",
+    name: "CLI Printing Press",
+    description: "Guided wizard for drafting external service CLI definitions.",
+    category: "integration",
+    path: "./plugins/fusion-plugin-cli-printing-press",
+  },
+  {
     id: BUILTIN_AGENT_BROWSER_PLUGIN_ID,
     name: "Agent Browser",
     description: "Built-in integration metadata. Package install support lands in FN-3101.",
