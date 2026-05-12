@@ -199,6 +199,11 @@ export interface DashboardHealthResponse {
   status: string;
   version: string;
   uptime: number;
+  database: {
+    healthy: boolean;
+    lastCheckedAt: string | null;
+    isRunning: boolean;
+  };
 }
 
 export function fetchDashboardHealth(): Promise<DashboardHealthResponse> {

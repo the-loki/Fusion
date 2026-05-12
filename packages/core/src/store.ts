@@ -6977,14 +6977,14 @@ ${stepsSection}`;
   }
 
   getDatabaseHealth(): {
-    corruptionDetected: boolean;
-    integrityCheckPending: boolean;
-    integrityCheckLastRunAt: string | null;
+    healthy: boolean;
+    lastCheckedAt: Date | null;
+    isRunning: boolean;
   } {
     return {
-      corruptionDetected: this.db.corruptionDetected,
-      integrityCheckPending: this.db.integrityCheckPending,
-      integrityCheckLastRunAt: this.db.integrityCheckLastRunAt,
+      healthy: !this.db.corruptionDetected,
+      lastCheckedAt: this.db.integrityCheckLastRunAt ? new Date(this.db.integrityCheckLastRunAt) : null,
+      isRunning: this.db.integrityCheckPending,
     };
   }
 
