@@ -199,6 +199,16 @@ export type DatabaseMutationType =
   | "task:auto-recover-completion-fanout"
   | "task:auto-recover-worktree-session-exhausted"
   | "task:auto-recover-starved-refinement"
+  /** Metadata: { taskId, pausedAgeMs, blockedFollowerIds: string[], previousPausedReason: string | null } */
+  | "task:auto-rebound-paused-scope-decay"
+  /** Metadata: { taskId, targetTaskId, targetColumn, chainDepth: number } */
+  | "task:auto-archived-meta-resolved"
+  /** Metadata: { taskId, targetTaskId, chainDepth: number, stalledMs: number } */
+  | "task:auto-archived-meta-stalled"
+  /** Metadata: { holderIds: string[], followerCount: number, windowMs: number, blockedGrowth: number } */
+  | "task:auto-board-stall-broken"
+  /** Metadata: { holderIds: string[], followerCount: number, windowMs: number, ntfyDispatched: boolean } */
+  | "task:auto-board-stall-unrecovered"
   | "task:in-review-stall-deadlock-disposed"
   | "task:finalize-unproven-blocked"
   | "task:integrity-reconcile-modified-files"
