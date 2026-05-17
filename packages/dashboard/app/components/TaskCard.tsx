@@ -811,6 +811,9 @@ function TaskCardComponent({
     && sourceIssueFromUrl.owner === githubTrackedIssue.owner
     && sourceIssueFromUrl.repo === githubTrackedIssue.repo,
   );
+  const showLinkedIssueChipForImport = isGitHubImportedTask
+    && hasGithubTrackingLink
+    && (hasMatchingIssueInfoBadge || hasMatchingSourceIssue);
   const showTrackingIndicator = hasGithubTrackingLink
     && !hasMatchingIssueInfoBadge
     && !hasMatchingSourceIssue;
@@ -1764,10 +1767,10 @@ function TaskCardComponent({
           </>
         );
       })()}
-      {(filesChangedButton || isGitHubImportedTask || (showTrackingIndicator && githubTrackedIssue) || (task.retrySummary?.total ?? 0) > 0 || timeIndicator) && (
+      {(filesChangedButton || isGitHubImportedTask || ((showTrackingIndicator || showLinkedIssueChipForImport) && githubTrackedIssue) || (task.retrySummary?.total ?? 0) > 0 || timeIndicator) && (
         <div className={`card-footer-row${chipFarRight ? " card-footer-row--chip-far-right" : ""}`}>
           {filesChangedButton}
-          {isGitHubImportedTask && (
+          {isGitHubImportedTask && !showLinkedIssueChipForImport && (
             <span
               className="card-source-provenance"
               title={sourceIssueUrl ? `Imported from GitHub: ${sourceIssueUrl}` : "Imported from GitHub"}
@@ -1776,7 +1779,7 @@ function TaskCardComponent({
               <ProviderIcon provider="github" size="sm" />
             </span>
           )}
-          {showTrackingIndicator && githubTrackedIssue && (
+          {(showTrackingIndicator || showLinkedIssueChipForImport) && githubTrackedIssue && (
             <a
               className="card-github-tracking-chip card-github-tracking-link"
               href={githubTrackedIssue.url}
