@@ -2,16 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-vi.mock("@fusion/dashboard", () => ({
-  registerGithubTrackingHook: vi.fn(),
-}));
-
-vi.mock("@fusion/engine", () => ({
-  createFnAgent: vi.fn(),
-  fetchWebContent: vi.fn(),
-}));
-
 import kbExtension from "../extension.js";
 import { TaskStore } from "@fusion/core";
 

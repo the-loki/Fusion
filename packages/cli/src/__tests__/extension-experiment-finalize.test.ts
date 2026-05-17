@@ -32,6 +32,7 @@ vi.mock("@fusion/core", () => ({
   formatRoleMismatchReason: vi.fn(() => ""),
   resolveAgentProvisioningPolicy: vi.fn(() => ({ approvalMode: "auto" })),
   TASK_PRIORITIES: ["low", "normal", "high", "urgent"],
+  getProjectRootFromWorktree: vi.fn(() => null),
 }));
 
 vi.mock("@fusion/dashboard", () => ({
