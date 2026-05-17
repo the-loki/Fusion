@@ -1,7 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { access, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { buildIdentityGuardHook, installTaskWorktreeIdentityGuard } from "../worktree-hooks.js";
@@ -10,7 +10,7 @@ describe("worktree-hooks", () => {
   it("builds a hook with expected guard lines", () => {
     const hook = buildIdentityGuardHook("FN-1");
     expect(hook).toContain("#!/bin/sh");
-    expect(hook).toContain('TASK_FILE="$GIT_DIR/fusion-task-id"');
+    expect(hook).toContain("TASK_FILE=$(git rev-parse --git-path fusion-task-id)");
     expect(hook).toContain('EXPECTED_BRANCH="fusion/fn-1"');
     expect(hook).toContain("fusion: refusing commit — worktree owns");
     expect(hook).toContain("fusion/step-[0-9]*-[a-z0-9-]*");
@@ -28,10 +28,13 @@ describe("worktree-hooks", () => {
 
     await installTaskWorktreeIdentityGuard({ worktreePath: wt, taskId: "FN-1" });
 
-    const gitDir = execFileSync("git", ["rev-parse", "--git-dir"], { cwd: wt, encoding: "utf-8" }).trim();
-    const absGitDir = resolve(wt, gitDir);
-    const taskIdPath = join(absGitDir, "fusion-task-id");
-    const hookPath = join(absGitDir, "hooks", "pre-commit");
+    const taskIdRaw = execFileSync("git", ["rev-parse", "--git-path", "fusion-task-id"], { cwd: wt, encoding: "utf-8" }).trim();
+    const taskIdPath = isAbsolute(taskIdRaw) ? taskIdRaw : resolve(wt, taskIdRaw);
+    const hookRaw = execFileSync("git", ["rev-parse", "--git-path", "hooks/pre-commit"], {
+      cwd: wt,
+      encoding: "utf-8",
+    }).trim();
+    const hookPath = isAbsolute(hookRaw) ? hookRaw : resolve(wt, hookRaw);
 
     expect((await readFile(taskIdPath, "utf-8")).trim()).toBe("FN-1");
     await access(hookPath);
@@ -50,8 +53,11 @@ describe("worktree-hooks", () => {
     execFileSync("git", ["worktree", "add", "-b", "fusion/fn-2", wt], { cwd: root });
 
     await installTaskWorktreeIdentityGuard({ worktreePath: wt, taskId: "FN-2" });
-    const gitDir = resolve(wt, execFileSync("git", ["rev-parse", "--git-dir"], { cwd: wt, encoding: "utf-8" }).trim());
-    const hookPath = join(gitDir, "hooks", "pre-commit");
+    const hookRaw = execFileSync("git", ["rev-parse", "--git-path", "hooks/pre-commit"], {
+      cwd: wt,
+      encoding: "utf-8",
+    }).trim();
+    const hookPath = isAbsolute(hookRaw) ? hookRaw : resolve(wt, hookRaw);
     const first = (await stat(hookPath)).mtimeMs;
 
     await new Promise((r) => setTimeout(r, 20));
@@ -63,7 +69,7 @@ describe("worktree-hooks", () => {
   it("throws when not in git worktree", async () => {
     const dir = mkdtempSync(join(tmpdir(), "wt-hook-bad-"));
     await expect(installTaskWorktreeIdentityGuard({ worktreePath: dir, taskId: "FN-3" })).rejects.toThrow(
-      "Failed to resolve git dir",
+      "Failed to resolve git path",
     );
   });
 });

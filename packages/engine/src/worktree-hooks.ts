@@ -21,8 +21,7 @@ export function buildIdentityGuardHook(taskId: string, allowedBranchPatterns: re
   return `#!/bin/sh
 set -eu
 
-GIT_DIR=$(git rev-parse --git-dir)
-TASK_FILE="$GIT_DIR/fusion-task-id"
+TASK_FILE=$(git rev-parse --git-path fusion-task-id)
 
 if [ ! -f "$TASK_FILE" ]; then
   exit 0
@@ -52,12 +51,12 @@ exit 1
 `;
 }
 
-async function resolveGitDir(worktreePath: string): Promise<string> {
+async function resolveGitPath(worktreePath: string, gitPath: string): Promise<string> {
   try {
-    const { stdout } = await execAsync("git rev-parse --git-dir", { cwd: worktreePath, encoding: "utf-8" });
+    const { stdout } = await execAsync(`git rev-parse --git-path ${gitPath}`, { cwd: worktreePath, encoding: "utf-8" });
     return resolve(worktreePath, stdout.trim());
   } catch (error) {
-    throw new Error(`Failed to resolve git dir for worktree ${worktreePath}: ${(error as Error).message}`);
+    throw new Error(`Failed to resolve git path '${gitPath}' for worktree ${worktreePath}: ${(error as Error).message}`);
   }
 }
 
@@ -76,10 +75,9 @@ export async function installTaskWorktreeIdentityGuard(input: {
   taskId: string;
   allowedBranchPatterns?: readonly string[];
 }): Promise<void> {
-  const gitDir = await resolveGitDir(input.worktreePath);
   const hook = buildIdentityGuardHook(input.taskId, input.allowedBranchPatterns ?? DEFAULT_ALLOWED_BRANCH_PATTERNS);
-  const metadataPath = resolve(gitDir, "fusion-task-id");
-  const hookPath = resolve(gitDir, "hooks", "pre-commit");
+  const metadataPath = await resolveGitPath(input.worktreePath, "fusion-task-id");
+  const hookPath = await resolveGitPath(input.worktreePath, "hooks/pre-commit");
 
   await writeFileAtomic(metadataPath, `${input.taskId}\n`);
   await writeFileAtomic(hookPath, hook, 0o755);

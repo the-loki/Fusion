@@ -1,0 +1,78 @@
+import { describe, it, expect } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { isAbsolute, join, resolve } from "node:path";
+import { execSync, spawnSync } from "node:child_process";
+import { installTaskWorktreeIdentityGuard } from "../../worktree-hooks.js";
+
+function git(dir: string, cmd: string): string {
+  return execSync(cmd, { cwd: dir, stdio: "pipe" }).toString().trim();
+}
+
+describe("pre-commit identity guard (real git)", () => {
+  it("blocks misbound task-branch commits while allowing owner and step branches", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "fn-4948-precommit-"));
+    const worktreeDir = join(rootDir, "wt-fn-a");
+    const rootFile = join(rootDir, "root.txt");
+
+    try {
+      git(rootDir, "git init -b main");
+      git(rootDir, 'git config user.email "test@example.com"');
+      git(rootDir, 'git config user.name "Test"');
+      writeFileSync(join(rootDir, "README.md"), "init\n");
+      git(rootDir, "git add README.md && git commit -m 'init'");
+
+      git(rootDir, "git worktree add -b fusion/fn-a wt-fn-a HEAD");
+
+      await installTaskWorktreeIdentityGuard({ worktreePath: worktreeDir, taskId: "FN-A" });
+
+      const taskIdPath = git(worktreeDir, "git rev-parse --git-path fusion-task-id");
+      const taskIdFile = readFileSync(isAbsolute(taskIdPath) ? taskIdPath : resolve(worktreeDir, taskIdPath), "utf-8");
+      expect(taskIdFile.trim()).toBe("FN-A");
+
+      const hookRawPath = git(worktreeDir, "git rev-parse --git-path hooks/pre-commit");
+      const hookPath = isAbsolute(hookRawPath) ? hookRawPath : resolve(worktreeDir, hookRawPath);
+      chmodSync(hookPath, 0o755);
+
+      git(worktreeDir, "git checkout -b fusion/fn-b");
+      writeFileSync(join(worktreeDir, "misbound.txt"), "wrong branch\n");
+      git(worktreeDir, "git add misbound.txt");
+
+      const blockedCommit = spawnSync("git", ["commit", "-m", "feat(FN-B): blocked"], { cwd: worktreeDir, encoding: "utf-8" });
+      expect(blockedCommit.status).not.toBe(0);
+      expect(`${blockedCommit.stderr}${blockedCommit.stdout}`).toContain(
+        "fusion: refusing commit — worktree owns FN-A but HEAD is fusion/fn-b",
+      );
+
+      git(worktreeDir, "git checkout fusion/fn-a");
+      writeFileSync(join(worktreeDir, "owned.txt"), "owned branch\n");
+      git(worktreeDir, "git add owned.txt");
+      git(worktreeDir, "git commit -m 'feat(FN-A): allowed owner commit'");
+
+      git(worktreeDir, "git checkout -b fusion/step-1-lemon-lotus");
+      writeFileSync(join(worktreeDir, "step.txt"), "step branch\n");
+      git(worktreeDir, "git add step.txt");
+      git(worktreeDir, "git commit -m 'test(FN-A): step branch commit'");
+
+      writeFileSync(rootFile, "root commit\n");
+      git(rootDir, "git add root.txt");
+      git(rootDir, "git commit -m 'chore: root commit succeeds without task hook'");
+
+      const currentStepSha = git(worktreeDir, "git rev-parse HEAD");
+      git(worktreeDir, `${"git checkout --detach "}${currentStepSha}`);
+      writeFileSync(join(worktreeDir, "detached.txt"), "detached\n");
+      git(worktreeDir, "git add detached.txt");
+
+      const detachedCommit = spawnSync("git", ["commit", "-m", "test(FN-A): detached blocked"], {
+        cwd: worktreeDir,
+        encoding: "utf-8",
+      });
+      expect(detachedCommit.status).not.toBe(0);
+      expect(`${detachedCommit.stderr}${detachedCommit.stdout}`).toContain(
+        "fusion: refusing commit — worktree owns FN-A but HEAD is detached",
+      );
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+});
