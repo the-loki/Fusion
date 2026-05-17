@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { GitPullRequest, ExternalLink, RefreshCw, Plus, MessageSquare, CircleDot, XCircle, GitMerge } from "lucide-react";
-import { getErrorMessage } from "@fusion/core";
-import { fetchPrReviews, mergePr, refreshPrStatus, setAutoMergeOnGreen, type DirectMergeCommitStrategy, type PrCheckStatus, type PrInfo, type PrRefreshResponse, type PrReviewsResponse } from "../api";
+import { getErrorMessage, type DirectMergeCommitStrategy } from "@fusion/core";
+import { fetchPrReviews, mergePr, refreshPrStatus, setAutoMergeOnGreen, type PrCheckStatus, type PrInfo, type PrRefreshResponse, type PrReviewsResponse } from "../api";
 import { usePrChecksStream } from "../hooks/usePrChecksStream";
 import { PrChecksList } from "./PrChecksList";
 import type { ToastType } from "../hooks/useToast";

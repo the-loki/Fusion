@@ -14,6 +14,8 @@ describe("PrPanel merge controls", () => {
   it.each([
     [{ status: "open", draft: false }, true],
     [{ status: "open", draft: true }, false],
+    [{ status: "open", isDraft: true }, false],
+    [{ status: "closed", draft: false }, false],
     [{ status: "merged", draft: false }, false],
   ] as const)("shows merge controls matrix %#", (state, expected) => {
     render(<PrPanel taskId="FN-1" prAuthAvailable onPrUpdated={() => {}} addToast={() => {}} prInfo={{ url: "https://github.com/o/r/pull/1", number: 1, title: "t", headBranch: "h", baseBranch: "main", commentCount: 0, ...state }} />);
