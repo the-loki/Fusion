@@ -8,7 +8,7 @@
  * - Converting insights to tasks
  */
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import type { Insight, InsightCategory, InsightStatus, InsightRun } from "@fusion/core";
 import {
   ApiRequestError,
@@ -21,6 +21,7 @@ import {
   fetchInsightRuns,
   getInsightCreateTaskData,
 } from "../api";
+import { readCache, SWR_CACHE_KEYS, writeCache } from "../utils/swrCache";
 
 // Canonical insight categories (in display order)
 export const INSIGHT_CATEGORIES: InsightCategory[] = [
@@ -128,7 +129,14 @@ export interface UseInsightsResult {
  * @returns Insights data and action handlers
  */
 export function useInsights(projectId?: string): UseInsightsResult {
-  const [allInsights, setAllInsights] = useState<Insight[]>([]);
+  const cacheSuffix = projectId ?? "";
+  const insightsCacheKey = `${SWR_CACHE_KEYS.INSIGHTS_PREFIX}${cacheSuffix}`;
+  const latestRunCacheKey = `${SWR_CACHE_KEYS.INSIGHT_LATEST_RUN_PREFIX}${cacheSuffix}`;
+  const initialInsights = readCache<Insight[]>(insightsCacheKey);
+  const initialLatestRun = readCache<InsightRun | null>(latestRunCacheKey);
+  const hasHydratedRef = useRef(Array.isArray(initialInsights) && initialInsights.length > 0);
+
+  const [allInsights, setAllInsights] = useState<Insight[]>(() => (Array.isArray(initialInsights) ? initialInsights : []));
 
   // Section items (keyed by category)
   const [sections, setSections] = useState<InsightSection[]>(() =>
@@ -142,13 +150,13 @@ export function useInsights(projectId?: string): UseInsightsResult {
   );
 
   // Loading state
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!(Array.isArray(initialInsights) && initialInsights.length > 0));
 
   // Top-level error
   const [error, setError] = useState<string | null>(null);
 
   // Run state
-  const [latestRun, setLatestRun] = useState<InsightRun | null>(null);
+  const [latestRun, setLatestRun] = useState<InsightRun | null>(initialLatestRun ?? null);
   const [isRunInFlight, setIsRunInFlight] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
 
@@ -161,7 +169,9 @@ export function useInsights(projectId?: string): UseInsightsResult {
 
   // Refresh function
   const refresh = useCallback(async () => {
-    setLoading(true);
+    if (!hasHydratedRef.current) {
+      setLoading(true);
+    }
     setError(null);
 
     try {
@@ -171,20 +181,28 @@ export function useInsights(projectId?: string): UseInsightsResult {
         projectId,
       );
 
-      setAllInsights(response.insights.filter((insight) => insight.status !== "dismissed"));
+      const filteredInsights = response.insights.filter((insight) => insight.status !== "dismissed");
+      setAllInsights(filteredInsights);
+      writeCache(
+        insightsCacheKey,
+        filteredInsights.length > 500 ? filteredInsights.slice(0, 500) : filteredInsights,
+        { maxBytes: 500_000 },
+      );
 
       // Fetch latest run
       const runsResponse = await fetchInsightRuns(projectId);
       if (runsResponse.runs.length > 0) {
         setLatestRun(runsResponse.runs[0]);
+        writeCache(latestRunCacheKey, runsResponse.runs[0], { maxBytes: 500_000 });
       }
+      hasHydratedRef.current = true;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to fetch insights";
       setError(message);
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [insightsCacheKey, latestRunCacheKey, projectId]);
 
   const toggleShowArchived = useCallback(() => {
     setShowArchived((prev) => !prev);
@@ -403,6 +421,17 @@ export function useInsights(projectId?: string): UseInsightsResult {
   const archivedCount = useMemo(() => {
     return allInsights.filter((insight) => insight.status === "archived").length;
   }, [allInsights]);
+
+  useEffect(() => {
+    const cachedInsights = readCache<Insight[]>(insightsCacheKey);
+    const cachedRun = readCache<InsightRun | null>(latestRunCacheKey);
+    const hasCachedInsights = Array.isArray(cachedInsights) && cachedInsights.length > 0;
+
+    setAllInsights(Array.isArray(cachedInsights) ? cachedInsights : []);
+    setLatestRun(cachedRun ?? null);
+    setLoading(!hasCachedInsights);
+    hasHydratedRef.current = hasCachedInsights;
+  }, [insightsCacheKey, latestRunCacheKey]);
 
   // Initial load - intentionally runs once on mount
   useEffect(() => {
