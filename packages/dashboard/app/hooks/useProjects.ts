@@ -81,6 +81,9 @@ export function useProjects(): UseProjectsResult {
     if (!Array.isArray(cached)) {
       return [];
     }
+    if (cached.length > 0) {
+      console.info("[swr-cache] hit projects=", cached.length);
+    }
     return normalizeProjects(cached);
   });
   const [loading, setLoading] = useState(() => projects.length === 0);

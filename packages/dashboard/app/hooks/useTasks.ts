@@ -5,6 +5,8 @@ import * as api from "../api";
 import { subscribeSse } from "../sse-bus";
 import { readCache, SWR_CACHE_KEYS, writeCache } from "../utils/swrCache";
 
+const loggedTaskCacheHitProjects = new Set<string>();
+
 function normalizeTask(task: Task): Task {
   return {
     ...task,
@@ -98,6 +100,10 @@ export function useTasks(options?: UseTasksOptions) {
       return [];
     }
     const cachedTasks = readCache<Task[]>(`${SWR_CACHE_KEYS.TASKS_PREFIX}${projectId}`);
+    if (Array.isArray(cachedTasks) && cachedTasks.length > 0 && !loggedTaskCacheHitProjects.has(projectId)) {
+      loggedTaskCacheHitProjects.add(projectId);
+      console.info("[swr-cache] hit tasks=", cachedTasks.length, "projectId=", projectId);
+    }
     return Array.isArray(cachedTasks) ? cachedTasks.map(normalizeTask) : [];
   });
   const [isStale, setIsStale] = useState(true);
@@ -199,6 +205,10 @@ export function useTasks(options?: UseTasksOptions) {
 
     const cachedTasks = readCache<Task[]>(`${SWR_CACHE_KEYS.TASKS_PREFIX}${projectId}`);
     if (Array.isArray(cachedTasks)) {
+      if (cachedTasks.length > 0 && !loggedTaskCacheHitProjects.has(projectId)) {
+        loggedTaskCacheHitProjects.add(projectId);
+        console.info("[swr-cache] hit tasks=", cachedTasks.length, "projectId=", projectId);
+      }
       setTasks(cachedTasks.map(normalizeTask));
     }
     setIsStale(true);

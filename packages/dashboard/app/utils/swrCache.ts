@@ -9,6 +9,12 @@ export const SWR_CACHE_KEYS = {
   PROJECTS: "kb-dashboard-projects-cache",
   CURRENT_PROJECT_ID: "kb-dashboard-current-project-cache",
   TASKS_PREFIX: "kb-dashboard-tasks-cache:",
+  AGENTS: "kb-dashboard-agents-cache",
+  AGENT_STATS: "kb-dashboard-agent-stats-cache",
+  DOCUMENTS_PREFIX: "kb-dashboard-documents-cache:",
+  TODO_LISTS_PREFIX: "kb-dashboard-todo-lists-cache:",
+  CHAT_ROOMS: "kb-dashboard-chat-rooms-cache",
+  ACTIVE_CHAT_ROOM_ID: "kb-dashboard-active-chat-room-cache",
 } as const;
 
 const DEFAULT_MAX_BYTES = 500_000;
