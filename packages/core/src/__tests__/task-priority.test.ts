@@ -14,6 +14,7 @@ import {
   TASK_PRIORITIES,
   type TaskPriority,
 } from "../types.js";
+import type { PrCheckState, PrCheckStatus } from "../index.js";
 import * as core from "../index.js";
 
 describe("task-priority", () => {
@@ -87,6 +88,12 @@ describe("task-priority", () => {
       { ...base, id: "FN-021", column: "done", priority: "low" as TaskPriority, columnMovedAt: "2026-01-01T09:00:00.000Z" },
     ], "done");
     expect(doneSorted.map((task) => task.id)).toEqual(["FN-021", "FN-020"]);
+  });
+
+  it("re-exports PR check types from the core index", () => {
+    const state: PrCheckState = "success";
+    const check: PrCheckStatus = { name: "build", required: true, state };
+    expect(check.state).toBe("success");
   });
 
   it("re-exports priority helpers from the core index", () => {

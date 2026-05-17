@@ -122,6 +122,21 @@ describe("PrPanel", () => {
     expect(screen.getAllByText("Required").length).toBe(2);
   });
 
+  it("handles undefined checks payload without rendering checks list", async () => {
+    (refreshPrStatus as ReturnType<typeof vi.fn>).mockResolvedValue({
+      prInfo: mockPrInfo,
+      checks: undefined,
+      reviewDecision: null,
+      blockingReasons: [],
+    });
+
+    render(<PrPanel taskId="FN-001" prInfo={mockPrInfo} prAuthAvailable={true} onPrUpdated={mockOnPrUpdated} addToast={mockAddToast} />);
+    fireEvent.click(screen.getByTitle("Refresh PR status"));
+
+    expect(await screen.findByText(/Checks not yet loaded/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Recent checks/i)).toBeNull();
+  });
+
   it("renders review decision states", async () => {
     (refreshPrStatus as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce({ prInfo: mockPrInfo, checks: [], reviewDecision: "CHANGES_REQUESTED", blockingReasons: [] })
