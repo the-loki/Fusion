@@ -47,6 +47,7 @@ For a full walkthrough (installation, onboarding, first task, and daily workflow
 | Guide | Description |
 |---|---|
 | [Architecture](./architecture.md) | System architecture, package layout, storage model, and engine execution flow |
+| [Secrets Store (`SecretsStore`)](./architecture.md#secrets-store-secretsstore) | Core encrypted secret subsystem overview: scopes, AES-256-GCM at-rest model, policy semantics, and public store API surface |
 | [Dashboard Real-Time](./dashboard-realtime.md) | Canonical event-stream architecture contract (shared `/api/events` bus + dedicated stream boundaries), with project/node scoping, reconnect/cleanup behavior, and realtime pitfalls |
 | [Storage](./storage.md) | Storage architecture, migration, archive system, and SQLite schema |
 | [DAG Architecture Deliverables](./dag/) | Milestone A DAG architecture documents plus Milestone B prototype scaffold docs (schema migration plan, DagCoordinator design, implementation checklist) |
