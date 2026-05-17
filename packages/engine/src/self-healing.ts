@@ -2699,8 +2699,6 @@ export class SelfHealingManager {
             reason = `blocker ${blockerId} is done`;
           } else if (blocker.column === "archived") {
             reason = `blocker ${blockerId} is archived`;
-          } else if (blocker.column === "todo") {
-            reason = `blocker ${blockerId} is todo`;
           } else if (blocker.column === "in-review" && blocker.paused) {
             reason = `blocker ${blockerId} in-review + paused`;
           } else if (
