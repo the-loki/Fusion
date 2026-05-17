@@ -228,8 +228,8 @@ export class MasterKeyManager {
     }
 
     try {
-      const module = await import("keytar");
-      return module.default as KeytarLike;
+      const module = (await import("keytar")) as { default?: KeytarLike } & KeytarLike;
+      return module.default ?? module;
     } catch {
       return null;
     }
