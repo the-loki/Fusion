@@ -182,23 +182,69 @@ The following FN-4819 non-goals were respected and **no follow-up task below tar
 
 ## 6. References
 
+### Primary design reference
+
 - `docs/design/fn-4819-distributed-multi-node-coordination-gap.md`
-- `packages/core/src/store.ts:155-160`
-- `packages/core/src/store.ts:3822-3831`
-- `packages/core/src/agent-store.ts:1371-1460`
-- `packages/core/src/central-db.ts:36-286`
-- `packages/core/src/central-core.ts:521-547`
-- `packages/engine/src/scheduler.ts:829-836`
-- `packages/engine/src/scheduler.ts:958-965`
-- `packages/engine/src/scheduler.ts:1004-1044`
-- `packages/engine/src/node-routing-policy.ts:4-75`
-- `packages/engine/src/mesh-lease-manager.ts:84-140`
-- `packages/engine/src/node-health-monitor.ts:103-148`
-- `packages/engine/src/agent-heartbeat.ts:3663-3740`
-- `packages/engine/src/runtimes/in-process-runtime.ts:1186-1194`
-- `packages/engine/src/runtimes/remote-node-runtime.ts:153-213`
-- `packages/engine/src/runtimes/remote-node-runtime.ts:241-254`
-- `packages/engine/src/runtimes/remote-node-client.ts:98-120`
-- `packages/engine/src/peer-exchange-service.ts:116-206`
-- `packages/engine/src/run-audit.ts:97-111`
-- `packages/engine/src/run-audit.ts:126-136`
+
+### Ownership / checkout evidence
+
+- `packages/core/src/store.ts:155-160` — lease-related task fields exist on row model
+- `packages/core/src/store.ts:3822-3831` — `tryClaimCheckout` CAS precondition update
+- `packages/core/src/agent-store.ts:1371-1460` — checkout acquisition path and conflict behavior
+- `packages/core/src/agent-store.ts:1417-1420` — renewal/epoch behavior in claim payload
+- `packages/core/src/store.ts:3900-3917` — task selection filters against foreign checkout holder
+- `packages/core/src/central-db.ts:36-286` — central schema inventory (no `taskClaims` table)
+- `packages/core/src/central-core.ts:7` — central DB location contract (`~/.fusion/fusion-central.db`)
+- `packages/engine/src/scheduler.ts:829-836` — scheduler invokes lease recovery for checked-out todo
+- `packages/engine/src/scheduler.ts:958-965` — re-read guard for todo dispatch
+- `packages/engine/src/scheduler.ts:1004-1044` — handoff + unavailable-node policy gate during dispatch
+- `packages/engine/src/node-routing-policy.ts:4-75` — handoff and unavailable-node decision logic
+- `packages/engine/src/mesh-lease-manager.ts:84-140` — abandoned-lease recovery path
+- `packages/engine/src/mesh-lease-manager.ts:93-115` — owner offline/error handoff policy branch
+- `packages/engine/src/mesh-lease-manager.ts:117-127` — lease clear + epoch increment + row mutation
+- `packages/engine/src/mesh-lease-manager.ts:129-140` — task log + todo rebound behavior
+
+### Wake / assignment propagation evidence
+
+- `packages/engine/src/agent-heartbeat.ts:3663-3740` — local `agent:assigned` wake trigger
+- `packages/engine/src/agent-heartbeat.ts:3731-3734` — assignment callback payload fields
+- `packages/engine/src/runtimes/in-process-runtime.ts:1186-1194` — local task event forwarding
+- `packages/engine/src/runtimes/remote-node-runtime.ts:153-213` — remote stream loop and reconnect behavior
+- `packages/engine/src/runtimes/remote-node-runtime.ts:241-254` — forwarding remote `task:*` events
+- `packages/engine/src/runtimes/remote-node-client.ts:98-120` — stream endpoint parsing (SSE/JSON fallback)
+- `packages/engine/src/runtimes/remote-node-client.ts:114-120` — long-polling JSON fallback handling
+- `packages/engine/src/runtimes/remote-node-client.ts:406-416` — retry behavior for failed requests
+- `packages/engine/src/peer-exchange-service.ts:116-206` — periodic peer sync loop (default interval behavior)
+- `packages/engine/src/peer-exchange-service.ts:262-380` — per-peer sync request flow
+
+### Conflict telemetry evidence
+
+- `packages/engine/src/run-audit.ts:97-111` — existing `branch:*` structured audit taxonomy
+- `packages/engine/src/run-audit.ts:126-136` — existing `task:auto-recover-*` taxonomy
+- `packages/engine/src/run-audit.ts` search result — no `task:auto-recover-node-unreachable` entry
+- `packages/engine/src/scheduler.ts:1018-1025` — handoff decisions persisted via `taskStore.logEntry`
+- `packages/engine/src/mesh-lease-manager.ts:108-133` — recovery outcomes persisted via logs/task entries
+
+### Isolation transition evidence
+
+- `packages/core/src/central-core.ts:521-547` — `transitionProjectIsolation` + activity log write
+- `packages/core/src/central-core.ts:531-535` — noop guard for unchanged isolation mode
+- `packages/engine/src/hybrid-executor-gate.ts:20-36` — runtime-mode gate based on node/project topology
+- `packages/engine/src/project-manager.ts:168-196` — runtime selection by isolation mode + assigned node type
+- `packages/core/src/central-db.ts:36-286` — absence of migration/bootstrap for central `taskClaims`
+
+### Additional context references consulted
+
+- `AGENTS.md` (Storage Model, Multi-Project Support, Checkout Leasing, Architecture)
+- `docs/storage.md`
+- `docs/multi-project.md`
+- `docs/shared-mesh-protocol.md`
+- `docs/architecture.md`
+- `packages/engine/src/project-engine-manager.ts:398-409` — runtime config construction includes isolation mode input
+- `packages/engine/src/project-engine-manager.ts:360-389` — runtime creation/start lifecycle context
+- `packages/engine/src/agent-heartbeat.ts:2016-2028` — checkout validation preflight in heartbeat execution
+- `packages/engine/src/peer-exchange-service.ts:175-206` — triggerSync/single-flight synchronization behavior
+- `packages/core/src/central-core.ts:252-302` — project registration includes isolation mode defaulting
+- `packages/core/src/central-core.ts:449-485` — project update path persists isolation mode changes
+- `packages/engine/src/runtimes/remote-node-client.ts:179-183` — retryability classification for remote failures
+- `packages/engine/src/runtimes/remote-node-runtime.ts:181-203` — bounded reconnect attempt behavior
