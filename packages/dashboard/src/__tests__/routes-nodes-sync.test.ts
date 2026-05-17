@@ -1243,9 +1243,11 @@ describe("Node settings sync routes", () => {
 
     const routeCases = [
       {
+        method: "POST" as const,
         route: "/api/settings/sync-receive",
         body: syncReceiveBody,
-        assertRejectedMutation: () => {
+        assertRejectedMutation: (res: { body: unknown }) => {
+          expect(res.body).not.toHaveProperty("authMaterial");
           expect(mockApplyRemoteSettings).not.toHaveBeenCalled();
           expect(mockApplyAuthMaterialSnapshot).not.toHaveBeenCalled();
         },
@@ -1255,14 +1257,30 @@ describe("Node settings sync routes", () => {
         },
       },
       {
+        method: "POST" as const,
         route: "/api/settings/auth-receive",
         body: authReceiveBody,
-        assertRejectedMutation: () => {
+        assertRejectedMutation: (res: { body: unknown }) => {
+          expect(res.body).not.toHaveProperty("authMaterial");
           expect(mockApplyAuthMaterialSnapshot).not.toHaveBeenCalled();
           expect(mockApplyRemoteSettings).not.toHaveBeenCalled();
         },
         assertAcceptedMutation: () => {
           expect(mockApplyAuthMaterialSnapshot).toHaveBeenCalledTimes(1);
+          expect(mockApplyRemoteSettings).not.toHaveBeenCalled();
+        },
+      },
+      {
+        method: "GET" as const,
+        route: "/api/settings/auth-export",
+        body: undefined,
+        assertRejectedMutation: (res: { body: unknown }) => {
+          expect(res.body).not.toHaveProperty("authMaterial");
+          expect(mockApplyAuthMaterialSnapshot).not.toHaveBeenCalled();
+          expect(mockApplyRemoteSettings).not.toHaveBeenCalled();
+        },
+        assertAcceptedMutation: () => {
+          expect(mockApplyAuthMaterialSnapshot).not.toHaveBeenCalled();
           expect(mockApplyRemoteSettings).not.toHaveBeenCalled();
         },
       },
@@ -1274,33 +1292,9 @@ describe("Node settings sync routes", () => {
     ] as const;
 
     const authHeaders = ["Bearer ", "Bearer anything-non-empty"] as const;
-    const skippedCases = routeCases.map((routeCase) => [routeCase, localApiKeyStates[0], "Bearer " as const] as const);
-
-    // FN-4871 tracks route hardening; these rows are intentionally skipped until the fix lands.
-    it.skip.each(skippedCases)(
-      "returns 401 for %s when local apiKey is %s and header is %s",
-      async (routeCase, apiKeyState, authHeader) => {
-        mockListNodes.mockResolvedValue([apiKeyState.localNode]);
-
-        const res = await request(
-          app,
-          "POST",
-          routeCase.route,
-          JSON.stringify(routeCase.body),
-          { "content-type": "application/json", Authorization: authHeader },
-        );
-
-        expect(res.status).toBe(401);
-        routeCase.assertRejectedMutation();
-        expect(mockAuthStorageSet).not.toHaveBeenCalled();
-      },
-    );
-
     const rejectionCases = routeCases.flatMap((routeCase) =>
       localApiKeyStates.flatMap((apiKeyState) =>
-        authHeaders
-          .map((authHeader) => [routeCase, apiKeyState, authHeader] as const)
-          .filter(([, state, header]) => !(state.label === "empty string" && header === "Bearer ")),
+        authHeaders.map((authHeader) => [routeCase, apiKeyState, authHeader] as const),
       ));
 
     it.each(rejectionCases)(
@@ -1310,14 +1304,16 @@ describe("Node settings sync routes", () => {
 
         const res = await request(
           app,
-          "POST",
+          routeCase.method,
           routeCase.route,
-          JSON.stringify(routeCase.body),
-          { "content-type": "application/json", Authorization: authHeader },
+          routeCase.body ? JSON.stringify(routeCase.body) : undefined,
+          routeCase.method === "POST"
+            ? { "content-type": "application/json", Authorization: authHeader }
+            : { Authorization: authHeader },
         );
 
         expect(res.status).toBe(401);
-        routeCase.assertRejectedMutation();
+        routeCase.assertRejectedMutation(res);
         expect(mockAuthStorageSet).not.toHaveBeenCalled();
       },
     );
@@ -1331,14 +1327,16 @@ describe("Node settings sync routes", () => {
 
         const res = await request(
           app,
-          "POST",
+          routeCase.method,
           routeCase.route,
-          JSON.stringify(routeCase.body),
-          { "content-type": "application/json", Authorization: authHeader },
+          routeCase.body ? JSON.stringify(routeCase.body) : undefined,
+          routeCase.method === "POST"
+            ? { "content-type": "application/json", Authorization: authHeader }
+            : { Authorization: authHeader },
         );
 
         expect(res.status).toBe(401);
-        routeCase.assertRejectedMutation();
+        routeCase.assertRejectedMutation(res);
         expect(mockAuthStorageSet).not.toHaveBeenCalled();
       },
     );
@@ -1351,10 +1349,12 @@ describe("Node settings sync routes", () => {
 
         const res = await request(
           app,
-          "POST",
+          routeCase.method,
           routeCase.route,
-          JSON.stringify(routeCase.body),
-          { "content-type": "application/json", Authorization: "Bearer local-api-key-456" },
+          routeCase.body ? JSON.stringify(routeCase.body) : undefined,
+          routeCase.method === "POST"
+            ? { "content-type": "application/json", Authorization: "Bearer local-api-key-456" }
+            : { Authorization: "Bearer local-api-key-456" },
         );
 
         expect(res.status).toBe(200);
