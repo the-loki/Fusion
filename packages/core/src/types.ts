@@ -747,6 +747,11 @@ export interface PrInfo {
   baseBranch: string;
   commentCount: number;
   isDraft?: boolean;
+  draft?: boolean;
+  autoMergeOnGreen?: boolean;
+  autoMergeStrategy?: "merge" | "squash" | "rebase";
+  lastMergeError?: string;
+  lastMergeErrorAt?: string;
   checkRollup?: "success" | "failure" | "pending" | "none";
   lastCommentAt?: string;
   lastCheckedAt?: string;

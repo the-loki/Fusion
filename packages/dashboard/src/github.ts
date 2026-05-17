@@ -203,6 +203,7 @@ interface GhPrViewJson {
   url: string;
   title: string;
   state: "OPEN" | "CLOSED" | "MERGED";
+  isDraft?: boolean;
   reviewDecision?: ReviewDecision;
   baseRefName: string;
   headRefName: string;
@@ -343,6 +344,7 @@ function toPrInfo(input: {
   status: PrInfo["status"];
   headBranch: string;
   baseBranch: string;
+  isDraft?: boolean;
   commentCount?: number;
   lastCommentAt?: string;
   lastCheckedAt?: string;
@@ -355,6 +357,8 @@ function toPrInfo(input: {
     headBranch: input.headBranch,
     baseBranch: input.baseBranch,
     commentCount: input.commentCount ?? 0,
+    isDraft: input.isDraft,
+    draft: input.isDraft,
     lastCommentAt: input.lastCommentAt,
     lastCheckedAt: input.lastCheckedAt,
   };
@@ -1013,7 +1017,7 @@ export class GitHubClient {
     const pr = await runGhJsonAsync<GhPrViewJson>([
       "pr", "view", String(number),
       "--repo", `${resolved.owner}/${resolved.repo}`,
-      "--json", "number,url,title,state,baseRefName,headRefName,reviewDecision",
+      "--json", "number,url,title,state,isDraft,baseRefName,headRefName,reviewDecision",
     ]);
     const checks = await runGhJsonAsync<GhPrCheckJson[]>([
       "pr", "checks", String(number),
@@ -1029,6 +1033,7 @@ export class GitHubClient {
       title: pr.title,
       headBranch: pr.headRefName,
       baseBranch: pr.baseRefName,
+      isDraft: pr.isDraft,
       commentCount: 0,
     });
     const normalizedChecks = checks.map((check) => ({
@@ -1068,6 +1073,7 @@ export class GitHubClient {
               title
               state
               reviewDecision
+              isDraft
               baseRefName
               headRefName
               comments { totalCount }
@@ -1115,6 +1121,7 @@ export class GitHubClient {
             title: string;
             state: "OPEN" | "CLOSED" | "MERGED";
             reviewDecision: ReviewDecision;
+            isDraft?: boolean;
             baseRefName: string;
             headRefName: string;
             comments: { totalCount: number };
@@ -1186,6 +1193,7 @@ export class GitHubClient {
       title: pr.title,
       headBranch: pr.headRefName,
       baseBranch: pr.baseRefName,
+      isDraft: pr.isDraft,
       commentCount: pr.comments.totalCount,
     });
     const readiness = isPrMergeReady({
@@ -1470,7 +1478,7 @@ export class GitHubClient {
     const pr = await runGhJsonAsync<GhPrViewJson>([
       "pr", "view", String(number),
       "--repo", `${owner}/${repo}`,
-      "--json", "number,url,title,state,baseRefName,headRefName",
+      "--json", "number,url,title,state,isDraft,baseRefName,headRefName",
     ]);
 
     return {
@@ -1480,6 +1488,8 @@ export class GitHubClient {
       title: pr.title,
       headBranch: pr.headRefName,
       baseBranch: pr.baseRefName,
+      isDraft: pr.isDraft,
+      draft: pr.isDraft,
       commentCount: 0, // Would need separate API call for comment count
     };
   }
@@ -1505,6 +1515,7 @@ export class GitHubClient {
       title: string;
       state: string;
       merged: boolean;
+      draft?: boolean;
       head: { ref: string };
       base: { ref: string };
       comments: number;
@@ -1518,6 +1529,8 @@ export class GitHubClient {
       title: data.title,
       headBranch: data.head.ref,
       baseBranch: data.base.ref,
+      isDraft: data.draft,
+      draft: data.draft,
       commentCount: data.comments,
       lastCommentAt: data.updated_at,
     };

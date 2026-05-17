@@ -4154,6 +4154,8 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       allocateWorktree?: (reservedNames: Set<string>) => string | null;
       /** Distinguishes user-initiated moves from engine-internal transitions. */
       moveSource?: "user" | "engine";
+      /** Bypass in-review merge blocker checks for explicit engine-owned transitions. */
+      skipMergeBlocker?: boolean;
     },
   ): Promise<Task> {
     return this.withTaskLock(id, async () => {
@@ -4189,7 +4191,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
 
       const moveSource = options?.moveSource ?? "engine";
       const fromColumn = task.column;
-      if (fromColumn === "in-review" && toColumn === "done") {
+      if (fromColumn === "in-review" && toColumn === "done" && !options?.skipMergeBlocker) {
         const mergeBlocker = getTaskMergeBlocker(task);
         if (mergeBlocker) {
           throw new Error(`Cannot move ${id} to done: ${mergeBlocker}`);
@@ -7276,6 +7278,72 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
    * @param issueInfo - The Issue info to set, or null to clear
    * @returns The updated task
    */
+  /**
+   * Move a PR-linked task to done when the external PR is observed as merged.
+   *
+   * Column policy: this auto-transition only applies to tasks currently in
+   * `in-review`. Other columns remain owned by executor/scheduler flows.
+   */
+  async applyPrMergedTransition(
+    taskId: string,
+    ctx?: { agentId?: string; runId?: string },
+  ): Promise<{ moved: boolean; skipped?: "already-done" | "not-merged" | "wrong-column" | "paused" }> {
+    const task = await this.getTask(taskId);
+    if (task.column === "done") {
+      return { moved: false, skipped: "already-done" };
+    }
+    if (task.paused) {
+      return { moved: false, skipped: "paused" };
+    }
+    if (task.prInfo?.status !== "merged") {
+      return { moved: false, skipped: "not-merged" };
+    }
+    if (task.column !== "in-review") {
+      this.logger?.warn?.(`[store] applyPrMergedTransition skipped for ${taskId}: column=${task.column}`);
+      return { moved: false, skipped: "wrong-column" };
+    }
+
+    const freshTask = await this.getTask(taskId);
+    if (freshTask.column === "done") {
+      return { moved: false, skipped: "already-done" };
+    }
+    if (freshTask.paused) {
+      return { moved: false, skipped: "paused" };
+    }
+    if (freshTask.prInfo?.status !== "merged") {
+      return { moved: false, skipped: "not-merged" };
+    }
+    if (freshTask.column !== "in-review") {
+      this.logger?.warn?.(`[store] applyPrMergedTransition skipped for ${taskId}: column=${freshTask.column}`);
+      return { moved: false, skipped: "wrong-column" };
+    }
+
+    await this.moveTask(taskId, "done", {
+      moveSource: "engine",
+      preserveProgress: true,
+      preserveWorktree: true,
+      skipMergeBlocker: true,
+    });
+
+    if (ctx?.agentId && ctx?.runId) {
+      this.recordRunAuditEvent({
+        taskId,
+        agentId: ctx.agentId,
+        runId: ctx.runId,
+        domain: "database",
+        mutationType: "pr:merged-auto-done",
+        target: taskId,
+        metadata: {
+          taskId,
+          prNumber: freshTask.prInfo?.number,
+          mergeMethod: freshTask.prInfo?.autoMergeStrategy,
+        },
+      });
+    }
+
+    return { moved: true };
+  }
+
   async updateIssueInfo(
     id: string,
     issueInfo: import("./types.js").IssueInfo | null,
