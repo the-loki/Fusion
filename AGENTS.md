@@ -542,6 +542,7 @@ When debugging agent execution issues (agents stuck on "starting"), check these 
 12. **`[prompt-size] prompt-size { agentId, role, runId, template, systemChars, execChars, totalChars, isNoTaskRun }`** — Per-heartbeat prompt-size audit record
 13. **`[wake-trigger-diagnostics] agent=<id> run=<id> triggerDetail=<wake-on-message*> source=<source> messageId=<id|none> from=<type:id|none> forced=<bool> createdAt=<iso|none> inboxUnreadCount=<n> wakeMessageStillUnread=<true|false|unknown> pendingRoomMessages=<n>`** — Correlates wake-on-message triggers with inbox snapshot state to diagnose empty-inbox false-positive wakes
 14. **`[retry-burned] retry-burned { taskId, agentId, role, category, attempt, total, breakdown }`** — Unified retry-burn telemetry and retry-cap circuit-breaker context
+15. **`Worktree init command failed (first test run will likely fail): ...` task log entries** — FN-4834: when `worktreeInitCommand` fails, diagnostic stderr is now written to the entry `outcome` (stdout/spawnError fallback), so dashboard logs preserve init failure details without rerunning.
 
 ### Semaphore Resilience
 
