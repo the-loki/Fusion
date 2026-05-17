@@ -28,6 +28,7 @@ import type { MeshLeaseManager } from "./mesh-lease-manager.js";
 import { selectPermanentAgentForTask } from "./agent-assignment.js";
 import type { AutoClaimSnapshotManager } from "./auto-claim-snapshot.js";
 import { StaleTaskReporter } from "./stale-task-reporter.js";
+import { createRunAuditor, generateSyntheticRunId } from "./run-audit.js";
 
 /**
  * Check whether two sets of file scope paths overlap.
@@ -506,6 +507,43 @@ export class Scheduler {
     this.clearDispatchQueuedReasonMemo(taskId);
     this.wasDispatchQueuedReasonLogged.add(key);
     await this.store.logEntry(taskId, reason);
+  }
+
+  private async emitNodeUnreachableRecoveryAudit(
+    task: Task,
+    metadata: {
+      ownerNodeId: string;
+      ownerNodeHealth: "offline" | "error";
+      handoffAction: "park" | "reassign-local" | "reassign-any";
+      handoffReason: string;
+      decisionPath: "scheduler-handoff-park" | "scheduler-handoff-reassign-local" | "scheduler-handoff-reassign-any";
+      newColumn: string;
+      dispatchNodeBefore?: string;
+      dispatchNodeAfter?: string;
+    },
+  ): Promise<void> {
+    const auditor = createRunAuditor(this.store, {
+      runId: generateSyntheticRunId("scheduler", task.id),
+      agentId: "scheduler",
+      taskId: task.id,
+      taskLineageId: task.lineageId,
+      phase: "dispatch-owning-node-handoff",
+    });
+
+    try {
+      await auditor.database({
+        type: "task:auto-recover-node-unreachable",
+        target: task.id,
+        metadata: {
+          previousColumn: task.column,
+          ...metadata,
+        },
+      });
+    } catch (error) {
+      schedulerLog.warn(
+        `Task ${task.id} failed to emit node-unreachable auto-recovery audit: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   private async emitHighOverlapFanoutWarnings(tasks: Task[]): Promise<void> {
@@ -1015,6 +1053,16 @@ export class Scheduler {
               if (handoffDecision.action === "park") {
                 if (!this.wasNodeBlocked.has(task.id)) {
                   this.wasNodeBlocked.add(task.id);
+                  await this.emitNodeUnreachableRecoveryAudit(freshTask, {
+                    ownerNodeId: freshTask.checkoutNodeId,
+                    ownerNodeHealth,
+                    handoffAction: handoffDecision.action,
+                    handoffReason: handoffDecision.reason,
+                    decisionPath: "scheduler-handoff-park",
+                    newColumn: freshTask.column,
+                    dispatchNodeBefore: effectiveNode.nodeId,
+                    dispatchNodeAfter: effectiveNode.nodeId,
+                  });
                   const reason = `Owning-node handoff parked dispatch: ${handoffDecision.reason}`;
                   schedulerLog.log(`Task ${task.id} dispatch blocked — ${reason}`);
                   await this.store.logEntry(task.id, reason);
@@ -1023,9 +1071,23 @@ export class Scheduler {
               }
 
               await this.store.logEntry(task.id, `Owning-node handoff applied: ${handoffDecision.reason}`);
+              const dispatchNodeBefore = effectiveNode.nodeId;
               if (handoffDecision.action === "reassign-local") {
                 effectiveNode = { nodeId: undefined, source: "local" };
               }
+              await this.emitNodeUnreachableRecoveryAudit(freshTask, {
+                ownerNodeId: freshTask.checkoutNodeId,
+                ownerNodeHealth,
+                handoffAction: handoffDecision.action,
+                handoffReason: handoffDecision.reason,
+                decisionPath:
+                  handoffDecision.action === "reassign-local"
+                    ? "scheduler-handoff-reassign-local"
+                    : "scheduler-handoff-reassign-any",
+                newColumn: freshTask.column,
+                dispatchNodeBefore,
+                dispatchNodeAfter: effectiveNode.nodeId,
+              });
             }
           }
 
