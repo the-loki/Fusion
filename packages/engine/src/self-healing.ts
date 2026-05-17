@@ -1937,7 +1937,7 @@ export class SelfHealingManager {
       const settings = await this.store.getSettings();
       if (settings.globalPause || settings.enginePaused) return result;
 
-      let task = await this.store.getTask(taskId);
+      const task = await this.store.getTask(taskId);
       const allTasks = await this.store.listTasks({ slim: true, includeArchived: true });
       const taskById = new Map(allTasks.map((t) => [t.id, t]));
       const todoTasks = await this.store.listTasks({ column: "todo", slim: true });
