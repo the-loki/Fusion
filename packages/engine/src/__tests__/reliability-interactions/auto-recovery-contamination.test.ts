@@ -57,6 +57,29 @@ describe("reliability interaction: contamination auto-recovery precedence", () =
     expect(issueRetry).toHaveBeenCalledOnce();
   });
 
+  it("foreign-only no-own-work routes to retry, not pause", async () => {
+    const issueRetry = vi.fn(async () => {});
+    const dispatcher = new AutoRecoveryDispatcher({
+      taskStore: {} as never,
+      auditEmitter: { database: vi.fn(async () => {}), git: vi.fn(), filesystem: vi.fn(), sandbox: vi.fn() },
+      handlers: { issueRetry },
+    });
+
+    const decision = await dispatcher.dispatch({
+      class: "branch-cross-contamination",
+      taskId: "FN-1",
+      pausedReason: "branch-cross-contamination",
+      evidence: { ownCommits: 0, foreignAttributedCommits: 3, recoveryKind: "foreign-only" },
+    }, {
+      task: baseTask,
+      retryCount: 0,
+      settings: { mode: "programmatic", maxRetries: 2 },
+    });
+
+    expect(decision.action).toBe("retry");
+    expect(issueRetry).toHaveBeenCalledOnce();
+  });
+
   it("mode off and destructive ambiguity preserve pause", () => {
     const dispatcher = new AutoRecoveryDispatcher({
       taskStore: {} as never,

@@ -58,6 +58,7 @@ import {
   autoRecoverCrossContamination,
   classifyBootstrapMisbinding,
   classifyForeignCommits,
+  classifyForeignOnlyContamination,
   isBranchConflictError,
   reanchorBranchToBase,
   inspectBranchConflict,
@@ -4638,14 +4639,25 @@ export class TaskExecutor {
           }
 
           const autoRecoveryDispatcher = this.getAutoRecoveryDispatcher(audit);
+          const ownCommits = err.foreignCommits.filter((commit) => commit.foreignTaskId === task.id).length;
+          const foreignAttributedCommits = err.foreignCommits.filter((commit) => commit.foreignTaskId !== task.id).length;
+          const foreignOnlyClassification = (task.branch && task.baseCommitSha)
+            ? await classifyForeignOnlyContamination({
+              repoDir: this.rootDir,
+              branchName: task.branch,
+              baseSha: task.baseCommitSha,
+              taskId: task.id,
+            }).catch(() => null)
+            : null;
           const decision = await autoRecoveryDispatcher.dispatch({
             class: "branch-cross-contamination",
             taskId: task.id,
             runId: this.currentRunContext?.runId,
             pausedReason: "branch-cross-contamination",
             evidence: {
-              ownCommits: err.foreignCommits.filter((commit) => commit.foreignTaskId === task.id).length,
-              foreignAttributedCommits: err.foreignCommits.filter((commit) => commit.foreignTaskId !== task.id).length,
+              ownCommits,
+              foreignAttributedCommits,
+              foreignOnlyKind: foreignOnlyClassification?.kind,
             },
             underlyingError: err,
           }, {

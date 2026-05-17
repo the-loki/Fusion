@@ -37,13 +37,14 @@ import {
   isRecoverableMissingWorktreeReviewFailureWithProgress,
 } from "./restart-recovery-coordinator.js";
 import { classifyError, extractMissingModulePath, isOperatorActionableAgentError, isStaleWorktreeModuleResolutionError } from "./transient-error-detector.js";
-import { deriveTaskIdFromFusionBranch, inspectBranchConflict, listUniqueBranchCommits } from "./branch-conflicts.js";
+import { classifyForeignOnlyContamination, deriveTaskIdFromFusionBranch, inspectBranchConflict, listUniqueBranchCommits } from "./branch-conflicts.js";
 import { createRunAuditor, generateSyntheticRunId, type RunAuditor } from "./run-audit.js";
 import { AutoRecoveryDispatcher } from "./auto-recovery.js";
 import { activeSessionRegistry } from "./active-session-registry.js";
 import { findAlreadyMergedTaskCommit } from "./already-merged-detector.js";
 import { resolveWorktreesDir } from "./worktree-paths.js";
 import type { OwnedLandedClassification } from "./merger.js";
+import { recoverForeignOnlyContamination } from "./recovery/foreign-only-contamination.js";
 
 const log = createLogger("self-healing");
 const worktreeMetadataReconcileLog = createLogger("worktree-metadata-reconcile");
@@ -540,6 +541,7 @@ export class SelfHealingManager {
       { name: "reconcile-done-task-integrity", fn: () => this.reconcileDoneTaskIntegrity().then(() => undefined) },
       { name: "recover-already-merged-review", fn: () => this.recoverAlreadyMergedReviewTasks().then(() => undefined) },
       { name: "recover-branch-misbound-in-review", fn: () => this.recoverBranchMisboundInReviewTasks().then(() => undefined) },
+      { name: "recover-foreign-only-contamination-in-review", fn: () => this.recoverForeignOnlyContaminatedInReviewTasks().then(() => undefined) },
       { name: "recover-orphan-only-scope-violations", fn: () => this.recoverOrphanOnlyScopeViolations().then(() => undefined) },
       { name: "recover-stuck-merge-deadlocks", fn: () => this.recoverStuckMergeDeadlocks().then(() => undefined) },
       { name: "misclassified-failures", fn: () => this.recoverMisclassifiedFailures().then(() => undefined) },
@@ -1115,6 +1117,7 @@ export class SelfHealingManager {
           { name: "recover-merged-review", fn: () => this.recoverMergedReviewTasks() },
           { name: "recover-already-merged-review", fn: () => this.recoverAlreadyMergedReviewTasks() },
           { name: "recover-branch-misbound-in-review", fn: () => this.recoverBranchMisboundInReviewTasks() },
+          { name: "recover-foreign-only-contamination-in-review", fn: () => this.recoverForeignOnlyContaminatedInReviewTasks() },
           { name: "recover-orphan-only-scope-violations", fn: () => this.recoverOrphanOnlyScopeViolations() },
           { name: "recover-stuck-merge-deadlocks", fn: () => this.recoverStuckMergeDeadlocks() },
           { name: "recover-misclassified-failures", fn: () => this.recoverMisclassifiedFailures() },
@@ -4279,6 +4282,90 @@ export class SelfHealingManager {
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       log.error(`Branch-misbound in-review recovery failed: ${errorMessage}`);
+      return 0;
+    }
+  }
+
+  async recoverForeignOnlyContaminatedInReviewTasks(): Promise<number> {
+    try {
+      const settings = await this.store.getSettings();
+      if (settings.globalPause || settings.enginePaused) return 0;
+
+      const executingIds = this.options.getExecutingTaskIds?.() ?? new Set<string>();
+      const inReview = await this.store.listTasks({ column: "in-review", slim: true });
+      const inProgress = await this.store.listTasks({ column: "in-progress", slim: true });
+      const candidates = [
+        ...inReview.filter((task) =>
+          task.column === "in-review" &&
+          Boolean(task.branch) &&
+          Boolean(task.worktree) &&
+          task.mergeDetails?.mergeConfirmed !== true &&
+          !task.userPaused &&
+          !executingIds.has(task.id),
+        ),
+        ...inProgress.filter((task) =>
+          task.column === "in-progress" &&
+          task.paused === true &&
+          (task.pausedReason === "branch-cross-contamination" || task.pausedReason === "branch-conflict-unrecoverable") &&
+          Boolean(task.branch) &&
+          Boolean(task.worktree) &&
+          !task.userPaused &&
+          !executingIds.has(task.id),
+        ),
+      ];
+
+      let recovered = 0;
+      for (const task of candidates) {
+        if (!task.branch || !task.worktree) continue;
+        const baseSha = task.baseCommitSha ?? task.baseBranch ?? task.executionStartBranch ?? "main";
+        try {
+          const classification = await classifyForeignOnlyContamination({
+            repoDir: this.options.rootDir,
+            branchName: task.branch,
+            baseSha,
+            taskId: task.id,
+          });
+
+          if (classification.kind === "ambiguous" || classification.kind === "clean") {
+            await createRunAuditor(this.store, {
+              runId: generateSyntheticRunId("self-heal", task.id),
+              agentId: "self-healing",
+              taskId: task.id,
+              taskLineageId: task.lineageId,
+              phase: "recover-foreign-only-contamination-in-review",
+            }).database({
+              type: "task:auto-recover-foreign-only-contamination-skipped",
+              target: task.id,
+              metadata: { reason: classification.kind === "clean" ? "clean" : "ambiguous", kind: classification.kind },
+            });
+            continue;
+          }
+
+          const result = await recoverForeignOnlyContamination(task, {
+            repoDir: this.options.rootDir,
+            taskStore: this.store,
+            runAudit: createRunAuditor(this.store, {
+              runId: generateSyntheticRunId("self-heal", task.id),
+              agentId: "self-healing",
+              taskId: task.id,
+              taskLineageId: task.lineageId,
+              phase: "recover-foreign-only-contamination-in-review",
+            }),
+          });
+          if (result.recovered) {
+            await this.store.logEntry(task.id, `Auto-recovered foreign-only contamination via ${result.subtype ?? "unknown"}`);
+            recovered += 1;
+          }
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          log.warn(`recoverForeignOnlyContaminatedInReviewTasks: failed for task ${task.id}: ${errorMessage}`);
+        }
+      }
+
+      return recovered;
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`Foreign-only contamination recovery failed: ${errorMessage}`);
       return 0;
     }
   }

@@ -1,6 +1,8 @@
 import type { TaskStore } from "@fusion/core";
+import { classifyForeignOnlyContamination } from "../branch-conflicts.js";
 import type { AutoRecoveryContext, AutoRecoveryDecision, AutoRecoveryFailure, AutoRecoveryHandlers } from "../auto-recovery.js";
 import { createLogger, type Logger } from "../logger.js";
+import { recoverForeignOnlyContamination } from "../recovery/foreign-only-contamination.js";
 import type { RunAuditor } from "../run-audit.js";
 
 const baseLog = createLogger("auto-recovery:contamination");
@@ -47,18 +49,45 @@ export class ContaminationAutoRecoveryHandler implements Pick<AutoRecoveryHandle
       return;
     }
 
-    await this.deps.taskStore.moveTask(task.id, "todo", {
-      moveSource: "engine",
-      preserveResumeState: true,
-      preserveProgress: true,
-      preserveWorktree: true,
-    });
+    let recoveryKind: "default" | "foreign-only" = "default";
+    let subtype: "reanchor" | "branch-discard" | undefined;
 
-    await this.deps.taskStore.updateTask(task.id, {
-      paused: false,
-      pausedReason: null,
-      error: null,
-    });
+    if (ownCommits === 0 && foreignAttributedCommits > 0 && task.branch && task.worktree) {
+      const baseSha = task.baseCommitSha ?? task.baseBranch ?? task.executionStartBranch ?? "main";
+      const classification = await classifyForeignOnlyContamination({
+        repoDir: this.deps.repoDir,
+        branchName: task.branch,
+        baseSha,
+        taskId: task.id,
+      }).catch(() => null);
+
+      if (classification && (classification.kind === "foreign-only-no-own-work" || classification.kind === "foreign-only-already-upstream")) {
+        const recovered = await recoverForeignOnlyContamination(task, {
+          repoDir: this.deps.repoDir,
+          taskStore: this.deps.taskStore,
+          runAudit: this.deps.runAudit,
+        });
+        if (recovered.recovered) {
+          recoveryKind = "foreign-only";
+          subtype = recovered.subtype;
+        }
+      }
+    }
+
+    if (recoveryKind === "default") {
+      await this.deps.taskStore.moveTask(task.id, "todo", {
+        moveSource: "engine",
+        preserveResumeState: true,
+        preserveProgress: true,
+        preserveWorktree: true,
+      });
+
+      await this.deps.taskStore.updateTask(task.id, {
+        paused: false,
+        pausedReason: null,
+        error: null,
+      });
+    }
 
     await this.deps.runAudit.database({
       type: "contamination:retry-issued",
@@ -69,6 +98,8 @@ export class ContaminationAutoRecoveryHandler implements Pick<AutoRecoveryHandle
         ownCommits,
         foreignAttributedCommits,
         retryCount: ctx.retryCount,
+        recoveryKind,
+        subtype,
       },
     });
   }
