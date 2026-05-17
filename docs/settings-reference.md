@@ -86,6 +86,9 @@ Fusion automatically falls back to ntfy's JSON publish format when a notificatio
 | `settingsSyncAuth` | `boolean` | `false` | Include auth-material snapshots (`sharedState.authMaterial` and auth sync endpoints) when settings sync is enabled. Ignored when `settingsSyncEnabled` is `false`. |
 | `settingsSyncInterval` | `number` | `900000` | Automatic sync interval in ms. Valid values: `300000`, `900000`, `1800000`, `3600000`. |
 | `settingsSyncConflictResolution` | `"last-write-wins" \| "always-ask" \| "keep-local" \| "keep-remote"` | `"last-write-wins"` | Conflict strategy for divergent synced settings. |
+| `secretsAccessPolicy` | `"auto" \| "prompt" \| "deny"` | `undefined` | Global default secret access policy used when a secret row does not set `access_policy`; resolver fallback remains `"prompt"`. |
+| `secretsEnv` | `{ enabled?: boolean; filename?: string; overwritePolicy?: "skip" \| "merge" \| "replace"; keyPrefix?: string; requireGitignored?: boolean }` | `undefined` | Reserved secrets env-materialization settings block. Planned integration (FN-4867); currently not active in this branch. |
+| `secretsSyncPassphrase` | `string` | `undefined` | Reserved shared-passphrase setting for cross-node secrets sync. Planned integration (FN-4867); currently not active in this branch. |
 | `owningNodeHandoffPolicy` | `"block" \| "reassign-to-local" \| "reassign-any-healthy"` | `"reassign-to-local"` | Global fallback policy for tasks whose owning checkout node is unavailable. Project-level `owningNodeHandoffPolicy` overrides this. |
 | `dashboardCurrentNodeId` | `string` | `undefined` | Currently selected dashboard node ID. Restores the last-viewed node on fresh browser/PWA sessions. `undefined` means viewing the local node. |
 
@@ -190,6 +193,9 @@ Defaults from `DEFAULT_PROJECT_SETTINGS`; key scope from `PROJECT_SETTINGS_KEYS`
 | `autoClaimCandidatesInPrompt` | `number` | `5` | Default no-task heartbeat candidate list length. Integer range `0-10`; `0` suppresses candidate prompt injection. |
 | `defaultNodeId` | `string` | `undefined` | Optional project default execution node for task dispatch. When set, tasks without a per-task `nodeId` override resolve to this node (`routing source: project-default`). See [Task Management → Node Routing](./task-management.md#node-routing). |
 | `unavailableNodePolicy` | `"block" \| "fallback-local"` | `"block"` | Project routing policy used during scheduler dispatch when a task resolves to a remote node and node health is known. `"block"` keeps the task in `todo` if the node is unhealthy; `"fallback-local"` reroutes dispatch to local execution. See [Architecture → Task Routing Architecture](./architecture.md#task-routing-architecture). |
+| `secretsAccessPolicy` | `"auto" \| "prompt" \| "deny"` | `undefined` | Project-level default secret access policy (overrides global default when present). |
+| `secretsEnv` | `{ enabled?: boolean; filename?: string; overwritePolicy?: "skip" \| "merge" \| "replace"; keyPrefix?: string; requireGitignored?: boolean }` | `undefined` | Reserved per-project secrets env-materialization settings block. Planned integration (FN-4867); currently not active in this branch. |
+| `secretsSyncPassphrase` | `string` | `undefined` | Reserved per-project passphrase override for cross-node secrets sync. Planned integration (FN-4867); currently not active in this branch. |
 | `owningNodeHandoffPolicy` | `"block" \| "reassign-to-local" \| "reassign-any-healthy"` | `"reassign-to-local"` | Policy for tasks already checked out by an unavailable owning node. `"block"` parks, `"reassign-to-local"` takes over on local node, `"reassign-any-healthy"` makes takeover eligible on healthy peers. |
 
 | `groupOverlappingFiles` | `boolean` | `true` | Serialize execution when file scopes overlap. |

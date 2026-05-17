@@ -996,14 +996,17 @@ The client treats mapping persistence as part of onboarding success. If mapping 
 | POST | `/api/nodes/:id/settings/pull` | Pull settings from a remote node. |
 | GET | `/api/nodes/:id/settings/sync-status` | Get sync status and diff summary. |
 | POST | `/api/nodes/:id/auth/sync` | Sync model auth snapshots (push/pull, checksum/version validated). |
+| POST | `/api/nodes/:id/secrets/push` | Push local secrets snapshot to a remote node *(planned; follow-up FN-4867)*. |
+| POST | `/api/nodes/:id/secrets/pull` | Pull secrets snapshot from a remote node *(planned; follow-up FN-4867)*. |
 | POST | `/api/settings/sync-receive` | Receive pushed settings (inbound). |
 | POST | `/api/settings/auth-receive` | Receive `AuthMaterialSnapshot` and persist via auth storage. |
+| POST | `/api/secrets/sync-receive` | Receive pushed secrets payload (inbound, planned; follow-up FN-4867). |
 | GET | `/api/settings/auth-export` | Export local `AuthMaterialSnapshot`. |
 | GET | `/api/update-check` | Read cached/TTL-guarded npm update status for `@runfusion/fusion` (respects `updateCheckEnabled`). |
 | POST | `/api/update-check/refresh` | Clear cached update data and force a fresh npm update check. |
 | GET | `/api/updates/check` | Perform an on-demand npm registry check for the latest `@runfusion/fusion` version (no cache). |
 
-When adding a new node settings/auth sync endpoint, add it to the `ENDPOINTS` catalog in `packages/dashboard/src/__tests__/routes-nodes-sync-contract.test.ts` so the auth/error/payload parity matrix covers it.
+When adding a new node settings/auth sync endpoint, add it to the `ENDPOINTS` catalog in `packages/dashboard/src/__tests__/routes-nodes-sync-contract.test.ts` so the auth/error/payload parity matrix covers it. Inbound sync endpoints (including planned `/api/secrets/sync-receive`) must validate `Authorization: Bearer <apiKey>` against the local node API key.
 
 ### Agent stats endpoint
 
