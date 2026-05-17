@@ -117,6 +117,29 @@ describe("acquireTaskWorktree", () => {
     });
     expect(runConfiguredCommand).not.toHaveBeenCalled();
   });
+
+  it("FN-4834: logs worktree init stderr in task log outcome", async () => {
+    const runConfiguredCommand = vi.fn().mockResolvedValue({
+      exitCode: 1,
+      stderr: "ERR_PNPM_FROZEN_LOCKFILE_WITH_OUTDATED_LOCKFILE Cannot install with \"frozen-lockfile\" because pnpm-lock.yaml is not up to date",
+      stdout: "",
+    });
+
+    await expect(acquireTaskWorktree({
+      task,
+      rootDir: process.cwd(),
+      store,
+      settings: { worktreeInitCommand: "pnpm install --frozen-lockfile" } as any,
+      createWorktree: vi.fn().mockResolvedValue({ path: "/tmp/new", branch: "fusion/fn-1" }),
+      runConfiguredCommand,
+      runInitCommand: true,
+      logger: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })).resolves.toBeTruthy();
+
+    const failureCall = store.logEntry.mock.calls.find((call: unknown[]) => String(call[1]).startsWith("Worktree init command failed"));
+    expect(failureCall).toBeDefined();
+    expect(failureCall?.[2]).toContain("ERR_PNPM_FROZEN_LOCKFILE_WITH_OUTDATED_LOCKFILE");
+  });
 });
 
 describe("acquireTaskWorktree foreign start-point warning", () => {

@@ -51,7 +51,15 @@ export interface AcquireTaskWorktreeOptions {
     startPoint?: string,
     allowSiblingBranchRename?: boolean,
   ) => Promise<{ path: string; branch: string }>;
-  runConfiguredCommand?: (command: string, cwd: string, timeoutMs: number, env?: NodeJS.ProcessEnv) => Promise<{ spawnError?: string | Error; timedOut?: boolean; exitCode?: number | null }>;
+  runConfiguredCommand?: (command: string, cwd: string, timeoutMs: number, env?: NodeJS.ProcessEnv) => Promise<{
+    spawnError?: string | Error;
+    timedOut?: boolean;
+    exitCode?: number | null;
+    signal?: NodeJS.Signals | null;
+    stdout?: string;
+    stderr?: string;
+    bufferExceeded?: boolean;
+  }>;
   taskEnv?: NodeJS.ProcessEnv;
   backend?: WorktreeBackend;
 }
@@ -68,10 +76,42 @@ export interface AcquireTaskWorktreeResult {
   };
 }
 
+type InitCommandResult = Awaited<ReturnType<NonNullable<AcquireTaskWorktreeOptions["runConfiguredCommand"]>>>;
+
+const INIT_OUTCOME_MAX_CHARS = 2_000;
+
 function configuredCommandErrorMessage(result: { spawnError?: string | Error; timedOut?: boolean; exitCode?: number | null }): string {
   if (result.spawnError) return `Failed to start command: ${result.spawnError}`;
   if (result.timedOut) return "Command timed out";
   return `Command exited with code ${result.exitCode ?? "unknown"}`;
+}
+
+function truncateInitCommandOutput(output: string): string {
+  if (output.length <= INIT_OUTCOME_MAX_CHARS) return output;
+  return `... output truncated to last ${INIT_OUTCOME_MAX_CHARS} chars ...\n${output.slice(-INIT_OUTCOME_MAX_CHARS)}`;
+}
+
+function formatInitFailureOutcome(initResult: InitCommandResult | undefined, err: unknown): string {
+  const stderr = initResult?.stderr?.trim();
+  if (stderr) return truncateInitCommandOutput(stderr);
+
+  const stdout = initResult?.stdout?.trim();
+  if (stdout) return truncateInitCommandOutput(stdout);
+
+  if (initResult?.spawnError) {
+    return typeof initResult.spawnError === "string" ? initResult.spawnError : initResult.spawnError.message;
+  }
+
+  const parts: string[] = [];
+  if (initResult?.timedOut) parts.push("Command timed out");
+  if (initResult?.exitCode !== undefined && initResult.exitCode !== null) parts.push(`exit code: ${initResult.exitCode}`);
+  if (initResult?.signal) parts.push(`signal: ${initResult.signal}`);
+  if (parts.length > 0) return parts.join("; ");
+
+  if (err instanceof Error && err.message.trim().length > 0) return err.message;
+
+  const fallback = String(err).trim();
+  return fallback.length > 0 ? fallback : "Command failed";
 }
 
 async function maybeWarnForeignTaskStartPoint(
@@ -321,8 +361,9 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
 
   if (runInitCommand && settings.worktreeInitCommand && runConfiguredCommand) {
     const initStartedAt = Date.now();
+    let initResult: InitCommandResult | undefined;
     try {
-      const initResult = await runConfiguredCommand(settings.worktreeInitCommand, worktreePath, 300_000, taskEnv);
+      initResult = await runConfiguredCommand(settings.worktreeInitCommand, worktreePath, 300_000, taskEnv);
       if (initResult.spawnError || initResult.timedOut || initResult.exitCode !== 0) {
         throw new Error(configuredCommandErrorMessage(initResult));
       }
@@ -330,8 +371,9 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
     } catch (err) {
       await store.logEntry(task.id, `[timing] Worktree init command failed after ${Date.now() - initStartedAt}ms`, undefined, runContext);
       const message = err instanceof Error ? err.message : String(err);
-      logger?.error?.(`${task.id}: worktree init command failed — first test run will likely fail: ${message}`);
-      await store.logEntry(task.id, `Worktree init command failed (first test run will likely fail): ${message}`, undefined, runContext);
+      const outcome = formatInitFailureOutcome(initResult, err);
+      logger?.error?.(`${task.id}: worktree init command failed — first test run will likely fail: ${message} (stderr captured in task log outcome)`);
+      await store.logEntry(task.id, `Worktree init command failed (first test run will likely fail): ${message}`, outcome, runContext);
     }
   }
 
