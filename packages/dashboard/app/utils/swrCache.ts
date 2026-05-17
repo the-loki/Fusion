@@ -15,6 +15,17 @@ export const SWR_CACHE_KEYS = {
   TODO_LISTS_PREFIX: "kb-dashboard-todo-lists-cache:",
   CHAT_ROOMS: "kb-dashboard-chat-rooms-cache",
   ACTIVE_CHAT_ROOM_ID: "kb-dashboard-active-chat-room-cache",
+  INSIGHTS_PREFIX: "kb-dashboard-insights-cache:",
+  INSIGHT_LATEST_RUN_PREFIX: "kb-dashboard-insight-latest-run-cache:",
+  RESEARCH_RUNS_PREFIX: "kb-dashboard-research-runs-cache:",
+  RESEARCH_SELECTED_ID_PREFIX: "kb-dashboard-research-selected-cache:",
+  EVALS_RUNS_PREFIX: "kb-dashboard-evals-runs-cache:",
+  EVALS_RESULTS_PREFIX: "kb-dashboard-evals-results-cache:",
+  MISSIONS_PREFIX: "kb-dashboard-missions-cache:",
+  MISSIONS_SELECTED_ID_PREFIX: "kb-dashboard-mission-selected-cache:",
+  MAILBOX_INBOX_PREFIX: "kb-dashboard-mailbox-inbox-cache:",
+  MAILBOX_OUTBOX_PREFIX: "kb-dashboard-mailbox-outbox-cache:",
+  MAILBOX_UNREAD_COUNT_PREFIX: "kb-dashboard-mailbox-unread-cache:",
 } as const;
 
 const DEFAULT_MAX_BYTES = 500_000;
