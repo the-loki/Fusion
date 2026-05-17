@@ -75,6 +75,34 @@ describe("server index preload injection", () => {
     }
   });
 
+  serverViewPreloadIntegrationTest("injects at marker comment when present", async () => {
+    const clientDir = makeTempDir("fn-4782-client-marker-");
+    mkdirSync(join(clientDir, ".vite"), { recursive: true });
+    writeFileSync(
+      join(clientDir, "index.html"),
+      "<!doctype html><html><head><!-- fusion:view-preload --></head><body><div id=\"root\"></div></body></html>",
+    );
+    writeFileSync(
+      join(clientDir, ".vite", "manifest.json"),
+      JSON.stringify({ "components/AgentsView.tsx": { file: "assets/AgentsView-marker.js" } }),
+    );
+
+    const { server, restoreEnv } = await startServerWithFixture(clientDir);
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Missing server address");
+
+      const res = await fetch(`http://127.0.0.1:${address.port}/`);
+      const html = await res.text();
+
+      expect(res.status).toBe(200);
+      expect(html).toMatch(/<!-- fusion:view-preload -->\s*<script>window\.__FUSION_VIEW_CHUNKS__/);
+    } finally {
+      restoreEnv();
+      await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
+    }
+  });
+
   serverViewPreloadIntegrationTest("serves index with empty chunk map when manifest is missing", async () => {
     const clientDir = makeTempDir("fn-4782-client-no-manifest-");
     writeFileSync(join(clientDir, "index.html"), "<!doctype html><html><head></head><body><div id=\"root\"></div></body></html>");
