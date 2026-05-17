@@ -8,6 +8,10 @@ concurrency:
   group: pr-checks-${{ github.ref }}
   cancel-in-progress: true
 
+# FN-4863: Opt JavaScript actions into Node 24 ahead of GitHub's forced cutover on 2026-06-02.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   lint:
     name: Lint
