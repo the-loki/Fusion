@@ -93,9 +93,31 @@ function emitVersionJson(): Plugin {
   };
 }
 
+function ensureThemeDataStylesheetOrder(): Plugin {
+  return {
+    name: "fusion-theme-data-link-order",
+    apply: "build",
+    enforce: "post",
+    transformIndexHtml(html) {
+      const headMatch = html.match(/<head>[\s\S]*?<\/head>/i);
+      if (!headMatch) return html;
+
+      const head = headMatch[0];
+      const themeLinkMatch = head.match(/<link[^>]*id=["']theme-data["'][^>]*>/i);
+      if (!themeLinkMatch) return html;
+
+      const themeLink = themeLinkMatch[0];
+      const headWithoutThemeLink = head.replace(themeLink, "");
+      const reorderedHead = headWithoutThemeLink.replace(/<\/head>$/i, `${themeLink}\n  </head>`);
+
+      return html.replace(head, reorderedHead);
+    },
+  };
+}
+
 export default defineConfig({
   root: "app",
-  plugins: [react(), emitVersionJson()],
+  plugins: [react(), ensureThemeDataStylesheetOrder(), emitVersionJson()],
   define: {
     __BUILD_VERSION__: JSON.stringify(buildVersion),
   },
