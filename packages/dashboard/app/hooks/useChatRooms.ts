@@ -8,6 +8,7 @@ import {
   fetchChatRoomMessages,
   fetchChatRooms,
   postChatRoomMessage,
+  uploadChatRoomAttachment,
 } from "../api";
 import { subscribeSse } from "../sse-bus";
 import { getScopedItem, removeScopedItem, setScopedItem } from "../utils/projectStorage";
@@ -26,7 +27,7 @@ export interface UseChatRoomsResult {
   selectRoom: (roomId: string | null) => void;
   createRoom: (input: { name: string; memberAgentIds: string[] }) => Promise<ChatRoom>;
   deleteRoom: (roomId: string) => Promise<void>;
-  sendRoomMessage: (content: string, opts?: { attachments?: ChatAttachment[] }) => Promise<void>;
+  sendRoomMessage: (content: string, opts?: { attachments?: ChatAttachment[]; files?: File[] }) => Promise<void>;
   clearRoom: (roomId: string) => Promise<void>;
   refreshRooms: () => Promise<void>;
 }
@@ -51,7 +52,7 @@ function parseSsePayload<T>(event: MessageEvent): T | null {
   }
 }
 
-function createOptimisticRoomMessage(roomId: string, content: string): ChatRoomMessage {
+function createOptimisticRoomMessage(roomId: string, content: string, attachments?: ChatAttachment[]): ChatRoomMessage {
   return {
     id: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     roomId,
@@ -61,6 +62,7 @@ function createOptimisticRoomMessage(roomId: string, content: string): ChatRoomM
     metadata: null,
     senderAgentId: null,
     mentions: [],
+    ...(attachments?.length ? { attachments } : {}),
     createdAt: new Date().toISOString(),
   };
 }
@@ -203,22 +205,45 @@ export function useChatRooms(
     }
   }, [activeRoomCacheKey, projectId]);
 
-  const sendRoomMessage = useCallback(async (content: string, opts?: { attachments?: ChatAttachment[] }) => {
+  const sendRoomMessage = useCallback(async (content: string, opts?: { attachments?: ChatAttachment[]; files?: File[] }) => {
     const activeRoomSnapshot = activeRoomRef.current;
     const roomId = activeRoomSnapshot?.id;
     if (!roomId) {
       throw new Error("Select a room before sending a message");
     }
 
-    const optimisticMessage = createOptimisticRoomMessage(roomId, content);
+    const placeholderAttachments = opts?.files?.map((file) => ({
+      id: `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      filename: file.name,
+      originalName: file.name,
+      mimeType: file.type || "application/octet-stream",
+      size: file.size,
+      createdAt: new Date().toISOString(),
+    } satisfies ChatAttachment));
+
+    const optimisticMessage = createOptimisticRoomMessage(roomId, content, placeholderAttachments?.length ? placeholderAttachments : opts?.attachments);
     if (activeRoomRef.current?.id === roomId) {
       setMessages((previous) => [...previous, optimisticMessage]);
     }
 
     try {
+      const uploadedAttachments: ChatAttachment[] = [];
+      if (opts?.files?.length) {
+        for (const file of opts.files) {
+          try {
+            const uploaded = await uploadChatRoomAttachment(roomId, file, projectId);
+            uploadedAttachments.push(uploaded.attachment);
+          } catch {
+            throw new Error(`Failed to upload attachment: ${file.name}`);
+          }
+        }
+      }
+
+      const mergedAttachments = [...(opts?.attachments ?? []), ...uploadedAttachments];
+
       const postResult = await postChatRoomMessage(roomId, {
         content,
-        ...(opts?.attachments ? { attachments: opts.attachments } : {}),
+        ...(mergedAttachments.length ? { attachments: mergedAttachments } : {}),
       }, projectId);
 
       if (postResult.message?.createdAt && activeRoomSnapshot) {

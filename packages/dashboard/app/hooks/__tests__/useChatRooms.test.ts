@@ -13,6 +13,7 @@ vi.mock("../../api", () => ({
   fetchChatRoomMessages: vi.fn(),
   deleteChatRoom: vi.fn(),
   postChatRoomMessage: vi.fn(),
+  uploadChatRoomAttachment: vi.fn(),
   clearChatRoomMessages: vi.fn(),
 }));
 
@@ -32,6 +33,7 @@ const mockFetchChatRoomMembers = vi.mocked(apiModule.fetchChatRoomMembers);
 const mockFetchChatRoomMessages = vi.mocked(apiModule.fetchChatRoomMessages);
 const mockDeleteChatRoom = vi.mocked(apiModule.deleteChatRoom);
 const mockPostChatRoomMessage = vi.mocked(apiModule.postChatRoomMessage);
+const mockUploadChatRoomAttachment = vi.mocked(apiModule.uploadChatRoomAttachment);
 const mockClearChatRoomMessages = vi.mocked(apiModule.clearChatRoomMessages);
 const mockSubscribeSse = vi.mocked(sseBusModule.subscribeSse);
 
@@ -86,6 +88,16 @@ describe("useChatRooms", () => {
     mockCreateChatRoom.mockResolvedValue({ room: room("room-new", "new", "2026-05-09T01:00:00.000Z") });
     mockDeleteChatRoom.mockResolvedValue({ success: true });
     mockPostChatRoomMessage.mockResolvedValue({ message: roomMessage("msg-posted", "room-new", "posted") });
+    mockUploadChatRoomAttachment.mockResolvedValue({
+      attachment: {
+        id: "att-uploaded",
+        filename: "upload.png",
+        originalName: "upload.png",
+        mimeType: "image/png",
+        size: 4,
+        createdAt: "2026-05-09T00:00:00.000Z",
+      },
+    });
     mockClearChatRoomMessages.mockResolvedValue({ success: true, deletedCount: 1 });
   });
 
@@ -286,6 +298,53 @@ describe("useChatRooms", () => {
     expect(mockPostChatRoomMessage).toHaveBeenCalledWith("room-1", { content: "hello" }, "proj-1");
     expect(mockFetchChatRoomMessages).toHaveBeenLastCalledWith("room-1", { limit: 100, order: "desc" }, "proj-1");
     expect(result.current.messages.map((message) => message.id)).toEqual(["msg-user", "msg-assistant"]);
+  });
+
+  it("uploads files before posting room message", async () => {
+    const active = room("room-1", "one", "2026-05-09T01:00:00.000Z");
+    mockFetchChatRooms.mockResolvedValueOnce({ rooms: [active] });
+    const { result } = renderHook(() => useChatRooms("proj-1"));
+    await waitFor(() => expect(result.current.rooms.length).toBe(1));
+
+    mockFetchChatRoomMembers.mockResolvedValueOnce({ members: [] });
+    mockFetchChatRoomMessages.mockResolvedValueOnce({ messages: [] });
+    act(() => result.current.selectRoom("room-1"));
+    await waitFor(() => expect(result.current.activeRoom?.id).toBe("room-1"));
+
+    const file = new File(["png"], "upload.png", { type: "image/png" });
+    mockFetchChatRoomMessages.mockResolvedValueOnce({ messages: [roomMessage("msg-user", "room-1", "hello")] });
+
+    await act(async () => {
+      await result.current.sendRoomMessage("hello", { files: [file] });
+    });
+
+    expect(mockUploadChatRoomAttachment).toHaveBeenCalledWith("room-1", file, "proj-1");
+    expect(mockPostChatRoomMessage).toHaveBeenCalledWith("room-1", {
+      content: "hello",
+      attachments: [expect.objectContaining({ id: "att-uploaded", filename: "upload.png" })],
+    }, "proj-1");
+  });
+
+  it("throws on upload failure and does not post", async () => {
+    const active = room("room-1", "one", "2026-05-09T01:00:00.000Z");
+    mockFetchChatRooms.mockResolvedValueOnce({ rooms: [active] });
+    const { result } = renderHook(() => useChatRooms("proj-1"));
+    await waitFor(() => expect(result.current.rooms.length).toBe(1));
+
+    mockFetchChatRoomMembers.mockResolvedValueOnce({ members: [] });
+    mockFetchChatRoomMessages.mockResolvedValueOnce({ messages: [] });
+    act(() => result.current.selectRoom("room-1"));
+    await waitFor(() => expect(result.current.activeRoom?.id).toBe("room-1"));
+
+    const file = new File(["x"], "bad.txt", { type: "text/plain" });
+    mockUploadChatRoomAttachment.mockRejectedValueOnce(new Error("Upload failed"));
+    mockFetchChatRoomMessages.mockResolvedValueOnce({ messages: [] });
+
+    await act(async () => {
+      await expect(result.current.sendRoomMessage("hello", { files: [file] })).rejects.toThrow("Failed to upload attachment: bad.txt");
+    });
+
+    expect(mockPostChatRoomMessage).not.toHaveBeenCalledWith("room-1", expect.objectContaining({ content: "hello" }), "proj-1");
   });
 
   it("rolls back optimistic temp message when post fails and transcript refresh fails", async () => {
