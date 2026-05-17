@@ -36,7 +36,7 @@ function createStore(task: Task): TaskStore {
     updatePrInfo: vi.fn().mockResolvedValue(undefined),
     addComment: vi.fn().mockResolvedValue(task),
     moveTask: vi.fn().mockResolvedValue({ ...task, column: "todo" }),
-    writeTaskDocument: vi.fn().mockResolvedValue({ key: "review-feedback" }),
+    upsertTaskDocument: vi.fn().mockResolvedValue({ key: "review-feedback" }),
     getRootDir: vi.fn().mockReturnValue("/tmp/project"),
     listTasks: vi.fn().mockResolvedValue([]),
     createTask: vi.fn(),

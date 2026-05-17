@@ -1069,7 +1069,11 @@ async function applyChangesRequestedTransition(
       : "",
   ].join("\n").trim();
 
-  await store.writeTaskDocument(task.id, "review-feedback", feedbackBody || "Reviewer requested changes.", "system");
+  await store.upsertTaskDocument(task.id, {
+    key: "review-feedback",
+    content: feedbackBody || "Reviewer requested changes.",
+    author: "system",
+  });
   await store.moveTask(task.id, "todo", {
     preserveProgress: true,
     preserveWorktree: true,
@@ -3356,6 +3360,18 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
           owner = gitRepo.owner;
           repo = gitRepo.repo;
         }
+      }
+
+      const repoKey = `${owner}/${repo}`;
+      if (!githubRateLimiter.canMakeRequest(repoKey)) {
+        const resetTime = githubRateLimiter.getResetTime(repoKey);
+        const retryAfter = resetTime
+          ? Math.max(0, Math.ceil((resetTime.getTime() - Date.now()) / 1000))
+          : undefined;
+        throw rateLimited("GitHub API rate limit exceeded for this repository", {
+          retryAfter,
+          resetAt: resetTime?.toISOString(),
+        });
       }
 
       const client = new GitHubClient();
