@@ -7,11 +7,11 @@ import {
   wrapSecretsBundle,
 } from "@fusion/core";
 import { ApiError, badRequest, notFound } from "../api-error.js";
-import { fetchFromRemoteNode } from "./register-settings-sync-helpers.js";
+import { fetchFromRemoteNode, MISSING_REMOTE_NODE_API_KEY_MESSAGE } from "./register-settings-sync-helpers.js";
 import type { ApiRouteRegistrar } from "./types.js";
 
 function emitSecretsAudit(
-  req: { runAuditor?: { filesystem?: (input: { type: string; target: string; metadata?: Record<string, unknown> }) => void } },
+  req: any,
   ctx: Parameters<ApiRouteRegistrar>[0],
   type: "secret:sync-push" | "secret:sync-pull",
   target: string,
@@ -51,7 +51,7 @@ export const registerSecretsSyncRoutes: ApiRouteRegistrar = (ctx) => {
   router.post("/nodes/:id/secrets/push", async (req, res) => {
     try {
       const { CentralCore } = await import("@fusion/core");
-      const central = new CentralCore();
+      const central = new CentralCore(store.getFusionDir());
       await central.init();
       try {
         const node = await central.getNode(req.params.id);
@@ -60,6 +60,12 @@ export const registerSecretsSyncRoutes: ApiRouteRegistrar = (ctx) => {
         }
         if (node.type === "local") {
           throw badRequest("Cannot push secrets to a local node");
+        }
+        if (!node.url || node.url.trim().length === 0) {
+          throw badRequest("Node has no URL configured");
+        }
+        if (!node.apiKey || node.apiKey.trim().length === 0) {
+          throw badRequest(MISSING_REMOTE_NODE_API_KEY_MESSAGE);
         }
 
         const secretsStore = await store.getSecretsStore();
@@ -103,7 +109,7 @@ export const registerSecretsSyncRoutes: ApiRouteRegistrar = (ctx) => {
   router.post("/nodes/:id/secrets/pull", async (req, res) => {
     try {
       const { CentralCore } = await import("@fusion/core");
-      const central = new CentralCore();
+      const central = new CentralCore(store.getFusionDir());
       await central.init();
       try {
         const node = await central.getNode(req.params.id);
@@ -113,6 +119,12 @@ export const registerSecretsSyncRoutes: ApiRouteRegistrar = (ctx) => {
         if (node.type === "local") {
           throw badRequest("Cannot pull secrets from a local node");
         }
+        if (!node.url || node.url.trim().length === 0) {
+          throw badRequest("Node has no URL configured");
+        }
+        if (!node.apiKey || node.apiKey.trim().length === 0) {
+          throw badRequest(MISSING_REMOTE_NODE_API_KEY_MESSAGE);
+        }
 
         const secretsStore = await store.getSecretsStore();
         const passphrase = await getSyncPassphrase(secretsStore);
@@ -121,7 +133,7 @@ export const registerSecretsSyncRoutes: ApiRouteRegistrar = (ctx) => {
           return;
         }
 
-        const remoteEnvelope = await fetchFromRemoteNode(node, "/api/secrets/sync-export", { method: "GET" });
+        const remoteEnvelope = await fetchFromRemoteNode(node, "/api/secrets/sync-export", { method: "GET" }) as import("@fusion/core").WrappedSecretsBundle;
         let records: SecretsSyncRecord[];
         try {
           records = await unwrapSecretsBundle(remoteEnvelope, passphrase);

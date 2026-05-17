@@ -166,9 +166,13 @@ const ENDPOINTS: readonly SyncEndpoint[] = [
     exceptions: ["missing-node-apiKey-returns-200-degraded", "missing-node-url-returns-200-degraded"], // Why: endpoint intentionally degrades to remoteReachable=false instead of throwing.
   },
   { name: "auth-sync", method: "POST", path: "/api/nodes/node-remote-001/auth/sync", direction: "outbound", requiresNodeApiKey: true, sampleBody: () => ({}) },
+  { name: "secrets-push", method: "POST", path: "/api/nodes/node-remote-001/secrets/push", direction: "outbound", requiresNodeApiKey: true, sampleBody: () => ({}) },
+  { name: "secrets-pull", method: "POST", path: "/api/nodes/node-remote-001/secrets/pull", direction: "outbound", requiresNodeApiKey: true, sampleBody: () => ({}) },
   { name: "sync-receive", method: "POST", path: "/api/settings/sync-receive", direction: "inbound", requiresBearer: true, sampleBody: () => ({ sourceNodeId: "node-1", exportedAt: "2026-04-14T10:00:00.000Z" }) },
   { name: "auth-receive", method: "POST", path: "/api/settings/auth-receive", direction: "inbound", requiresBearer: true, sampleBody: () => ({ authMaterial: {}, sourceNodeId: "node-1", timestamp: "2026-04-14T10:00:00.000Z" }) },
   { name: "auth-export", method: "GET", path: "/api/settings/auth-export", direction: "inbound", requiresBearer: true },
+  { name: "secrets-receive", method: "POST", path: "/api/secrets/sync-receive", direction: "inbound", requiresBearer: true, sampleBody: () => ({ sourceNodeId: "node-1", exportedAt: "2026-04-14T10:00:00.000Z", version: 1, ciphertext: "", salt: "", nonce: "", kdf: "scrypt", kdfParams: { N: 32768, r: 8, p: 1, keyLen: 32 } }) },
+  { name: "secrets-export", method: "GET", path: "/api/secrets/sync-export", direction: "inbound", requiresBearer: true },
 ] as const;
 
 describe("Node settings/auth sync contract matrix", () => {

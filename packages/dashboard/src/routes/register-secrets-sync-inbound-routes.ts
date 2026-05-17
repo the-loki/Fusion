@@ -10,7 +10,7 @@ import { ApiError, badRequest } from "../api-error.js";
 import type { ApiRouteRegistrar } from "./types.js";
 
 function emitSecretsAudit(
-  req: { runAuditor?: { filesystem?: (input: { type: string; target: string; metadata?: Record<string, unknown> }) => void } },
+  req: any,
   ctx: Parameters<ApiRouteRegistrar>[0],
   type: "secret:sync-pull",
   target: string,
