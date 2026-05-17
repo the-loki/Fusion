@@ -9,6 +9,12 @@ import type { RunAuditor } from "./run-audit.js";
 import { resolveTaskWorktreePath } from "./worktree-paths.js";
 import { inspectBranchConflict } from "./branch-conflicts.js";
 import { formatError } from "./logger.js";
+import {
+  StaleWorktreeIndexLockError,
+  classifyStaleLock,
+  parseIndexLockPath,
+  tryRemoveStaleLock,
+} from "./worktree-stale-lock.js";
 
 const execAsync = promisify(exec);
 const NATIVE_TIMEOUT_MS = 120_000;
@@ -164,6 +170,7 @@ export class NativeWorktreeBackend implements WorktreeBackend {
     private readonly deps: {
       logger?: { log: (m: string) => void; warn: (m: string) => void };
       settings?: Pick<Settings, "worktreesDir">;
+      audit?: Pick<RunAuditor, "git">;
     } = {},
   ) {}
 
@@ -182,9 +189,73 @@ export class NativeWorktreeBackend implements WorktreeBackend {
       return { path: input.worktreePath, branch: branchName };
     };
 
+    let staleLockRecoveryAttempted = false;
     try {
       return await createWithBranch(input.branch);
     } catch (error) {
+      const lockPath = parseIndexLockPath(`${(error as { message?: string })?.message ?? ""}\n${getErrorStderr(error) ?? ""}`);
+      if (lockPath && !staleLockRecoveryAttempted) {
+        staleLockRecoveryAttempted = true;
+        const classification = await classifyStaleLock({
+          rootDir: input.rootDir,
+          lockPath,
+          activeSessionRegistry,
+        });
+        await this.deps.audit?.git({
+          type: "worktree:stale-lock-detected",
+          target: input.worktreePath,
+          metadata: {
+            lockPath,
+            classification: classification.kind,
+            reason: classification.reason,
+            ageMs: classification.ageMs ?? null,
+            owningWorktreePath: classification.owningWorktreePath ?? null,
+          },
+        });
+        if (classification.kind === "stale") {
+          try {
+            const removed = await tryRemoveStaleLock({ lockPath: resolve(input.rootDir, lockPath) });
+            if (removed.removed) {
+              await this.deps.audit?.git({
+                type: "worktree:stale-lock-recovered",
+                target: input.worktreePath,
+                metadata: { lockPath },
+              });
+              return await createWithBranch(input.branch);
+            }
+            await this.deps.audit?.git({
+              type: "worktree:stale-lock-recovery-failed",
+              target: input.worktreePath,
+              metadata: { lockPath, reason: removed.reason ?? "not-removed" },
+            });
+          } catch (removeError) {
+            await this.deps.audit?.git({
+              type: "worktree:stale-lock-recovery-failed",
+              target: input.worktreePath,
+              metadata: { lockPath, reason: formatError(removeError).detail },
+            });
+          }
+        } else {
+          await this.deps.audit?.git({
+            type: "worktree:stale-lock-refused",
+            target: input.worktreePath,
+            metadata: {
+              lockPath,
+              classification: classification.kind,
+              reason: classification.reason,
+              ageMs: classification.ageMs ?? null,
+              owningWorktreePath: classification.owningWorktreePath ?? null,
+            },
+          });
+          throw new StaleWorktreeIndexLockError({
+            message: `Worktree creation blocked: index.lock at ${resolve(input.rootDir, lockPath)} is held by another git process (reason: ${classification.reason}). Resolve manually before retrying.`,
+            lockPath: resolve(input.rootDir, lockPath),
+            classification: classification.kind,
+            reason: classification.reason,
+          });
+        }
+      }
+
       if (!input.allowSiblingBranchRename) {
         throw error;
       }
@@ -617,7 +688,7 @@ export async function removeWorktree(input: {
     });
   }
 
-  const backend = resolveWorktreeBackend(input.settings, { logger });
+  const backend = resolveWorktreeBackend(input.settings, { logger, audit: input.audit });
   const removeInput: WorktreeRemoveInput = {
     rootDir: input.rootDir,
     worktreePath: input.worktreePath,
@@ -666,6 +737,7 @@ export function resolveWorktreeBackend(
   deps: {
     logger?: { log: (m: string) => void; warn: (m: string) => void };
     binaryPathResolver?: () => Promise<string | null>;
+    audit?: Pick<RunAuditor, "git">;
   } = {},
 ): WorktreeBackend {
   if (settings.worktrunk?.enabled === true) {
@@ -678,5 +750,5 @@ export function resolveWorktreeBackend(
     });
   }
 
-  return new NativeWorktreeBackend({ logger: deps.logger, settings });
+  return new NativeWorktreeBackend({ logger: deps.logger, settings, audit: deps.audit });
 }

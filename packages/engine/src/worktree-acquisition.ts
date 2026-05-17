@@ -142,7 +142,7 @@ export async function acquireTaskWorktree(opts: AcquireTaskWorktreeOptions): Pro
 
   let backend: WorktreeBackend;
   try {
-    backend = opts.backend ?? resolveWorktreeBackend(settings, { logger });
+    backend = opts.backend ?? resolveWorktreeBackend(settings, { logger, audit });
   } catch (error) {
     if (
       settings.worktrunk?.enabled

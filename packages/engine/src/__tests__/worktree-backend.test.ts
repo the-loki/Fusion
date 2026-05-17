@@ -8,10 +8,17 @@ import {
   RemovalReason,
 } from "../worktree-backend.js";
 
-const { execMock, accessMock, existsSyncMock } = vi.hoisted(() => {
+const { execMock, accessMock, existsSyncMock, parseIndexLockPathMock, classifyStaleLockMock, tryRemoveStaleLockMock } = vi.hoisted(() => {
   const mock = vi.fn();
   (mock as any)[Symbol.for("nodejs.util.promisify.custom")] = mock;
-  return { execMock: mock, accessMock: vi.fn(), existsSyncMock: vi.fn() };
+  return {
+    execMock: mock,
+    accessMock: vi.fn(),
+    existsSyncMock: vi.fn(),
+    parseIndexLockPathMock: vi.fn(),
+    classifyStaleLockMock: vi.fn(),
+    tryRemoveStaleLockMock: vi.fn(),
+  };
 });
 
 vi.mock("node:child_process", () => ({ exec: execMock }));
@@ -20,6 +27,23 @@ vi.mock("node:fs/promises", () => ({ access: accessMock }));
 vi.mock("../branch-conflicts.js", () => ({
   inspectBranchConflict: vi.fn().mockResolvedValue({ kind: "stale" }),
 }));
+vi.mock("../worktree-stale-lock.js", () => ({
+  StaleWorktreeIndexLockError: class StaleWorktreeIndexLockError extends Error {
+    lockPath: string;
+    classification: string;
+    reason: string;
+    constructor(input: { message: string; lockPath: string; classification: string; reason: string }) {
+      super(input.message);
+      this.name = "StaleWorktreeIndexLockError";
+      this.lockPath = input.lockPath;
+      this.classification = input.classification;
+      this.reason = input.reason;
+    }
+  },
+  parseIndexLockPath: parseIndexLockPathMock,
+  classifyStaleLock: classifyStaleLockMock,
+  tryRemoveStaleLock: tryRemoveStaleLockMock,
+}));
 
 beforeEach(() => {
   execMock.mockReset();
@@ -27,6 +51,12 @@ beforeEach(() => {
   existsSyncMock.mockReset();
   accessMock.mockResolvedValue(undefined);
   existsSyncMock.mockReturnValue(true);
+  parseIndexLockPathMock.mockReset();
+  classifyStaleLockMock.mockReset();
+  tryRemoveStaleLockMock.mockReset();
+  parseIndexLockPathMock.mockReturnValue(null);
+  classifyStaleLockMock.mockResolvedValue({ kind: "fresh", reason: "fresh" });
+  tryRemoveStaleLockMock.mockResolvedValue({ removed: true });
 });
 
 describe("NativeWorktreeBackend", () => {
@@ -112,6 +142,63 @@ describe("NativeWorktreeBackend", () => {
     expect(execMock).toHaveBeenCalledWith(
       "git worktree prune",
       expect.objectContaining({ cwd: "/repo", timeout: 120000, maxBuffer: 10485760 }),
+    );
+  });
+
+  it("resolves stale index.lock and retries create once", async () => {
+    const audit = { git: vi.fn().mockResolvedValue(undefined) };
+    parseIndexLockPathMock.mockReturnValue("/repo/.git/worktrees/fn-1/index.lock");
+    classifyStaleLockMock.mockResolvedValue({ kind: "stale", reason: "old-lock", ageMs: 60000 });
+    tryRemoveStaleLockMock.mockResolvedValue({ removed: true });
+    execMock
+      .mockRejectedValueOnce({ message: "fatal", stderr: "fatal: unable to create '/repo/.git/worktrees/fn-1/index.lock': File exists" })
+      .mockResolvedValueOnce({ stdout: "", stderr: "" });
+
+    const result = await new NativeWorktreeBackend({ audit }).create({
+      rootDir: "/repo",
+      worktreePath: "/repo/.worktrees/fn-1",
+      branch: "fusion/fn-1",
+      taskId: "FN-1",
+    });
+
+    expect(result).toEqual({ path: "/repo/.worktrees/fn-1", branch: "fusion/fn-1" });
+    expect(tryRemoveStaleLockMock).toHaveBeenCalledWith({ lockPath: "/repo/.git/worktrees/fn-1/index.lock" });
+    expect(audit.git).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ type: "worktree:stale-lock-detected" }),
+    );
+    expect(audit.git).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ type: "worktree:stale-lock-recovered" }),
+    );
+  });
+
+  it("throws StaleWorktreeIndexLockError when lock is non-stale", async () => {
+    const audit = { git: vi.fn().mockResolvedValue(undefined) };
+    parseIndexLockPathMock.mockReturnValue("/repo/.git/worktrees/fn-1/index.lock");
+    classifyStaleLockMock.mockResolvedValue({ kind: "fresh", reason: "lock-younger-than-threshold", ageMs: 1000 });
+    execMock.mockRejectedValueOnce({
+      message: "fatal",
+      stderr: "fatal: unable to create '/repo/.git/worktrees/fn-1/index.lock': File exists",
+    });
+
+    await expect(
+      new NativeWorktreeBackend({ audit }).create({
+        rootDir: "/repo",
+        worktreePath: "/repo/.worktrees/fn-1",
+        branch: "fusion/fn-1",
+        taskId: "FN-1",
+      }),
+    ).rejects.toMatchObject({ name: "StaleWorktreeIndexLockError" });
+
+    expect(tryRemoveStaleLockMock).not.toHaveBeenCalled();
+    expect(audit.git).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ type: "worktree:stale-lock-detected" }),
+    );
+    expect(audit.git).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ type: "worktree:stale-lock-refused" }),
     );
   });
 
