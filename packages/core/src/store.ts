@@ -4691,7 +4691,59 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       if (updates.githubTracking === null) {
         task.githubTracking = undefined;
       } else if (updates.githubTracking !== undefined) {
-        task.githubTracking = updates.githubTracking;
+        const previousTracking = task.githubTracking;
+        const previousIssue = previousTracking?.issue;
+        const nextTracking: import("./types.js").TaskGithubTracking = {
+          ...(previousTracking ?? {}),
+          ...updates.githubTracking,
+        };
+
+        if (updates.githubTracking.repoOverride === null) {
+          nextTracking.repoOverride = undefined;
+        }
+
+        if (updates.githubTracking.enabled === false) {
+          nextTracking.enabled = false;
+          if (previousIssue) {
+            nextTracking.issue = undefined;
+            nextTracking.unlinkedAt = new Date().toISOString();
+            task.log.push({
+              timestamp: new Date().toISOString(),
+              action: "GitHub issue unlinked",
+              outcome: `${previousIssue.owner}/${previousIssue.repo}#${previousIssue.number}`,
+              ...(runContext ? { runContext } : {}),
+            });
+          }
+          task.log.push({
+            timestamp: new Date().toISOString(),
+            action: "GitHub tracking disabled",
+            ...(runContext ? { runContext } : {}),
+          });
+        }
+
+        if (updates.githubTracking.enabled === true) {
+          nextTracking.enabled = true;
+          task.log.push({
+            timestamp: new Date().toISOString(),
+            action: "GitHub tracking enabled",
+            ...(runContext ? { runContext } : {}),
+          });
+        }
+
+        if (updates.githubTracking.issue === null) {
+          if (previousIssue) {
+            task.log.push({
+              timestamp: new Date().toISOString(),
+              action: "GitHub issue unlinked",
+              outcome: `${previousIssue.owner}/${previousIssue.repo}#${previousIssue.number}`,
+              ...(runContext ? { runContext } : {}),
+            });
+          }
+          nextTracking.issue = undefined;
+          nextTracking.unlinkedAt = new Date().toISOString();
+        }
+
+        task.githubTracking = nextTracking;
       }
       if (updates.tokenUsage === null) {
         task.tokenUsage = undefined;

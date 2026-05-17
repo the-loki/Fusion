@@ -95,6 +95,83 @@ describe("TaskStore github tracking", () => {
     });
   });
 
+  it("disables tracking via updateTask by unlinking issue and preserving repoOverride", async () => {
+    const task = await store.createTask({ description: "Disable tracking patch" });
+
+    await store.updateGithubTracking(task.id, {
+      enabled: true,
+      repoOverride: "octocat/hello-world",
+      issue,
+    });
+
+    await store.updateTask(task.id, {
+      githubTracking: { enabled: false },
+    });
+
+    const updated = await store.getTask(task.id);
+    expect(updated?.githubTracking?.enabled).toBe(false);
+    expect(updated?.githubTracking?.issue).toBeUndefined();
+    expect(updated?.githubTracking?.repoOverride).toBe("octocat/hello-world");
+    expect(updated?.githubTracking?.unlinkedAt).toBeTruthy();
+  });
+
+  it("re-enables tracking via updateTask without dropping repoOverride", async () => {
+    const task = await store.createTask({ description: "Enable tracking patch" });
+
+    await store.updateGithubTracking(task.id, {
+      enabled: false,
+      repoOverride: "octocat/hello-world",
+    });
+
+    await store.updateTask(task.id, {
+      githubTracking: { enabled: true },
+    });
+
+    const updated = await store.getTask(task.id);
+    expect(updated?.githubTracking).toEqual({
+      enabled: true,
+      repoOverride: "octocat/hello-world",
+    });
+  });
+
+  it("updates repoOverride via updateTask without dropping enabled state or issue", async () => {
+    const task = await store.createTask({ description: "Repo override patch" });
+
+    await store.updateGithubTracking(task.id, {
+      enabled: true,
+      repoOverride: "octocat/hello-world",
+      issue,
+    });
+
+    await store.updateTask(task.id, {
+      githubTracking: { repoOverride: "runfusion/fusion" },
+    });
+
+    const updated = await store.getTask(task.id);
+    expect(updated?.githubTracking).toEqual({
+      enabled: true,
+      repoOverride: "runfusion/fusion",
+      issue,
+    });
+  });
+
+  it("clears githubTracking completely when updateTask receives null", async () => {
+    const task = await store.createTask({ description: "Clear tracking patch" });
+
+    await store.updateGithubTracking(task.id, {
+      enabled: true,
+      repoOverride: "octocat/hello-world",
+      issue,
+    });
+
+    await store.updateTask(task.id, {
+      githubTracking: null,
+    });
+
+    const updated = await store.getTask(task.id);
+    expect(updated?.githubTracking).toBeUndefined();
+  });
+
   it("links and unlinks tracked issue while preserving other tracking fields", async () => {
     const task = await store.createTask({ description: "Link issue" });
 
