@@ -27,6 +27,7 @@ export type ReliabilityFixture = {
     recoverAlreadyMergedReviewTasks: () => Promise<number>;
     recoverMisclassifiedFailures: () => Promise<number>;
     clearStaleBlockedBy: () => Promise<number>;
+    autoReboundPausedScopeDecay: (opts?: { ignoreAgeGate?: boolean }) => Promise<number>;
     reconcileDoneTaskIntegrity: () => Promise<number>;
   };
 };
@@ -103,6 +104,7 @@ export async function makeReliabilityFixture(input: {
       recoverAlreadyMergedReviewTasks: async () => manager.recoverAlreadyMergedReviewTasks(),
       recoverMisclassifiedFailures: async () => manager.recoverMisclassifiedFailures(),
       clearStaleBlockedBy: async () => manager.clearStaleBlockedBy(),
+      autoReboundPausedScopeDecay: async (opts) => manager.autoReboundPausedScopeDecay(opts),
       reconcileDoneTaskIntegrity: async () => manager.reconcileDoneTaskIntegrity(),
     },
   };

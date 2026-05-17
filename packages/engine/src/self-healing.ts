@@ -480,6 +480,12 @@ export class SelfHealingManager {
   private orphanArchivedAcknowledged = new Set<string>();
   private finalizeUnprovenWarned = new Set<string>();
 
+  private static readonly PAUSED_SCOPE_DECAY_EXCLUDED_REASONS = new Set([
+    "branch-conflict-unrecoverable",
+    "worktrunk_operation_failed",
+    "token_budget_exceeded",
+  ]);
+
   constructor(
     private store: TaskStore,
     private options: SelfHealingOptions,
@@ -1135,6 +1141,7 @@ export class SelfHealingManager {
           { name: "recover-running-on-inactive-tasks", fn: () => this.recoverAgentsRunningOnInactiveTasks() },
           { name: "recover-drifted-agent-task-links", fn: () => this.recoverDriftedAgentTaskLinks() },
           { name: "clear-stale-blocked-by", fn: () => this.clearStaleBlockedBy() },
+          { name: "auto-rebound-paused-scope-decay", fn: () => this.autoReboundPausedScopeDecay() },
           { name: "reconcile-self-defeating-deps", fn: () => this.reconcileSelfDefeatingDependencies() },
           { name: "reclaim-pr-conflicts", fn: () => this.reclaimPrConflicts() },
           { name: "reclaim-self-owned-branch-conflicts", fn: () => this.reclaimSelfOwnedBranchConflicts() },
