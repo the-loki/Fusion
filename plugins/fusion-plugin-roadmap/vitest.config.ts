@@ -24,7 +24,10 @@ export default defineConfig({
           name: "roadmap-dashboard",
           environment: "jsdom",
           include: ["src/dashboard/**/__tests__/**/*.test.{ts,tsx}", "src/dashboard/**/*.test.{ts,tsx}"],
-          setupFiles: [fileURLToPath(new URL("./src/dashboard/test-setup.ts", import.meta.url))],
+          setupFiles: [
+            fileURLToPath(new URL("../../packages/core/src/__test-utils__/vitest-setup.ts", import.meta.url)),
+            fileURLToPath(new URL("./src/dashboard/test-setup.ts", import.meta.url)),
+          ],
         },
       },
       {
