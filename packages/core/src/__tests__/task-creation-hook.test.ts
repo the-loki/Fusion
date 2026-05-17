@@ -1,5 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const { summarizeTitleMock } = vi.hoisted(() => ({
+  summarizeTitleMock: vi.fn(),
+}));
+
+vi.mock("../ai-summarize.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../ai-summarize.js")>();
+  return {
+    ...actual,
+    summarizeTitle: summarizeTitleMock,
+  };
+});
+
 import { setTaskCreatedHook } from "../task-creation-hooks.js";
 import { createTaskStoreTestHarness } from "./store-test-helpers.js";
 
@@ -8,6 +20,7 @@ describe("task creation hook", () => {
 
   beforeEach(async () => {
     setTaskCreatedHook(undefined);
+    summarizeTitleMock.mockReset();
     await harness.beforeEach();
   });
 
@@ -201,6 +214,41 @@ describe("task creation hook", () => {
 
       expect(hook).toHaveBeenCalledTimes(1);
       expect(onSummarize).not.toHaveBeenCalled();
+    });
+
+    it("auto-attaches summarizer from settings when options are omitted", async () => {
+      const store = harness.store();
+      const hook = vi.fn();
+      summarizeTitleMock.mockResolvedValue("Auto Generated Title");
+      setTaskCreatedHook(hook);
+
+      await store.updateSettings({
+        autoSummarizeTitles: true,
+        titleSummarizerProvider: "openai",
+        titleSummarizerModelId: "gpt-5-mini",
+      });
+
+      await store.createTask({ description: "a".repeat(201) });
+
+      expect(hook).not.toHaveBeenCalled();
+      await vi.waitFor(() => {
+        expect(hook).toHaveBeenCalledTimes(1);
+      });
+      expect(summarizeTitleMock).toHaveBeenCalledTimes(1);
+      expect(hook).toHaveBeenCalledWith(expect.objectContaining({ title: "Auto Generated Title" }), store);
+    });
+
+    it("fires hook synchronously when auto-summarize is enabled but no model resolves", async () => {
+      const store = harness.store();
+      const hook = vi.fn();
+      setTaskCreatedHook(hook);
+
+      await store.updateSettings({ autoSummarizeTitles: true });
+
+      await store.createTask({ description: "b".repeat(201) });
+
+      expect(hook).toHaveBeenCalledTimes(1);
+      expect(summarizeTitleMock).not.toHaveBeenCalled();
     });
   });
 });

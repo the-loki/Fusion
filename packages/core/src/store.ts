@@ -33,8 +33,9 @@ import { ensureMemoryFileWithBackend } from "./project-memory.js";
 import { runCommandAsync } from "./run-command.js";
 import { createLogger } from "./logger.js";
 import { validateNodeOverrideChange } from "./node-override-guard.js";
-import { sanitizeTitle } from "./ai-summarize.js";
+import { sanitizeTitle, summarizeTitle } from "./ai-summarize.js";
 import { extractTaskIdTokens, normalizeTitleForTaskId } from "./task-title-id-drift.js";
+import { resolveTitleSummarizerSettingsModel } from "./model-resolution.js";
 import { getErrorMessage } from "./error-message.js";
 import { getTaskCreatedHook } from "./task-creation-hooks.js";
 import { assertProjectRootDir } from "./project-root-guard.js";
@@ -2940,13 +2941,41 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       );
     }
 
+    let resolvedSettings = options?.settings;
+    if (!resolvedSettings) {
+      try {
+        resolvedSettings = await this.getSettings();
+      } catch {
+        resolvedSettings = {};
+      }
+    }
+
+    let onSummarize = options?.onSummarize;
+    if (!onSummarize && resolvedSettings?.autoSummarizeTitles === true) {
+      const summarizerModel = resolveTitleSummarizerSettingsModel(resolvedSettings);
+      if (summarizerModel.provider && summarizerModel.modelId) {
+        onSummarize = async (description: string) => {
+          try {
+            return await summarizeTitle(
+              description,
+              this.getRootDir(),
+              summarizerModel.provider,
+              summarizerModel.modelId,
+            );
+          } catch {
+            return null;
+          }
+        };
+      }
+    }
+
     // Determine if we should try to summarize the title
     const title = input.title?.trim() || undefined;
     const shouldSummarize =
       !title &&
       input.description.length > 200 &&
-      (input.summarize === true || options?.settings?.autoSummarizeTitles === true);
-    const hasPendingSummarization = shouldSummarize && typeof options?.onSummarize === "function";
+      (input.summarize === true || resolvedSettings?.autoSummarizeTitles === true);
+    const hasPendingSummarization = shouldSummarize && typeof onSummarize === "function";
     const shouldInvokeTaskCreatedHook = options?.invokeTaskCreatedHook !== false;
 
     // Determine enabledWorkflowSteps: explicit input takes precedence, otherwise auto-apply default-on steps
@@ -2994,7 +3023,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       const id = task.id;
       Promise.resolve().then(async () => {
         try {
-          const generatedTitle = await options.onSummarize!(input.description);
+          const generatedTitle = await onSummarize!(input.description);
           const sanitizedTitle = sanitizeTitle(generatedTitle);
           if (sanitizedTitle) {
             const currentTask = this.readTaskFromDb(id);
@@ -3006,7 +3035,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
             }
           }
         } catch (err) {
-          const autoEnabled = options?.settings?.autoSummarizeTitles === true;
+          const autoEnabled = resolvedSettings?.autoSummarizeTitles === true;
           const errorMessage = err instanceof Error ? err.message : String(err);
           storeLog.warn(
             `Title summarization failed for task ${id}: ${errorMessage} (desc length: ${input.description.length}, auto-summarize: ${autoEnabled})`,
@@ -3036,7 +3065,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
           });
         }
       }).catch((err) => {
-        const autoEnabled = options?.settings?.autoSummarizeTitles === true;
+        const autoEnabled = resolvedSettings?.autoSummarizeTitles === true;
         storeLog.error("Unexpected title summarization promise-chain failure", {
           taskId: id,
           descriptionLength: input.description.length,
