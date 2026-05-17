@@ -23,6 +23,7 @@ vi.mock("../../api", () => ({
   fetchModels: vi.fn(),
   fetchDiscoveredSkills: vi.fn(),
   searchFiles: vi.fn().mockResolvedValue({ files: [] }),
+  attachmentBaseUrlForRoom: vi.fn((roomId: string) => `/api/chat/rooms/${roomId}/attachments/`),
 }));
 
 vi.mock("../../hooks/useAgents", () => ({ useAgents: vi.fn() }));
@@ -1491,7 +1492,7 @@ describe("QuickChatFAB session-first UX", () => {
       expect(screen.getByTestId("quick-chat-input")).toHaveAttribute("placeholder", "Message #engineering");
     });
 
-    it("sending while in a room routes to sendRoomMessage, not sendMessage", async () => {
+    it("sending while in a room routes attachments to sendRoomMessage, not sendMessage", async () => {
       const sendRoomMessage = vi.fn().mockResolvedValue(undefined);
       mockUseAppSettings.mockReturnValue({ experimentalFeatures: { chatRooms: true } } as ReturnType<typeof useAppSettings>);
       mockUseChatRooms.mockReturnValue({
@@ -1503,11 +1504,15 @@ describe("QuickChatFAB session-first UX", () => {
       fireEvent.click(screen.getByTestId("quick-chat-fab"));
 
       const input = await screen.findByTestId("quick-chat-input");
+      const attachmentInput = document.querySelector(".quick-chat-attachment-input") as HTMLInputElement | null;
+      const file = new File(["hi"], "note.txt", { type: "text/plain" });
+      expect(attachmentInput).not.toBeNull();
+      fireEvent.change(attachmentInput!, { target: { files: [file] } });
       fireEvent.change(input, { target: { value: "room dispatch" } });
       fireEvent.click(screen.getByTestId("quick-chat-send"));
 
       await waitFor(() => {
-        expect(sendRoomMessage).toHaveBeenCalledWith("room dispatch");
+        expect(sendRoomMessage).toHaveBeenCalledWith("room dispatch", { files: [file] });
       });
       expect(mockStreamChatResponse).not.toHaveBeenCalled();
     });
@@ -1578,9 +1583,43 @@ describe("QuickChatFAB session-first UX", () => {
       expect(await screen.findByTestId("quick-chat-messages")).toHaveTextContent("hello from session");
     });
 
-    it("attachment-in-room is blocked with a warning toast", async () => {
+    it("renders room message attachments with room attachment URLs", async () => {
+      mockUseAppSettings.mockReturnValue({ experimentalFeatures: { chatRooms: true } } as ReturnType<typeof useAppSettings>);
+      mockUseChatRooms.mockReturnValue({
+        rooms: [room],
+        roomsLoading: false,
+        roomsError: null,
+        activeRoom: room,
+        activeRoomMembers: [],
+        messages: [
+          {
+            id: "room-msg-1",
+            roomId: room.id,
+            role: "assistant",
+            content: "with attachment",
+            attachments: [{ id: "att-1", filename: "file.png", originalName: "file.png", mimeType: "image/png", size: 10, createdAt: "2026-05-16T00:00:01.000Z" }],
+            createdAt: "2026-05-16T00:00:01.000Z",
+          },
+        ],
+        messagesLoading: false,
+        selectRoom: vi.fn(),
+        createRoom: vi.fn(),
+        deleteRoom: vi.fn(),
+        sendRoomMessage: vi.fn(),
+        clearRoom: vi.fn(),
+        refreshRooms: vi.fn(),
+      });
+
+      render(<QuickChatFAB addToast={vi.fn()} projectId="proj-1" />);
+      fireEvent.click(screen.getByTestId("quick-chat-fab"));
+
+      const attachment = await screen.findByTestId("quick-chat-message-attachment");
+      expect(attachment).toHaveAttribute("href", expect.stringContaining("/api/chat/rooms/room-1/attachments/file.png"));
+    });
+
+    it("room send failure keeps attachment previews and surfaces error toast", async () => {
       const addToast = vi.fn();
-      const sendRoomMessage = vi.fn().mockResolvedValue(undefined);
+      const sendRoomMessage = vi.fn().mockRejectedValue(new Error("upload failed"));
       mockUseAppSettings.mockReturnValue({ experimentalFeatures: { chatRooms: true } } as ReturnType<typeof useAppSettings>);
       mockUseChatRooms.mockReturnValue({
         rooms: [room], roomsLoading: false, roomsError: null, activeRoom: room, activeRoomMembers: [], messages: [], messagesLoading: false,
@@ -1598,8 +1637,11 @@ describe("QuickChatFAB session-first UX", () => {
       fireEvent.change(input, { target: { value: "try send" } });
       fireEvent.click(screen.getByTestId("quick-chat-send"));
 
-      expect(addToast).toHaveBeenCalledWith("Attachments are not supported in chat rooms yet", "warning");
-      expect(sendRoomMessage).not.toHaveBeenCalled();
+      await waitFor(() => {
+        expect(sendRoomMessage).toHaveBeenCalledWith("try send", { files: [file] });
+      });
+      expect(addToast).toHaveBeenCalledWith("upload failed", "error");
+      expect(screen.getByTestId("quick-chat-attachment-previews")).toBeInTheDocument();
     });
   });
 });

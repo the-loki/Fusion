@@ -14,7 +14,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
 import { ChevronDown, Eye, EyeOff, Hash, MessageSquare, Paperclip, Plus, Send, Square, Wrench, X } from "lucide-react";
-import { fetchDiscoveredSkills, fetchModels, type Agent, type ModelInfo } from "../api";
+import { attachmentBaseUrlForRoom, fetchDiscoveredSkills, fetchModels, type Agent, type ModelInfo } from "../api";
 import type { DiscoveredSkill } from "@fusion/dashboard";
 import { CustomModelDropdown } from "./CustomModelDropdown";
 import { ProviderIcon } from "./ProviderIcon";
@@ -770,6 +770,7 @@ interface QuickChatMessageItemProps {
   forcePlain: boolean;
   mentionAgentsByName: Map<string, Agent>;
   roomContext: QuickChatRoomContext | null;
+  projectId?: string;
   onToggleRender: (id: string) => void;
 }
 
@@ -780,6 +781,7 @@ const QuickChatMessageItem = memo(function QuickChatMessageItem({
   forcePlain,
   mentionAgentsByName,
   roomContext,
+  projectId,
   onToggleRender,
 }: QuickChatMessageItemProps) {
   const isSent = message.role === "user";
@@ -834,6 +836,31 @@ const QuickChatMessageItem = memo(function QuickChatMessageItem({
     );
   }, [isSent, forcePlain, message.content]);
 
+  const renderedAttachments = useMemo(() => {
+    if (!message.attachments?.length || !message.roomId) return null;
+    const baseUrl = attachmentBaseUrlForRoom(message.roomId, projectId);
+    return (
+      <div className="chat-message-attachments">
+        {message.attachments.map((attachment) => {
+          const href = `${baseUrl}${encodeURIComponent(attachment.filename)}`;
+          const isImage = attachment.mimeType.startsWith("image/");
+          return (
+            <a
+              key={attachment.id}
+              className="chat-message-attachment"
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              data-testid="quick-chat-message-attachment"
+            >
+              {isImage ? <img src={href} alt={attachment.originalName} className="chat-attachment-image" loading="lazy" /> : <span>{attachment.originalName}</span>}
+            </a>
+          );
+        })}
+      </div>
+    );
+  }, [message.attachments, message.roomId, projectId]);
+
   return (
     <div
       className={`quick-chat-panel-message ${isSent ? "quick-chat-panel-message--sent" : "quick-chat-panel-message--received"}`}
@@ -855,6 +882,7 @@ const QuickChatMessageItem = memo(function QuickChatMessageItem({
             </button>
           </>
         )}
+      {renderedAttachments}
       {renderToolCalls(message.toolCalls, true)}
     </div>
   );
@@ -1137,14 +1165,20 @@ export function QuickChatFAB({
     return roomsState.messages.map((message) => ({
       id: message.id,
       sessionId: message.roomId,
+      roomId: message.roomId,
       role: message.role,
       content: message.content,
       thinkingOutput: message.thinkingOutput,
       toolCalls: undefined,
+      attachments: message.attachments,
       createdAt: message.createdAt,
     }));
   }, [messages, roomThreadActive, roomsState.messages]);
   const inputDisabled = roomThreadActive ? false : (!hasChatTarget || !activeSession);
+  const sendDisabled =
+    (messageInput.trim().length === 0 && pendingAttachments.length === 0)
+    || (!roomThreadActive && !hasChatTarget)
+    || (!roomThreadActive && !activeSession);
   const hasPersistedAgentSessionSelection = useMemo(
     () => Boolean(selectedAgentId) && sessions.some((session) => !session.modelProvider && !session.modelId && session.agentId === selectedAgentId),
     [selectedAgentId, sessions],
@@ -1941,13 +1975,6 @@ export function QuickChatFAB({
       return;
     }
 
-    if (roomThreadActive && attachmentsToSend.length > 0) {
-      addToast("Attachments are not supported in chat rooms yet", "warning");
-      focusComposerInput();
-      preserveComposerFocusRef.current = false;
-      return;
-    }
-
     if (trimmed === "/clear" || trimmed === "/new") {
       attachmentsToSend.forEach((attachment) => {
         if (attachment.previewUrl) {
@@ -1984,8 +2011,8 @@ export function QuickChatFAB({
 
     try {
       setHelpMessageVisible(false);
-      if (roomThreadActive) {
-        await roomsState.sendRoomMessage(trimmed);
+      if (chatRoomsEnabled && roomsState.activeRoom) {
+        await roomsState.sendRoomMessage(trimmed, { files: attachmentsToSend.map((attachment) => attachment.file) });
       } else {
         await sendMessage(trimmed, attachmentsToSend.map((attachment) => attachment.file));
       }
@@ -1995,7 +2022,11 @@ export function QuickChatFAB({
         }
       });
       setPendingAttachments((previous) => previous.filter((attachment) => !attachmentsToSend.includes(attachment)));
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error && error.message.trim()
+        ? error.message
+        : (chatRoomsEnabled && roomsState.activeRoom ? "Failed to send room message" : "Failed to send message");
+      addToast(message, "error");
       // Keep pending attachments on failure so user can retry.
     } finally {
       focusComposerInput();
@@ -2004,6 +2035,7 @@ export function QuickChatFAB({
   }, [
     addToast,
     chatMode,
+    chatRoomsEnabled,
     clearPendingMessage,
     focusComposerInput,
     inputDisabled,
@@ -2759,6 +2791,7 @@ export function QuickChatFAB({
                     forcePlain={message.role !== "user" && plainTextMessageIds.has(message.id)}
                     mentionAgentsByName={mentionAgentsByName}
                     roomContext={roomContext}
+                    projectId={projectId}
                     onToggleRender={toggleMessageRenderMode}
                   />
                 ))}
@@ -2813,6 +2846,7 @@ export function QuickChatFAB({
                     forcePlain={message.role !== "user" && plainTextMessageIds.has(message.id)}
                     mentionAgentsByName={mentionAgentsByName}
                     roomContext={roomContext}
+                    projectId={projectId}
                     onToggleRender={toggleMessageRenderMode}
                   />
                 ))}
@@ -2835,6 +2869,7 @@ export function QuickChatFAB({
                     forcePlain={message.role !== "user" && plainTextMessageIds.has(message.id)}
                     mentionAgentsByName={mentionAgentsByName}
                     roomContext={roomContext}
+                    projectId={projectId}
                     onToggleRender={toggleMessageRenderMode}
                   />
                 ))}
@@ -3013,7 +3048,7 @@ export function QuickChatFAB({
                       }
                       void handleSendMessage();
                     }}
-                    disabled={inputDisabled || (messageInput.trim().length === 0 && pendingAttachments.length === 0)}
+                    disabled={sendDisabled}
                     data-testid="quick-chat-send"
                   >
                     <Send size={16} />
