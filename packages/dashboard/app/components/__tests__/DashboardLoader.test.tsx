@@ -85,6 +85,17 @@ describe("DashboardLoader", () => {
     expect(mockClearCache).toHaveBeenCalledWith(SWR_CACHE_KEYS.TODO_LISTS_PREFIX);
     expect(mockClearCache).toHaveBeenCalledWith(SWR_CACHE_KEYS.CHAT_ROOMS);
     expect(mockClearCache).toHaveBeenCalledWith(SWR_CACHE_KEYS.ACTIVE_CHAT_ROOM_ID);
+    expect(mockClearCache).toHaveBeenCalledWith(SWR_CACHE_KEYS.INSIGHTS_PREFIX);
+    expect(mockClearCache).toHaveBeenCalledWith(SWR_CACHE_KEYS.INSIGHT_LATEST_RUN_PREFIX);
+    expect(mockClearCache).toHaveBeenCalledWith(SWR_CACHE_KEYS.RESEARCH_RUNS_PREFIX);
+    expect(mockClearCache).toHaveBeenCalledWith(SWR_CACHE_KEYS.RESEARCH_SELECTED_ID_PREFIX);
+    expect(mockClearCache).toHaveBeenCalledWith(SWR_CACHE_KEYS.EVALS_RUNS_PREFIX);
+    expect(mockClearCache).toHaveBeenCalledWith(SWR_CACHE_KEYS.EVALS_RESULTS_PREFIX);
+    expect(mockClearCache).toHaveBeenCalledWith(SWR_CACHE_KEYS.MISSIONS_PREFIX);
+    expect(mockClearCache).toHaveBeenCalledWith(SWR_CACHE_KEYS.MISSIONS_SELECTED_ID_PREFIX);
+    expect(mockClearCache).toHaveBeenCalledWith(SWR_CACHE_KEYS.MAILBOX_INBOX_PREFIX);
+    expect(mockClearCache).toHaveBeenCalledWith(SWR_CACHE_KEYS.MAILBOX_OUTBOX_PREFIX);
+    expect(mockClearCache).toHaveBeenCalledWith(SWR_CACHE_KEYS.MAILBOX_UNREAD_COUNT_PREFIX);
   });
 
   it("keeps stage visuals stable across all stages", () => {

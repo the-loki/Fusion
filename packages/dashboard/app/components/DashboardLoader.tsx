@@ -53,6 +53,17 @@ export function DashboardLoader({ stage }: DashboardLoaderProps) {
       clearCache(SWR_CACHE_KEYS.TODO_LISTS_PREFIX);
       clearCache(SWR_CACHE_KEYS.CHAT_ROOMS);
       clearCache(SWR_CACHE_KEYS.ACTIVE_CHAT_ROOM_ID);
+      clearCache(SWR_CACHE_KEYS.INSIGHTS_PREFIX);
+      clearCache(SWR_CACHE_KEYS.INSIGHT_LATEST_RUN_PREFIX);
+      clearCache(SWR_CACHE_KEYS.RESEARCH_RUNS_PREFIX);
+      clearCache(SWR_CACHE_KEYS.RESEARCH_SELECTED_ID_PREFIX);
+      clearCache(SWR_CACHE_KEYS.EVALS_RUNS_PREFIX);
+      clearCache(SWR_CACHE_KEYS.EVALS_RESULTS_PREFIX);
+      clearCache(SWR_CACHE_KEYS.MISSIONS_PREFIX);
+      clearCache(SWR_CACHE_KEYS.MISSIONS_SELECTED_ID_PREFIX);
+      clearCache(SWR_CACHE_KEYS.MAILBOX_INBOX_PREFIX);
+      clearCache(SWR_CACHE_KEYS.MAILBOX_OUTBOX_PREFIX);
+      clearCache(SWR_CACHE_KEYS.MAILBOX_UNREAD_COUNT_PREFIX);
     }
     return versionUpdated;
   });

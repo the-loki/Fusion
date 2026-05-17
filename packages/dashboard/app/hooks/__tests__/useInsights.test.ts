@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useInsights, INSIGHT_CATEGORIES } from "../useInsights";
+import { SWR_CACHE_KEYS } from "../../utils/swrCache";
 import type { InsightCategory, InsightStatus } from "@fusion/core";
 
 // Mock the API module
@@ -75,6 +76,7 @@ const mockGetInsightCreateTaskData = vi.mocked(getInsightCreateTaskData);
 describe("useInsights", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
   });
 
   afterEach(() => {
@@ -82,6 +84,34 @@ describe("useInsights", () => {
   });
 
   describe("initial state", () => {
+    it("hydrates cached insights without loading", () => {
+      localStorage.setItem(
+        `${SWR_CACHE_KEYS.INSIGHTS_PREFIX}project-1`,
+        JSON.stringify([
+          {
+            id: "INS-C",
+            projectId: "project-1",
+            title: "Cached",
+            content: "cached",
+            category: "features",
+            status: "generated",
+            fingerprint: "fp-c",
+            provenance: { trigger: "manual" },
+            lastRunId: null,
+            createdAt: "2024-01-01T00:00:00Z",
+            updatedAt: "2024-01-01T00:00:00Z",
+          },
+        ]),
+      );
+      mockFetchInsights.mockImplementation(() => new Promise(() => {}));
+      mockFetchInsightRuns.mockImplementation(() => new Promise(() => {}));
+
+      const { result } = renderHook(() => useInsights("project-1"));
+
+      expect(result.current.loading).toBe(false);
+      expect(result.current.totalCount).toBe(1);
+    });
+
     it("should start with loading state", async () => {
       mockFetchInsights.mockImplementation(() => new Promise(() => {})); // Never resolves
       mockFetchInsightRuns.mockImplementation(() => new Promise(() => {}));

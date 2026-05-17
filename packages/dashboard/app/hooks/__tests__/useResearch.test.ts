@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { useResearch } from "../useResearch";
 import { ApiRequestError } from "../../api";
+import { SWR_CACHE_KEYS } from "../../utils/swrCache";
 
 const mockListResearchRuns = vi.fn();
 const mockGetResearchRun = vi.fn();
@@ -36,8 +37,20 @@ describe("useResearch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useRealTimers();
+    localStorage.clear();
     mockListResearchRuns.mockResolvedValue({ runs: [], availability: { available: true } });
     mockGetResearchRun.mockResolvedValue({ run: { id: "RR-2", title: "t" }, availability: { available: true } });
+  });
+
+  it("hydrates runs from cache without loading flip", async () => {
+    const cacheKey = `${SWR_CACHE_KEYS.RESEARCH_RUNS_PREFIX}p1`;
+    localStorage.setItem(cacheKey, JSON.stringify([{ id: "RR-C", query: "cached", title: "cached", status: "completed", createdAt: "", updatedAt: "" }]));
+    mockListResearchRuns.mockImplementation(() => new Promise(() => {}));
+
+    const { result } = renderHook(() => useResearch({ projectId: "p1" }));
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.runs[0]?.id).toBe("RR-C");
   });
 
   it("loads research runs and availability", async () => {

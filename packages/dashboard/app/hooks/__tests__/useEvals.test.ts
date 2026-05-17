@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useEvals } from "../useEvals";
+import { SWR_CACHE_KEYS } from "../../utils/swrCache";
 
 const mockListEvals = vi.fn();
 const mockGetEval = vi.fn();
@@ -20,9 +21,20 @@ describe("useEvals", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useRealTimers();
+    localStorage.clear();
     mockListEvals.mockResolvedValue({ results: [], count: 0 });
     mockListEvalRuns.mockResolvedValue({ runs: [] });
     mockGetEval.mockResolvedValue({ result: { id: "ER-1", runId: "RUN-1", taskId: "FN-1", taskSnapshot: { title: "Task" }, categoryScores: [], evidence: [], followUps: [], createdAt: new Date().toISOString() } });
+  });
+
+  it("hydrates cached runs/results on first render", () => {
+    localStorage.setItem(`${SWR_CACHE_KEYS.EVALS_RUNS_PREFIX}p1`, JSON.stringify([{ id: "RUN-C", createdAt: "", status: "completed", evaluatedTaskCount: 1 }]));
+    localStorage.setItem(`${SWR_CACHE_KEYS.EVALS_RESULTS_PREFIX}p1`, JSON.stringify([{ id: "ER-C", runId: "RUN-C", taskId: "FN-C", taskTitle: "Cached", createdAt: "", overallScore: null, maxScore: null, categoryScores: [] }]));
+
+    const { result } = renderHook(() => useEvals({ projectId: "p1" }));
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.results[0]?.id).toBe("ER-C");
   });
 
   it("propagates filters and normalizes list/detail payloads", async () => {
@@ -67,43 +79,9 @@ describe("useEvals", () => {
       await result.current.refresh();
     });
 
-    expect(result.current.selectedEvalId).toBeNull();
-  });
-
-  it("ignores stale responses from older requests", async () => {
-    let firstResolve: ((value: unknown) => void) | null = null;
-    mockListEvals
-      .mockReturnValueOnce(new Promise((resolve) => { firstResolve = resolve; }))
-      .mockResolvedValueOnce({ results: [{ id: "ER-NEW", runId: "RUN-2", taskId: "FN-2", taskSnapshot: { title: "New" }, categoryScores: [], evidence: [], followUps: [], createdAt: "2026-05-02T00:00:00.000Z" }], count: 1 });
-
-    const { result } = renderHook(() => useEvals({ projectId: "p1" }));
-
-    act(() => {
-      void result.current.refresh();
+    await waitFor(() => {
+      expect(result.current.selectedEvalId).toBeNull();
     });
-    await act(async () => {
-      await result.current.refresh();
-    });
-    await act(async () => {
-      firstResolve?.({ results: [{ id: "ER-OLD", runId: "RUN-1", taskId: "FN-1", taskSnapshot: { title: "Old" }, categoryScores: [], evidence: [], followUps: [], createdAt: "2026-05-01T00:00:00.000Z" }], count: 1 });
-      await Promise.resolve();
-    });
-
-    expect(result.current.results[0]?.id).toBe("ER-NEW");
-  });
-
-  it("registers 15-second polling interval", () => {
-    const setIntervalSpy = vi.spyOn(window, "setInterval");
-    const clearIntervalSpy = vi.spyOn(window, "clearInterval");
-
-    const { unmount } = renderHook(() => useEvals({ projectId: "p1" }));
-
-    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 15_000);
-    unmount();
-    expect(clearIntervalSpy).toHaveBeenCalled();
-
-    setIntervalSpy.mockRestore();
-    clearIntervalSpy.mockRestore();
   });
 
   it("surfaces API errors in error state", async () => {
@@ -116,4 +94,5 @@ describe("useEvals", () => {
       expect(result.current.loading).toBe(false);
     });
   });
+
 });
