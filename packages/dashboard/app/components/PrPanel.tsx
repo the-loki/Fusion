@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { GitPullRequest, ExternalLink, RefreshCw, Plus, MessageSquare, CircleDot, XCircle, GitMerge } from "lucide-react";
-import { getErrorMessage, type DirectMergeCommitStrategy } from "@fusion/core";
+import { getErrorMessage, type DirectMergeCommitStrategy, type StructuredGhError } from "@fusion/core";
 import { fetchPrReviews, mergePr, reclaimPrConflict, refreshPrStatus, setAutoMergeOnGreen, type PrCheckStatus, type PrInfo, type PrRefreshResponse, type PrReviewsResponse } from "../api";
 import { usePrChecksStream } from "../hooks/usePrChecksStream";
 import { PrChecksList } from "./PrChecksList";
@@ -60,6 +60,7 @@ export function PrPanel({
   const [refreshState, setRefreshState] = useState<PrRefreshResponse | null>(null);
   const [reviewsState, setReviewsState] = useState<PrReviewsResponse | null>(null);
   const [isMerging, setIsMerging] = useState(false);
+  const [lastGhError, setLastGhError] = useState<(StructuredGhError & { operation: "refresh" }) | null>(null);
   const [isReclaimingConflict, setIsReclaimingConflict] = useState(false);
   const [mergeStrategy, setMergeStrategy] = useState<"merge" | "squash" | "rebase">(
     directMergeCommitStrategy === "always-rebase"
@@ -83,6 +84,7 @@ export function PrPanel({
     if (!prInfo) return;
 
     setIsRefreshing(true);
+    setLastGhError(null);
     try {
       const updated = await refreshPrStatus(taskId, projectId);
       setRefreshState(updated);
@@ -91,7 +93,10 @@ export function PrPanel({
       setReviewsState(latestReviews);
       addToast("PR status refreshed", "success");
     } catch (err) {
-      addToast(getErrorMessage(err) || "Failed to refresh PR", "error");
+      const details = (err as { details?: { githubError?: StructuredGhError } })?.details?.githubError;
+      const structured = details ? { ...details, operation: "refresh" as const } : { code: "unknown" as const, message: getErrorMessage(err) || "Failed to refresh PR", retryable: true, action: { kind: "retry" as const }, operation: "refresh" as const };
+      setLastGhError(structured);
+      addToast(structured.message || "Failed to refresh PR", "error");
     } finally {
       setIsRefreshing(false);
     }
@@ -229,6 +234,14 @@ export function PrPanel({
           </button>
         </div>
         <div className="pr-title">{prInfo.title}</div>
+        {lastGhError ? (
+          <div className="pr-hint pr-hint--warning" role="alert">
+            <div>{lastGhError.message}</div>
+            {lastGhError.hint ? <div>{lastGhError.hint}</div> : null}
+            {lastGhError.action?.kind === "shell" ? <div>Action: run <code>{lastGhError.action.command}</code></div> : null}
+            {lastGhError.retryable ? <button className="btn btn-sm" onClick={() => void handleRefresh()}>Retry</button> : null}
+          </div>
+        ) : null}
         <div className="pr-meta">
           <span>{prInfo.headBranch}</span>
           <span className="pr-meta-arrow">→</span>

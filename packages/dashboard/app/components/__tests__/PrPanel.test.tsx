@@ -215,15 +215,28 @@ describe("PrPanel", () => {
     expect(await screen.findByRole("button", { name: /Retry conflict reclaim/i })).toBeInTheDocument();
   });
 
-  it("shows error toast when refresh fails", async () => {
-    (refreshPrStatus as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("refresh failed"));
+  it("shows inline structured refresh error and retries", async () => {
+    (refreshPrStatus as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(Object.assign(new Error("auth failed"), {
+        details: {
+          githubError: {
+            code: "not-authenticated",
+            message: "GitHub CLI is not authenticated.",
+            hint: "Run 'gh auth login' to authenticate with GitHub.",
+            action: { kind: "shell", command: "gh auth login" },
+            retryable: true,
+          },
+        },
+      }))
+      .mockResolvedValueOnce({ prInfo: mockPrInfo, checks: [], reviewDecision: null, blockingReasons: [] });
 
     render(<PrPanel taskId="FN-001" prInfo={mockPrInfo} prAuthAvailable={true} onPrUpdated={mockOnPrUpdated} addToast={mockAddToast} />);
     fireEvent.click(screen.getByTitle("Refresh PR status"));
 
+    expect((await screen.findAllByText(/gh auth login/i)).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => {
-      expect(mockAddToast).toHaveBeenCalledWith("refresh failed", "error");
+      expect(refreshPrStatus).toHaveBeenCalledTimes(2);
     });
-    expect(mockOnPrUpdated).not.toHaveBeenCalled();
   });
 });

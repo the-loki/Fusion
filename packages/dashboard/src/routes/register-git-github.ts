@@ -8,10 +8,11 @@ import type {
   IssueInfo,
   PrInfo,
   RunAuditEventInput,
+  StructuredGhError,
   Task,
   TaskStore,
 } from "@fusion/core";
-import { getCurrentRepo, isGhAuthenticated } from "@fusion/core";
+import { classifyGhError, getCurrentRepo, isGhAuthenticated } from "@fusion/core";
 import {
   ApiError,
   badRequest,
@@ -44,6 +45,32 @@ function getCommandErrorMessage(error: unknown): string {
     return [anyError.stderr, anyError.stdout, anyError.message].filter(Boolean).join("\n").trim() || anyError.message;
   }
   return String(error);
+}
+
+function mapStructuredGhErrorToStatus(code: StructuredGhError["code"]): number {
+  switch (code) {
+    case "not-authenticated":
+      return 401;
+    case "permission":
+      return 403;
+    case "rate-limited":
+      return 429;
+    case "not-found":
+      return 404;
+    case "validation":
+    case "merge-conflict":
+      return 422;
+    default:
+      return 502;
+  }
+}
+
+function toPrApiError(err: unknown, fallbackMessage: string): ApiError {
+  const githubError = classifyGhError(err);
+  return new ApiError(mapStructuredGhErrorToStatus(githubError.code), githubError.message || fallbackMessage, {
+    githubError,
+    ...(typeof githubError.retryAfterMs === "number" ? { retryAfterMs: githubError.retryAfterMs } : {}),
+  });
 }
 
 export { runGitCommand };
@@ -3299,7 +3326,7 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
       } else if ((err instanceof Error ? err.message : String(err)).includes("No commits between")) {
         throw badRequest("Branch has no commits. Push changes before creating PR.");
       } else {
-        rethrowAsApiError(err, "Failed to create PR");
+        throw toPrApiError(err, "Failed to create PR");
       }
     }
   });
@@ -3463,10 +3490,8 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
       }
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
         throw notFound(`Task ${req.params.id} not found`);
-      } else if ((err instanceof Error ? err.message : String(err)).includes("not found")) {
-        throw notFound(err instanceof Error ? err.message : String(err));
       } else {
-        rethrowAsApiError(err);
+        throw toPrApiError(err, "Failed to refresh PR status");
       }
     }
   });
@@ -3523,7 +3548,7 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
       if (err instanceof ApiError) {
         throw err;
       }
-      rethrowAsApiError(err, "Failed to merge PR");
+      throw toPrApiError(err, "Failed to merge PR");
     }
   });
 
@@ -3620,7 +3645,7 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
         throw notFound(`Task ${req.params.id} not found`);
       }
-      rethrowAsApiError(err);
+      throw toPrApiError(err, "Failed to fetch PR reviews");
     }
   });
 
@@ -3685,10 +3710,8 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
       }
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
         throw notFound(`Task ${req.params.id} not found`);
-      } else if ((err instanceof Error ? err.message : String(err)).includes("not found")) {
-        throw notFound(err instanceof Error ? err.message : String(err));
       } else {
-        rethrowAsApiError(err);
+        throw toPrApiError(err, "Failed to fetch PR checks");
       }
     }
   });

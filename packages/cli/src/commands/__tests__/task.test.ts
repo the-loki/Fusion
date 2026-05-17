@@ -83,6 +83,13 @@ vi.mock("@fusion/core/gh-cli", () => ({
   getCurrentRepo: vi.fn(),
   runGhJsonAsync: vi.fn(),
   getGhErrorMessage: vi.fn((error: unknown) => (error instanceof Error ? error.message : String(error))),
+  classifyGhError: vi.fn((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.toLowerCase().includes("rate limit")) {
+      return { code: "rate-limited", message: "GitHub API rate limit exceeded. Please try again later.", retryable: true, action: { kind: "retry" } };
+    }
+    return { code: "unknown", message, retryable: true, action: { kind: "retry" } };
+  }),
 }));
 
 // Mock project-context
@@ -2546,6 +2553,7 @@ import type { PrInfo } from "@fusion/core";
 describe("runTaskPrCreate", () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
   let errorSpy: ReturnType<typeof vi.spyOn>;
+  let stderrWriteSpy: ReturnType<typeof vi.spyOn>;
   let mockGetTask: ReturnType<typeof vi.fn>;
   let mockUpdatePrInfo: ReturnType<typeof vi.fn>;
   let mockLogEntry: ReturnType<typeof vi.fn>;
@@ -2585,7 +2593,8 @@ describe("runTaskPrCreate", () => {
   beforeEach(() => {
     logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    
+    stderrWriteSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
     // Reset process.env
     process.env = { ...originalEnv };
     delete process.env.GITHUB_REPOSITORY;
@@ -2862,18 +2871,21 @@ describe("runTaskPrCreate", () => {
     exitSpy.mockRestore();
   });
 
-  it("exits with generic error for unexpected failures", async () => {
+  it("formats retryable GitHub errors for CLI output", async () => {
     const task = makeInReviewTask();
     mockGetTask.mockResolvedValueOnce(task);
-    mockCreatePr.mockRejectedValueOnce(new Error("Network error"));
-    
+    mockCreatePr.mockRejectedValueOnce({ message: "403 API rate limit exceeded", stderr: "Retry-After: 5" });
+
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
       throw new Error("process.exit");
     }) as (code?: number) => never);
 
     await expect(runTaskPrCreate("FN-001", {})).rejects.toThrow("process.exit");
 
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Network error"));
+    const output = stderrWriteSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("GitHub error:");
+    expect(output).toContain("retryable");
+    expect(output).toContain("fn pr create <task-id>");
     expect(exitSpy).toHaveBeenCalledWith(1);
     exitSpy.mockRestore();
   });

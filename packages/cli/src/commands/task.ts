@@ -9,6 +9,7 @@ import { watchFile, unwatchFile, statSync, existsSync, readFileSync } from "node
 import { basename, join } from "node:path";
 import * as dashboard from "@fusion/dashboard";
 import {
+  classifyGhError,
   getGhErrorMessage,
   getCurrentRepo,
   isGhAuthenticated,
@@ -27,6 +28,17 @@ try {
   dashboard.registerGithubTrackingHook?.();
 } catch {
   // Some tests partially mock @fusion/dashboard and omit the hook export.
+}
+
+function formatGhErrorForCli(err: unknown): string {
+  const structured = classifyGhError(err);
+  const lines = [`GitHub error: ${structured.message}`];
+  if (structured.hint) lines.push(`  Hint: ${structured.hint}`);
+  if (structured.action?.kind === "shell") lines.push(`  Action: run \`${structured.action.command}\``);
+  if (structured.action?.kind === "open") lines.push(`  Action: open ${structured.action.url}`);
+  if (structured.action?.kind === "retry") lines.push("  Action: retry the command");
+  if (structured.retryable) lines.push("  (retryable — re-run `fn pr create <task-id>` to try again)");
+  return `${lines.join("\n")}\n`;
 }
 
 function getGitHubIssueUrl(sourceMetadata: unknown): string | undefined {
@@ -1536,7 +1548,7 @@ export async function runTaskPrCreate(id: string, options: PrCreateOptions = {},
       console.error(`Error: No commits between ${options.base || "default base"} and ${branchName}. Push changes before creating PR.`);
       process.exit(1);
     } else {
-      console.error(`Error: ${msg || "Failed to create PR"}`);
+      process.stderr.write(formatGhErrorForCli(err));
       process.exit(1);
     }
   }

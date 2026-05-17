@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, RefreshCw, Sparkles, X, XCircle } from "lucide-react";
-import { getErrorMessage, type PrInfo } from "@fusion/core";
+import { getErrorMessage, type PrInfo, type StructuredGhError } from "@fusion/core";
 import {
   createPr,
   fetchPrOptions,
@@ -23,6 +23,8 @@ interface PrCreateModalProps {
   onCreated: (prInfo: PrInfo) => void;
   addToast: (message: string, type?: ToastType) => void;
 }
+
+type ModalGhError = StructuredGhError & { operation: "create" };
 
 type PreflightCheck = {
   key: string;
@@ -126,6 +128,7 @@ export function PrCreateModal({
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastGhError, setLastGhError] = useState<ModalGhError | null>(null);
   const [aiTitle, setAiTitle] = useState("");
   const [aiBody, setAiBody] = useState("");
   const [title, setTitle] = useState("");
@@ -292,13 +295,19 @@ export function PrCreateModal({
     if (!payload.title || submitting) return;
     setSubmitting(true);
     setError(null);
+    setLastGhError(null);
     try {
       const prInfo = await createPr(taskId, payload, projectId);
       onCreated(prInfo);
       addToast(`Created PR #${prInfo.number}`, "success");
       onClose();
     } catch (submitError) {
-      setError(getErrorMessage(submitError));
+      const details = (submitError as { details?: { githubError?: StructuredGhError } })?.details?.githubError;
+      const structured: ModalGhError = details
+        ? { ...details, operation: "create" }
+        : { code: "unknown", message: getErrorMessage(submitError), retryable: true, action: { kind: "retry" }, operation: "create" };
+      setLastGhError(structured);
+      setError(structured.message);
     } finally {
       setSubmitting(false);
     }
@@ -430,7 +439,10 @@ export function PrCreateModal({
             {error && (
               <div className="form-error" role="alert">
                 <p>{error}</p>
-                <button type="button" className="btn btn-sm" onClick={() => void submit()}>Retry</button>
+                {lastGhError?.hint ? <p>{lastGhError.hint}</p> : null}
+                {lastGhError?.action?.kind === "shell" ? <p>Action: run <code>{lastGhError.action.command}</code></p> : null}
+                {lastGhError?.action?.kind === "open" ? <p>Action: open <a href={lastGhError.action.url} target="_blank" rel="noreferrer">docs</a></p> : null}
+                {lastGhError?.retryable ? <button type="button" className="btn btn-sm" onClick={() => void submit()}>Retry</button> : null}
               </div>
             )}
           </>

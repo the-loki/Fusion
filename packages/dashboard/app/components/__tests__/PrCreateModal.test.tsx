@@ -133,6 +133,25 @@ describe("PrCreateModal", () => {
     expect(mocks.createPr.mock.calls[0][1]).toEqual(mocks.createPr.mock.calls[1][1]);
   });
 
+  it("renders structured gh auth hint", async () => {
+    const err = Object.assign(new Error("auth failed"), {
+      details: {
+        githubError: {
+          code: "not-authenticated",
+          message: "GitHub CLI is not authenticated.",
+          hint: "Run 'gh auth login' to authenticate with GitHub.",
+          action: { kind: "shell", command: "gh auth login" },
+          retryable: true,
+        },
+      },
+    });
+    mocks.createPr.mockRejectedValueOnce(err);
+    renderModal();
+    await screen.findByDisplayValue("AI title");
+    fireEvent.click(screen.getByRole("button", { name: "Create PR" }));
+    expect((await screen.findAllByText(/gh auth login/i)).length).toBeGreaterThan(0);
+  });
+
   it("closes on escape", async () => {
     const { onClose } = renderModal();
     await screen.findByDisplayValue("AI title");
