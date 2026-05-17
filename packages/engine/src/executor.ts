@@ -231,6 +231,18 @@ export function extractReferencedPathsFromWorkflowFeedback(feedback: string): st
   return extracted;
 }
 
+/**
+ * FN-4811 follow-up: paths the scope-leak guard never flags, regardless of declared
+ * scope. These are file types every task may legitimately touch as part of standard
+ * delivery (e.g., `.changeset/` per AGENTS.md's "Finalizing Changes" section).
+ * Cross-task contamination of these paths is caught by stronger guards downstream
+ * (file-scope invariant at squash commit, branch-tip checks, post-merge audit).
+ */
+export function isAlwaysAllowedScopeLeakPath(filePath: string): boolean {
+  const normalizedPath = normalizeWorkflowScopePath(filePath);
+  return normalizedPath.startsWith(".changeset/");
+}
+
 export function workflowPathMatchesDeclaredScope(filePath: string, scopePatterns: readonly string[]): boolean {
   const normalizedPath = normalizeWorkflowScopePath(filePath);
   for (const rawPattern of scopePatterns) {
@@ -2573,21 +2585,24 @@ export class TaskExecutor {
    * as-is. Branches remain task-scoped (`fusion/{task-id}`).
    */
   async execute(task: Task): Promise<void> {
-    // FN-4811 follow-up (FN-4809/FN-4814/FN-4811 production failure): claim a
+    // FN-4811 follow-up (FN-4814/FN-4809/FN-4811 production failure): claim a
     // PROCESS-WIDE lock synchronously before any other work. Per-instance
     // `this.executing` was insufficient in production because two execute()
     // invocations for the same task ID still both reached "Executor detected
-    // stale merge state" (executor.ts:2661) and both generated runIds — the only
-    // viable explanation is multiple TaskExecutor instances in the same process
-    // (engine restart race, multi-project hybrid runtime, etc.). The only
-    // fully-reliable guard is a singleton lock shared across all instances.
+    // stale merge state" (executor.ts:2661) and both generated runIds — producing
+    // duplicate "Worktree created at /..." log entries within the same second.
+    // The only fully-reliable guard is a singleton lock shared across all
+    // TaskExecutor instances in the same process (e.g., engine restart race,
+    // multi-project hybrid runtime, etc.). This is `executingTaskLock` in
+    // active-session-registry.ts, a module-level Set.
     const claimed = executingTaskLock.tryClaim(task.id);
     executorLog.log(`execute() called for ${task.id} (claimed=${claimed}, perInstanceExecuting=${this.executing.has(task.id)})`);
     if (!claimed) return;
 
     // Maintain the per-instance Set too, for back-compat with all the existing
     // `this.executing.has()` checks throughout the file (handler gates,
-    // stuck-detector, resumeTaskForAgent, etc.).
+    // stuck-detector, resumeTaskForAgent, etc.). Per-instance state stays
+    // consistent with the process-wide lock.
     this.executing.add(task.id);
 
     const assignedAgentId = task.assignedAgentId;
@@ -5206,7 +5221,13 @@ export class TaskExecutor {
     }
 
     const offScopeFiles = touchedFiles
-      .filter((filePath) => !workflowPathMatchesDeclaredScope(filePath, declaredScope));
+      .filter((filePath) => !workflowPathMatchesDeclaredScope(filePath, declaredScope))
+      // FN-4811 follow-up: by convention every task may add its own changeset entry
+      // under `.changeset/`, so changeset files are always considered in-scope and
+      // never flagged by the scope-leak guard. The file-scope invariant at squash and
+      // the broader contamination guards still catch cross-task changeset leakage at
+      // a higher signal-to-noise ratio than the per-execution scope-leak warning.
+      .filter((filePath) => !isAlwaysAllowedScopeLeakPath(filePath));
     if (offScopeFiles.length === 0) {
       return { blocked: false };
     }

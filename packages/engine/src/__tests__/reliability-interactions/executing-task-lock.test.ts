@@ -1,17 +1,23 @@
 /**
  * FN-4811 follow-up (FN-4809 production reproduction):
  *
- * After commit 82f80e72f added a per-instance `this.executing.add()` synchronous
- * claim, production STILL produced two execute() invocations for the same task
- * ID that both reached "Executor detected stale merge state" (executor.ts:2661)
+ * After 82f80e72f's per-instance `this.executing.add()` synchronous claim,
+ * production STILL produced two execute() invocations for the same task ID
+ * that both reached "Executor detected stale merge state" (executor.ts:2661)
  * and both generated runIds within 1 second of each other (y2nb + 9gde for
  * FN-4809 at 02:48:17–18 UTC). The only viable explanation is that there is
- * more than one `TaskExecutor` instance in the process (engine restart race,
- * multi-project hybrid runtime, or test-helper-style code creating a second
- * instance).
+ * more than one `TaskExecutor` instance in the process (e.g., engine restart
+ * race, multi-project hybrid runtime, or test-helper-style code creating a
+ * second instance).
  *
  * The fix is a process-wide singleton `executingTaskLock` in
- * `active-session-registry.ts`. This test covers the contract directly.
+ * `active-session-registry.ts`. This test covers the contract directly:
+ *
+ *   - Two distinct `TaskExecutor` instances calling `execute()` for the same
+ *     task ID. Only one should actually run — the other must bail at the
+ *     process-wide claim.
+ *   - The lock is released when execute() completes, so a subsequent
+ *     execute() on either instance is allowed.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import "../executor-test-helpers.js";
@@ -79,8 +85,16 @@ describe("FN-4811 follow-up (FN-4809): process-wide executingTaskLock", () => {
     expect(resultA.status).toBe("fulfilled");
     expect(resultB.status).toBe("fulfilled");
 
-    // Exactly one store should have received work-related log entries — the
-    // losing instance bailed at the process-wide claim before any work began.
+    // Critical: exactly one instance progresses into real work; the other bails
+    // at the process-wide claim before any work begins. Before this fix, each
+    // instance had its own `executing` Set, so both proceeded past the per-instance
+    // guard and both created agent sessions.
+    //
+    // The exact createFnAgent count depends on the retry loop (mocked prompt never
+    // calls fn_task_done, so the no-fn_task_done retry path may fire), so we don't
+    // assert exact-1. The invariant we DO assert is that exactly one of the two
+    // stores received work-related log entries — the other store stayed completely
+    // untouched because its execute() bailed at the lock claim.
     const aLogCount = (storeA.logEntry as any).mock.calls.length;
     const bLogCount = (storeB.logEntry as any).mock.calls.length;
     expect((aLogCount > 0) !== (bLogCount > 0)).toBe(true);
