@@ -1074,51 +1074,59 @@ export class Scheduler {
                 const reason = `Owning-node handoff parked dispatch: ${handoffDecision.reason}`;
                 schedulerLog.log(`Task ${task.id} dispatch blocked — ${reason}`);
                 await this.store.logEntry(task.id, reason);
-                await (this.store as any).recordRunAuditEvent?.({
-                  taskId: freshTask.id,
-                  agentId: "scheduler",
-                  runId: generateSyntheticRunId("scheduler", freshTask.id),
-                  domain: "database",
-                  mutationType: "node:handoff:parked",
-                  target: freshTask.id,
-                  metadata: {
+                try {
+                  await this.store.recordRunAuditEvent?.({
                     taskId: freshTask.id,
-                    ownerNodeId: freshTask.checkoutNodeId,
-                    ownerNodeHealth:
-                      ownerNodeHealth === "offline" || ownerNodeHealth === "error" || ownerNodeHealth === "online"
-                        ? ownerNodeHealth
-                        : "unknown",
-                    localNodeId,
-                    handoffPolicy: settings.owningNodeHandoffPolicy,
-                    decisionReason: handoffDecision.reason,
-                    source: "scheduler.dispatch",
-                  },
-                });
+                    agentId: "scheduler",
+                    runId: generateSyntheticRunId("scheduler", freshTask.id),
+                    domain: "database",
+                    mutationType: "node:handoff:parked",
+                    target: freshTask.id,
+                    metadata: {
+                      taskId: freshTask.id,
+                      ownerNodeId: freshTask.checkoutNodeId,
+                      ownerNodeHealth:
+                        ownerNodeHealth === "offline" || ownerNodeHealth === "error" || ownerNodeHealth === "online"
+                          ? ownerNodeHealth
+                          : "unknown",
+                      localNodeId,
+                      handoffPolicy: settings.owningNodeHandoffPolicy,
+                      decisionReason: handoffDecision.reason,
+                      source: "scheduler.dispatch",
+                    },
+                  });
+                } catch (error) {
+                  schedulerLog.warn(`Task ${task.id} failed to emit node:handoff:parked audit: ${error instanceof Error ? error.message : String(error)}`);
+                }
               }
               continue;
             }
 
             await this.store.logEntry(task.id, `Owning-node handoff applied: ${handoffDecision.reason}`);
-            await (this.store as any).recordRunAuditEvent?.({
-              taskId: freshTask.id,
-              agentId: "scheduler",
-              runId: generateSyntheticRunId("scheduler", freshTask.id),
-              domain: "database",
-              mutationType: handoffDecision.action === "reassign-local" ? "node:handoff:reassign-local" : "node:handoff:reassign-any",
-              target: freshTask.id,
-              metadata: {
+            try {
+              await this.store.recordRunAuditEvent?.({
                 taskId: freshTask.id,
-                ownerNodeId: freshTask.checkoutNodeId,
-                ownerNodeHealth:
-                  ownerNodeHealth === "offline" || ownerNodeHealth === "error" || ownerNodeHealth === "online"
-                    ? ownerNodeHealth
-                    : "unknown",
-                localNodeId,
-                handoffPolicy: settings.owningNodeHandoffPolicy,
-                decisionReason: handoffDecision.reason,
-                source: "scheduler.dispatch",
-              },
-            });
+                agentId: "scheduler",
+                runId: generateSyntheticRunId("scheduler", freshTask.id),
+                domain: "database",
+                mutationType: handoffDecision.action === "reassign-local" ? "node:handoff:reassign-local" : "node:handoff:reassign-any",
+                target: freshTask.id,
+                metadata: {
+                  taskId: freshTask.id,
+                  ownerNodeId: freshTask.checkoutNodeId,
+                  ownerNodeHealth:
+                    ownerNodeHealth === "offline" || ownerNodeHealth === "error" || ownerNodeHealth === "online"
+                      ? ownerNodeHealth
+                      : "unknown",
+                  localNodeId,
+                  handoffPolicy: settings.owningNodeHandoffPolicy,
+                  decisionReason: handoffDecision.reason,
+                  source: "scheduler.dispatch",
+                },
+              });
+            } catch (error) {
+              schedulerLog.warn(`Task ${task.id} failed to emit node:handoff audit: ${error instanceof Error ? error.message : String(error)}`);
+            }
             const dispatchNodeBefore = effectiveNode.nodeId;
             if (handoffDecision.action === "reassign-local") {
               effectiveNode = { nodeId: undefined, source: "local" };

@@ -405,29 +405,33 @@ export class MeshLeaseManager {
           handoffReason: handoffDecision.reason,
         });
         meshLeaseManagerLog.log(`mesh-lease: handoff parked taskId=${task.id} reason=${handoffDecision.reason}`);
-        await (this.options.taskStore as any).recordRunAuditEvent?.({
-          taskId: task.id,
-          agentId: "mesh-lease-manager",
-          runId: generateSyntheticRunId("mesh-lease", task.id),
-          domain: "database",
-          mutationType: "node:handoff:parked",
-          target: task.id,
-          metadata: {
+        try {
+          await this.options.taskStore.recordRunAuditEvent?.({
             taskId: task.id,
-            ownerNodeId,
-            ownerNodeHealth:
-              currentOwnerNodeHealth === "offline" ||
-              currentOwnerNodeHealth === "error" ||
-              currentOwnerNodeHealth === "online"
-                ? currentOwnerNodeHealth
-                : "unknown",
-            localNodeId,
-            handoffPolicy,
-            decisionReason: handoffDecision.reason,
-            source: "mesh-lease.recover",
-            recoveryReason: reason,
-          },
-        });
+            agentId: "mesh-lease-manager",
+            runId: generateSyntheticRunId("mesh-lease", task.id),
+            domain: "database",
+            mutationType: "node:handoff:parked",
+            target: task.id,
+            metadata: {
+              taskId: task.id,
+              ownerNodeId,
+              ownerNodeHealth:
+                currentOwnerNodeHealth === "offline" ||
+                currentOwnerNodeHealth === "error" ||
+                currentOwnerNodeHealth === "online"
+                  ? currentOwnerNodeHealth
+                  : "unknown",
+              localNodeId,
+              handoffPolicy,
+              decisionReason: handoffDecision.reason,
+              source: "mesh-lease.recover",
+              recoveryReason: reason,
+            },
+          });
+        } catch (error) {
+          meshLeaseManagerLog.warn(`mesh-lease: failed to emit node:handoff:parked for taskId=${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+        }
         return false;
       }
     }
@@ -472,25 +476,29 @@ export class MeshLeaseManager {
       });
     }
 
-    await (this.options.taskStore as any).recordRunAuditEvent?.({
-      taskId: task.id,
-      agentId: "mesh-lease-manager",
-      runId: generateSyntheticRunId("mesh-lease", task.id),
-      domain: "database",
-      mutationType: "node:lease:recovered",
-      target: task.id,
-      metadata: {
+    try {
+      await this.options.taskStore.recordRunAuditEvent?.({
         taskId: task.id,
-        ownerNodeId,
-        ownerNodeHealth: normalizedOwnerNodeHealth,
-        localNodeId,
-        handoffPolicy,
-        decisionReason: handoffReason,
-        source: "mesh-lease.recover",
-        epoch: nextEpoch,
-        recoveryReason: `${reason} (${stale.reason ?? "stale"})`,
-      },
-    });
+        agentId: "mesh-lease-manager",
+        runId: generateSyntheticRunId("mesh-lease", task.id),
+        domain: "database",
+        mutationType: "node:lease:recovered",
+        target: task.id,
+        metadata: {
+          taskId: task.id,
+          ownerNodeId,
+          ownerNodeHealth: normalizedOwnerNodeHealth,
+          localNodeId,
+          handoffPolicy,
+          decisionReason: handoffReason,
+          source: "mesh-lease.recover",
+          epoch: nextEpoch,
+          recoveryReason: `${reason} (${stale.reason ?? "stale"})`,
+        },
+      });
+    } catch (error) {
+      meshLeaseManagerLog.warn(`mesh-lease: failed to emit node:lease:recovered for taskId=${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
 
     if (isUnreachableOwnerReason) {
       await emitNodeUnreachableRecovery({

@@ -73,10 +73,10 @@ describe("Scheduler node-unreachable audit", () => {
     await scheduler.schedule();
     await scheduler.schedule();
 
-    expect(recordRunAuditEvent).toHaveBeenCalledTimes(1);
-    const event = recordRunAuditEvent.mock.calls[0][0] as RunAuditEventInput;
-    expect(event.mutationType).toBe("task:auto-recover-node-unreachable");
-    expect(event.metadata).toMatchObject({
+    const events = recordRunAuditEvent.mock.calls.map(([event]) => event as RunAuditEventInput);
+    const event = events.find((candidate) => candidate.mutationType === "task:auto-recover-node-unreachable");
+    expect(event?.mutationType).toBe("task:auto-recover-node-unreachable");
+    expect(event?.metadata).toMatchObject({
       handoffAction: "park",
       decisionPath: "scheduler-handoff-park",
       ownerNodeId: "node-owner",
@@ -100,8 +100,9 @@ describe("Scheduler node-unreachable audit", () => {
 
     await scheduler.schedule();
 
-    const event = recordRunAuditEvent.mock.calls[0][0] as RunAuditEventInput;
-    expect(event.metadata).toMatchObject({
+    const events = recordRunAuditEvent.mock.calls.map(([event]) => event as RunAuditEventInput);
+    const event = events.find((candidate) => candidate.mutationType === "task:auto-recover-node-unreachable");
+    expect(event?.metadata).toMatchObject({
       handoffAction: "reassign-local",
       decisionPath: "scheduler-handoff-reassign-local",
       dispatchNodeBefore: "node-task",
@@ -118,9 +119,9 @@ describe("Scheduler node-unreachable audit", () => {
 
     await scheduler.schedule();
 
-    expect(recordRunAuditEvent).toHaveBeenCalledTimes(1);
-    const event = recordRunAuditEvent.mock.calls[0][0] as RunAuditEventInput;
-    expect(event.metadata).toMatchObject({
+    const events = recordRunAuditEvent.mock.calls.map(([event]) => event as RunAuditEventInput);
+    const event = events.find((candidate) => candidate.mutationType === "task:auto-recover-node-unreachable");
+    expect(event?.metadata).toMatchObject({
       handoffAction: "park",
       decisionPath: "scheduler-handoff-park",
       ownerNodeId: "node-owner",

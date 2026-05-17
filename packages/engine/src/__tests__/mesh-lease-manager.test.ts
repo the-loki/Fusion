@@ -69,9 +69,11 @@ describe("MeshLeaseManager", () => {
 
     expect(ok).toBe(true);
     expect(moveTask).toHaveBeenCalledWith("FN-1", "todo", expect.any(Object));
-    const event = recordRunAuditEvent.mock.calls[0]?.[0] as RunAuditEventInput;
-    expect(event.mutationType).toBe("task:auto-recover-node-unreachable");
-    expect(event.metadata).toMatchObject({
+    const event = recordRunAuditEvent.mock.calls
+      .map((call) => call[0] as RunAuditEventInput)
+      .find((candidate) => candidate.mutationType === "task:auto-recover-node-unreachable");
+    expect(event?.mutationType).toBe("task:auto-recover-node-unreachable");
+    expect(event?.metadata).toMatchObject({
       ownerNodeId: "node-a",
       ownerNodeHealth: "offline",
       previousOwnerAgentId: "agent-1",
@@ -107,8 +109,10 @@ describe("MeshLeaseManager", () => {
     const ok = await manager.recoverAbandonedLease("FN-1", "scheduler detected stale todo lease");
     expect(ok).toBe(true);
 
-    const event = recordRunAuditEvent.mock.calls[0]?.[0] as RunAuditEventInput;
-    expect(event.metadata).toMatchObject({
+    const event = recordRunAuditEvent.mock.calls
+      .map((call) => call[0] as RunAuditEventInput)
+      .find((candidate) => candidate.mutationType === "task:auto-recover-node-unreachable");
+    expect(event?.metadata).toMatchObject({
       ownerNodeHealth: "error",
       decisionPath: "lease-recovered-in-place",
       newColumn: "todo",
@@ -136,9 +140,11 @@ describe("MeshLeaseManager", () => {
     const ok = await manager.recoverAbandonedLease("FN-1", "scheduler detected stale todo lease");
     expect(ok).toBe(false);
 
-    const event = recordRunAuditEvent.mock.calls[0]?.[0] as RunAuditEventInput;
-    expect(event.mutationType).toBe("task:auto-recover-node-unreachable");
-    expect(event.metadata).toMatchObject({
+    const event = recordRunAuditEvent.mock.calls
+      .map((call) => call[0] as RunAuditEventInput)
+      .find((candidate) => candidate.mutationType === "task:auto-recover-node-unreachable");
+    expect(event?.mutationType).toBe("task:auto-recover-node-unreachable");
+    expect(event?.metadata).toMatchObject({
       decisionPath: "lease-parked-by-handoff-policy",
       recoveryReason: "handoff-policy-park",
       handoffPolicy: "block",
@@ -170,7 +176,8 @@ describe("MeshLeaseManager", () => {
     const manager = new MeshLeaseManager({ taskStore, agentStore });
     const ok = await manager.recoverAbandonedLease("FN-1", "stale-heartbeat");
     expect(ok).toBe(true);
-    expect(recordRunAuditEvent).not.toHaveBeenCalled();
+    expect(recordRunAuditEvent.mock.calls.some((call) => call[0].mutationType === "task:auto-recover-node-unreachable")).toBe(false);
+    expect(recordRunAuditEvent.mock.calls.some((call) => call[0].mutationType === "node:lease:recovered")).toBe(true);
   });
 
   it("emits lease-released when central + local recovery succeeds", async () => {
