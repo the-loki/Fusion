@@ -1531,7 +1531,7 @@ export default function kbExtension(pi: ExtensionAPI) {
       const scopes: SecretScope[] = params.scope ? [params.scope] : ["project", "global"];
 
       let record: import("@fusion/core").SecretRecord | null = null;
-      let resolvedScope: "project" | "global" | null = null;
+      let resolvedScope: import("@fusion/core").SecretScope | null = null;
       for (const scope of scopes) {
         const match = secretsStore.listSecrets(scope).find((candidate) => candidate.key === params.key);
         if (match) {
@@ -1566,7 +1566,7 @@ export default function kbExtension(pi: ExtensionAPI) {
           : approvalStore.create({
             requester: { actorId: fnCtx.agentId ?? "user", actorType: "agent", actorName: fnCtx.agentName ?? fnCtx.agentId ?? "Agent" },
             targetAction: {
-              category: "secrets_access",
+              category: "task_mutation",
               action: "read",
               summary: `Read secret ${params.key}`,
               resourceType: "secret",

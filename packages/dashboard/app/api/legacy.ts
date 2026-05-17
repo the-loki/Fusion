@@ -2185,7 +2185,7 @@ export function updateGitRemoteUrl(name: string, url: string, projectId?: string
 export interface PrInfo {
   url: string;
   number: number;
-  status: "open" | "closed" | "merged";
+  status: "open" | "closed" | "merged" | "draft";
   title: string;
   headBranch: string;
   baseBranch: string;
