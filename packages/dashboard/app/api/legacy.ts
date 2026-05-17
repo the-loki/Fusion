@@ -2198,6 +2198,9 @@ export interface PrCheckStatus {
   name: string;
   required: boolean;
   state: string;
+  detailsUrl?: string;
+  startedAt?: string;
+  completedAt?: string;
 }
 
 export interface PrStatusResponse {
@@ -2213,6 +2216,12 @@ export interface PrRefreshResponse {
   reviewDecision: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | null;
   checks: PrCheckStatus[];
   automationStatus?: string | null;
+}
+
+export interface PrChecksResponse {
+  checks: PrCheckStatus[];
+  rollup: "success" | "pending" | "failure" | "unknown";
+  lastCheckedAt: string;
 }
 
 export interface PrMetadataResponse {
@@ -2312,6 +2321,11 @@ export function refreshPrStatus(id: string, projectId?: string): Promise<PrRefre
   return api<PrRefreshResponse>(withProjectId(`/tasks/${id}/pr/refresh`, projectId), {
     method: "POST",
   });
+}
+
+/** Fetch all PR checks for a task */
+export function fetchPrChecks(id: string, projectId?: string): Promise<PrChecksResponse> {
+  return api<PrChecksResponse>(withProjectId(`/tasks/${id}/pr/checks`, projectId));
 }
 
 // --- Issue Management API ---

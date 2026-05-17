@@ -3243,6 +3243,75 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
   });
 
   /**
+   * GET /api/tasks/:id/pr/checks
+   * Fetch all PR checks (required + optional) and rollup derived from required checks.
+   */
+  router.get("/tasks/:id/pr/checks", async (req, res) => {
+    try {
+      const { store: scopedStore } = await getProjectContext(req);
+      const task = await scopedStore.getTask(req.params.id);
+
+      if (!task.prInfo) {
+        throw notFound("Task has no associated PR");
+      }
+
+      let owner: string;
+      let repo: string;
+      const badgeParsed = parseBadgeUrl(task.prInfo.url);
+      if (badgeParsed) {
+        owner = badgeParsed.owner;
+        repo = badgeParsed.repo;
+      } else {
+        const envRepo = process.env.GITHUB_REPOSITORY;
+        if (envRepo) {
+          const [o, r] = envRepo.split("/");
+          owner = o;
+          repo = r;
+        } else {
+          const gitRepo = getCurrentRepo(scopedStore.getRootDir());
+          if (!gitRepo) {
+            throw badRequest("Could not determine GitHub repository");
+          }
+          owner = gitRepo.owner;
+          repo = gitRepo.repo;
+        }
+      }
+
+      const repoKey = `${owner}/${repo}`;
+      if (!githubRateLimiter.canMakeRequest(repoKey)) {
+        const resetTime = githubRateLimiter.getResetTime(repoKey);
+        const retryAfter = resetTime
+          ? Math.max(0, Math.ceil((resetTime.getTime() - Date.now()) / 1000))
+          : undefined;
+        throw new ApiError(429, "GitHub API rate limit exceeded for this repository", {
+          retryAfter,
+          resetAt: resetTime?.toISOString(),
+        });
+      }
+
+      const client = new GitHubClient();
+      const checksResult = await client.getAllPrChecks(owner, repo, task.prInfo.number);
+
+      res.json({
+        checks: checksResult.checks,
+        rollup: checksResult.rollupRequired,
+        lastCheckedAt: new Date().toISOString(),
+      });
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        throw err;
+      }
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        throw notFound(`Task ${req.params.id} not found`);
+      } else if ((err instanceof Error ? err.message : String(err)).includes("not found")) {
+        throw notFound(err instanceof Error ? err.message : String(err));
+      } else {
+        rethrowAsApiError(err);
+      }
+    }
+  });
+
+  /**
    * GET /api/tasks/:id/issue/status
    * Get cached issue status for a task. Triggers background refresh if stale (>5 min).
    * Uses only persisted badge timestamps (no in-memory poller state).
