@@ -1573,6 +1573,15 @@ The GitHub tracking state listener now attaches to every registered project stor
 - Dashboard GitHub APIs + webhook route in `routes.ts`
 - Badge snapshots are streamed via `/api/ws` and `useBadgeWebSocket.ts`
 
+#### PR checks API
+- `GET /api/tasks/:id/pr/checks` returns live PR check data for the task PR:
+  - `checks: PrCheckStatus[]` (required and non-required checks)
+  - `rollup: "success" | "pending" | "failure" | "unknown"` derived from **required checks only** (merge-readiness semantics)
+  - `lastCheckedAt: string` timestamp for the fetch
+- Route behavior matches PR refresh safeguards:
+  - `404` when the task has no associated PR
+  - `429` when `githubRateLimiter` denies the repo request window, including `retryAfter`/`resetAt` details
+
 ---
 
 ## 14) Key Design Decisions
