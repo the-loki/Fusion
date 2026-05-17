@@ -1,5 +1,5 @@
 import { getTaskMergeBlocker } from "./task-merge.js";
-import type { Task } from "./types.js";
+import type { Task, TaskLogEntry } from "./types.js";
 
 /**
  * State-based in-review stall detection. This is complementary to FN-4168's
@@ -32,8 +32,38 @@ export interface InReviewStallContext {
 export const DEFAULT_STALE_MERGING_MIN_AGE_MS = 5 * 60_000;
 /** Keep aligned with engine MAX_AUTO_MERGE_RETRIES (core must not import engine). */
 export const DEFAULT_MAX_AUTO_MERGE_RETRIES = 3;
+export const IN_REVIEW_STALL_LOG_PREFIX = "In-review stall surfaced [";
+export const IN_REVIEW_STALL_DEADLOCK_LOG_PREFIX = "In-review stall auto-disposed [";
 
 const TRANSIENT_MERGE_STATUSES = new Set(["merging", "merging-pr", "merging-fix"]);
+
+export function countRecentIdenticalStallEntries(
+  task: Pick<Task, "log">,
+  signal: Pick<InReviewStallSignal, "code" | "reason">,
+): number {
+  const trimmedReason = signal.reason.trim();
+  const reversed = [...(task.log ?? [])].reverse();
+  let count = 0;
+
+  for (const entry of reversed) {
+    if (!entry.action.startsWith(IN_REVIEW_STALL_LOG_PREFIX)) {
+      break;
+    }
+    if (!matchesStallEntry(entry, signal.code, trimmedReason)) {
+      break;
+    }
+    count += 1;
+  }
+
+  return count;
+}
+
+function matchesStallEntry(entry: TaskLogEntry, code: InReviewStallCode, reason: string): boolean {
+  const prefix = `${IN_REVIEW_STALL_LOG_PREFIX}${code}]:`;
+  if (!entry.action.startsWith(prefix)) return false;
+  const rawReason = entry.action.slice(prefix.length).trim();
+  return rawReason === reason;
+}
 
 export function getInReviewStallReason(
   task: Pick<Task, "column" | "paused" | "status" | "error" | "steps" | "workflowStepResults" | "worktree" | "mergeDetails" | "mergeRetries" | "updatedAt"> & { id?: string },

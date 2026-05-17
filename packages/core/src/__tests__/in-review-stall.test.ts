@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  countRecentIdenticalStallEntries,
   DEFAULT_MAX_AUTO_MERGE_RETRIES,
   DEFAULT_STALE_MERGING_MIN_AGE_MS,
   getInReviewStallReason,
@@ -20,6 +21,48 @@ const baseTask = {
   mergeRetries: 0,
   updatedAt: new Date(NOW).toISOString(),
 };
+
+describe("countRecentIdenticalStallEntries", () => {
+  const reason = "Failed to create worktree after 3 attempts";
+  const task = (log: Array<{ timestamp: string; action: string }>) => ({ log });
+
+  it("returns 0 with no log entries", () => {
+    expect(countRecentIdenticalStallEntries(task([]), { code: "merge-blocker", reason })).toBe(0);
+  });
+
+  it("counts three identical most-recent entries", () => {
+    expect(countRecentIdenticalStallEntries(task([
+      { timestamp: "2026-05-12T11:57:00.000Z", action: `In-review stall surfaced [merge-blocker]: ${reason}` },
+      { timestamp: "2026-05-12T11:58:00.000Z", action: `In-review stall surfaced [merge-blocker]: ${reason}` },
+      { timestamp: "2026-05-12T11:59:00.000Z", action: `In-review stall surfaced [merge-blocker]: ${reason}` },
+    ]), { code: "merge-blocker", reason })).toBe(3);
+  });
+
+  it("stops at first non-stall entry and only counts the suffix", () => {
+    expect(countRecentIdenticalStallEntries(task([
+      { timestamp: "2026-05-12T11:56:00.000Z", action: `In-review stall surfaced [merge-blocker]: ${reason}` },
+      { timestamp: "2026-05-12T11:57:00.000Z", action: "something else" },
+      { timestamp: "2026-05-12T11:58:00.000Z", action: `In-review stall surfaced [merge-blocker]: ${reason}` },
+      { timestamp: "2026-05-12T11:59:00.000Z", action: `In-review stall surfaced [merge-blocker]: ${reason}` },
+    ]), { code: "merge-blocker", reason })).toBe(2);
+  });
+
+  it("stops counting on different code", () => {
+    expect(countRecentIdenticalStallEntries(task([
+      { timestamp: "2026-05-12T11:57:00.000Z", action: "In-review stall surfaced [merge-retries-exhausted]: retries exhausted" },
+      { timestamp: "2026-05-12T11:58:00.000Z", action: `In-review stall surfaced [merge-blocker]: ${reason}` },
+      { timestamp: "2026-05-12T11:59:00.000Z", action: `In-review stall surfaced [merge-blocker]: ${reason}` },
+    ]), { code: "merge-blocker", reason })).toBe(2);
+  });
+
+  it("stops counting on different reason text", () => {
+    expect(countRecentIdenticalStallEntries(task([
+      { timestamp: "2026-05-12T11:57:00.000Z", action: "In-review stall surfaced [merge-blocker]: another reason" },
+      { timestamp: "2026-05-12T11:58:00.000Z", action: `In-review stall surfaced [merge-blocker]: ${reason}` },
+      { timestamp: "2026-05-12T11:59:00.000Z", action: `In-review stall surfaced [merge-blocker]: ${reason}` },
+    ]), { code: "merge-blocker", reason })).toBe(2);
+  });
+});
 
 describe("getInReviewStallReason", () => {
   it("returns transient-merge-status-no-owner for FN-4110 fixture", () => {

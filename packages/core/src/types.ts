@@ -2851,6 +2851,10 @@ export interface ProjectSettings {
    *  than this duration, the task is considered stuck and will be terminated and retried.
    *  Default: 600000 (10 minutes). Set to 0 to disable. */
   taskStuckTimeoutMs?: number;
+  /** Minimum number of identical consecutive in-review stall log entries (same code + reason)
+   *  before the task is auto-disposed with `pausedReason='in-review-stall-deadlock'`.
+   *  Default: 3. Set to 0 to disable. */
+  inReviewStallDeadlockThreshold?: number;
   /** Threshold in milliseconds for surfacing paused in-review tasks as stale.
    *  Age is measured from columnMovedAt when present, otherwise updatedAt.
    *  Default: 86400000 (24 hours). Set to 0 or undefined to disable surfacing. */
