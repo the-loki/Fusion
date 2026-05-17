@@ -502,6 +502,12 @@ export class SelfHealingManager {
     "token_budget_exceeded",
   ]);
 
+  private static readonly PAUSED_SCOPE_DECAY_EXCLUDED_REASONS = new Set([
+    "branch-conflict-unrecoverable",
+    "worktrunk_operation_failed",
+    "token_budget_exceeded",
+  ]);
+
   constructor(
     private store: TaskStore,
     private options: SelfHealingOptions,
