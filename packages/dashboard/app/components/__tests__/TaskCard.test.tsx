@@ -2279,8 +2279,8 @@ describe("TaskCard", () => {
     expect(screen.queryByRole("link", { name: /Linked GitHub issue/i })).toBeNull();
   });
 
-  it("renders both provenance marker and tracking chip for github_import tasks when the tracking issue is distinct from source", () => {
-    render(
+  it("keeps the plain provenance badge when source issue differs from tracked issue", () => {
+    const { container } = render(
       <TaskCard
         task={makeTask({
           column: "todo",
@@ -2301,12 +2301,12 @@ describe("TaskCard", () => {
       />,
     );
 
+    expect(container.querySelector(".card-source-provenance")).not.toBeNull();
     expect(screen.getByRole("link", { name: "Linked GitHub issue #99" })).toBeDefined();
-    expect(screen.getByLabelText("Imported from GitHub")).toBeDefined();
   });
 
-  it("hides tracking chip when github_import tracking issue matches source owner/repo/number", () => {
-    render(
+  it("replaces the GitHub import provenance badge with the linked-issue chip when source and tracked issue match", () => {
+    const { container } = render(
       <TaskCard
         task={makeTask({
           column: "todo",
@@ -2327,8 +2327,61 @@ describe("TaskCard", () => {
       />,
     );
 
-    expect(screen.queryByRole("link", { name: /Linked GitHub issue/i })).toBeNull();
-    expect(screen.getByLabelText("Imported from GitHub")).toBeDefined();
+    const chips = container.querySelectorAll(".card-github-tracking-chip");
+    const link = screen.getByRole("link", { name: "Linked GitHub issue #42" });
+    expect(chips).toHaveLength(1);
+    expect(link.getAttribute("href")).toBe("https://github.com/owner/repo/issues/42");
+    expect(link).toHaveTextContent("#42");
+    expect(container.querySelector(".card-source-provenance")).toBeNull();
+  });
+
+  it("keeps the plain provenance badge alone when there is no linked issue", () => {
+    const { container } = render(
+      <TaskCard
+        task={makeTask({
+          column: "todo",
+          sourceType: "github_import",
+          sourceMetadata: { issueUrl: "https://github.com/owner/repo/issues/42" },
+          githubTracking: undefined,
+        })}
+        onOpenDetail={noop}
+        addToast={noop}
+      />,
+    );
+
+    expect(container.querySelector(".card-source-provenance")).not.toBeNull();
+    expect(container.querySelector(".card-github-tracking-chip")).toBeNull();
+  });
+
+  it("uses the same matching logic for task.issueInfo", () => {
+    const { container } = render(
+      <TaskCard
+        task={makeTask({
+          column: "todo",
+          sourceType: "github_import",
+          issueInfo: {
+            url: "https://github.com/owner/repo/issues/42",
+            number: 42,
+            state: "open",
+            title: "Issue",
+          },
+          githubTracking: {
+            issue: {
+              owner: "owner",
+              repo: "repo",
+              number: 42,
+              url: "https://github.com/owner/repo/issues/42",
+              createdAt: "2026-05-12T00:00:00.000Z",
+            },
+          },
+        })}
+        onOpenDetail={noop}
+        addToast={noop}
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "Linked GitHub issue #42" })).toBeDefined();
+    expect(container.querySelector(".card-source-provenance")).toBeNull();
   });
 
   it("does not render a GitHub tracking link when a matching issue badge is already shown", () => {
