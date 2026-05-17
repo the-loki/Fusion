@@ -153,7 +153,8 @@ Desktop local mode uses an in-process runtime manager (`src/local-runtime.ts`) t
 ### Window state and close-to-tray behavior
 
 - Startup restores width/height from persisted state (fallback: `DEFAULT_WINDOW_STATE`).
-- Position (`x`, `y`) is restored only when both values are present.
+- Restored position (`x`, `y`) is validated against `screen.getAllDisplays()` work areas. If the restored window rectangle has less than `64px × 64px` overlap with every display, `x`/`y` are dropped and the OS picks a visible default location while preserving width/height.
+- After `loadURL`/`loadFile`, the window is explicitly `show()` + `focus()` on `ready-to-show`, with a 2-second fallback timer that also `show()`/`focus()`es if `ready-to-show` never fires.
 - On window close:
   - state is saved via `saveWindowState(mainWindow)`
   - if app is **not quitting**, close is prevented and the window hides to tray
