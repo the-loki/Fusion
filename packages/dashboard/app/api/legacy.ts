@@ -65,6 +65,7 @@ import type {
   ResearchRunStatus,
   TaskPriority,
   TaskSourceIssue,
+  PrConflictState,
   ManagedDockerNodeInput,
   DockerNodeConfig,
   DockerHostConfig,
@@ -2190,6 +2191,7 @@ export interface PrInfo {
   headBranch: string;
   baseBranch: string;
   commentCount: number;
+  mergeable?: PrConflictState;
   lastCommentAt?: string;
   lastCheckedAt?: string;
   lastReviewDecision?: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | null;
