@@ -36,6 +36,14 @@ export const registerSettingsSyncInboundRoutes: ApiRouteRegistrar = (ctx) => {
         await central.close();
         throw new ApiError(401, "Local node not configured");
       }
+      if (token.length === 0) {
+        await central.close();
+        throw new ApiError(401, "Missing or invalid Authorization header");
+      }
+      if (!localNode.apiKey) {
+        await central.close();
+        throw new ApiError(401, "Invalid apiKey");
+      }
       if (localNode.apiKey !== token) {
         await central.close();
         throw new ApiError(401, "Invalid apiKey");
@@ -104,6 +112,14 @@ export const registerSettingsSyncInboundRoutes: ApiRouteRegistrar = (ctx) => {
       if (!localNode) {
         await central.close();
         throw new ApiError(401, "Local node not configured");
+      }
+      if (token.length === 0) {
+        await central.close();
+        throw new ApiError(401, "Missing or invalid Authorization header");
+      }
+      if (!localNode.apiKey) {
+        await central.close();
+        throw new ApiError(401, "Invalid apiKey");
       }
       if (localNode.apiKey !== token) {
         await central.close();
@@ -193,6 +209,14 @@ export const registerSettingsSyncInboundRoutes: ApiRouteRegistrar = (ctx) => {
       if (!localNode) {
         await central.close();
         throw new ApiError(401, "Local node not configured");
+      }
+      if (token.length === 0) {
+        await central.close();
+        throw new ApiError(401, "Missing or invalid Authorization header");
+      }
+      if (!localNode.apiKey) {
+        await central.close();
+        throw new ApiError(401, "Invalid apiKey");
       }
       if (localNode.apiKey !== token) {
         await central.close();
