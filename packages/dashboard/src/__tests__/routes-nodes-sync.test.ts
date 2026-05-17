@@ -1423,4 +1423,187 @@ describe("Node settings sync routes", () => {
       expect(res.body.error).toContain("Invalid apiKey");
     });
   });
+
+  describe("FN-4833 auth/ownership hardening", () => {
+    it("round-trips a cross-node push through outbound /settings/push and inbound /settings/sync-receive", async () => {
+      const remoteNode = createMockRemoteNode();
+      mockGetNode.mockResolvedValue(remoteNode);
+      mockFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ success: true }) });
+
+      const pushRes = await request(
+        app,
+        "POST",
+        "/api/nodes/node-remote-001/settings/push",
+        JSON.stringify({}),
+        { "content-type": "application/json" },
+      );
+
+      // FN-4833 auth/ownership hardening backstop for Node Settings Sync endpoints.
+      expect(pushRes.status).toBe(200);
+      const [fetchUrl, fetchOptions] = mockFetch.mock.calls[0] as [string, { headers?: Record<string, string>; body?: string }];
+      expect(fetchUrl).toContain("/api/settings/sync-receive");
+      expect(fetchOptions.headers?.Authorization).toBe("Bearer test-api-key-123");
+
+      const localNode = createMockLocalNode();
+      mockListNodes.mockResolvedValue([localNode]);
+      mockApplyRemoteSettings.mockResolvedValue({ success: true, globalCount: 1, projectCount: 1, authCount: 0 });
+
+      const inboundRes = await request(
+        app,
+        "POST",
+        "/api/settings/sync-receive",
+        fetchOptions.body,
+        { "content-type": "application/json", Authorization: `Bearer ${localNode.apiKey}` },
+      );
+
+      // FN-4833 auth/ownership hardening backstop for Node Settings Sync endpoints.
+      expect(inboundRes.status).toBe(200);
+      expect(mockApplyRemoteSettings).toHaveBeenCalledTimes(1);
+      const appliedPayload = mockApplyRemoteSettings.mock.calls[0]?.[0] as { sourceNodeId?: string };
+      expect(appliedPayload.sourceNodeId).toBe("node-local-001");
+    });
+
+    it("round-trips a cross-node pull through /settings/pull → applyRemoteSettings", async () => {
+      const remoteNode = createMockRemoteNode();
+      mockGetNode.mockResolvedValue(remoteNode);
+      const remotePayload = {
+        global: { plannerModel: "gpt-5" },
+        project: { defaultProvider: "openai" },
+      };
+      mockFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve(remotePayload) });
+      mockApplyRemoteSettings.mockResolvedValue({ success: true, globalCount: 1, projectCount: 1, authCount: 0 });
+
+      const res = await request(
+        app,
+        "POST",
+        "/api/nodes/node-remote-001/settings/pull",
+        JSON.stringify({ conflictResolution: "last-write-wins" }),
+        { "content-type": "application/json" },
+      );
+
+      // FN-4833 auth/ownership hardening backstop for Node Settings Sync endpoints.
+      expect(res.status).toBe(200);
+      expect(mockFetch.mock.calls[0]?.[1]?.headers?.Authorization).toBe("Bearer test-api-key-123");
+      expect(mockApplyRemoteSettings).toHaveBeenCalledTimes(1);
+      const appliedPayload = mockApplyRemoteSettings.mock.calls[0]?.[0] as {
+        global: Record<string, unknown>;
+        projects: Record<string, unknown>;
+        exportedAt: string;
+        version: number;
+        checksum: string;
+      };
+      const { createHash } = await import("node:crypto");
+      const expectedChecksum = createHash("sha256")
+        .update(JSON.stringify({
+          global: appliedPayload.global,
+          projects: appliedPayload.projects,
+          exportedAt: appliedPayload.exportedAt,
+          version: appliedPayload.version,
+        }))
+        .digest("hex");
+      expect(appliedPayload.checksum).toBe(expectedChecksum);
+    });
+
+    it.each([
+      ["GET", "/api/nodes/node-remote-001/settings"],
+      ["POST", "/api/nodes/node-remote-001/settings/push"],
+      ["POST", "/api/nodes/node-remote-001/settings/pull"],
+      ["GET", "/api/nodes/node-remote-001/settings/sync-status"],
+      ["POST", "/api/nodes/node-remote-001/auth/sync"],
+    ])("sends Bearer ${node.apiKey} on outbound %s %s", async (method, path) => {
+      mockGetNode.mockResolvedValue(createMockRemoteNode());
+      mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ global: {}, project: {}, authMaterial: { payload: { providerAuth: {} } }, sourceNodeId: "node-remote-001", timestamp: "2026-05-16T00:00:00.000Z" }) });
+
+      const res = method === "GET"
+        ? await request(app, method, path)
+        : await request(app, method, path, JSON.stringify({}), { "content-type": "application/json" });
+
+      // FN-4833 auth/ownership hardening backstop for Node Settings Sync endpoints.
+      expect([200, 502]).toContain(res.status);
+      expect(mockFetch.mock.calls[0]?.[1]?.headers?.Authorization).toBe("Bearer test-api-key-123");
+    });
+
+    it.each([
+      ["POST", "/api/settings/sync-receive", JSON.stringify({ sourceNodeId: "node-remote-001", exportedAt: "2026-05-16T00:00:00.000Z" })],
+      ["POST", "/api/settings/auth-receive", JSON.stringify({ authMaterial: { version: 1, exportedAt: "2026-05-16T00:00:00.000Z", checksum: "x", payload: { providerAuth: {} } }, sourceNodeId: "node-remote-001", timestamp: "2026-05-16T00:00:00.000Z" })],
+      ["GET", "/api/settings/auth-export", undefined],
+    ])("rejects bearer matching a remote node's apiKey (not local) on %s %s", async (method, path, body) => {
+      mockListNodes.mockResolvedValue([createMockLocalNode(), createMockRemoteNode()]);
+
+      const res = await request(
+        app,
+        method,
+        path,
+        body,
+        { "content-type": "application/json", Authorization: "Bearer test-api-key-123" },
+      );
+
+      // FN-4833 auth/ownership hardening backstop for Node Settings Sync endpoints.
+      expect(res.status).toBe(401);
+      expect(res.body.error).toContain("Invalid apiKey");
+    });
+
+    it.each([
+      ["GET", "/api/nodes/node-local-001/settings", 400],
+      ["POST", "/api/nodes/node-local-001/settings/push", 400],
+      ["POST", "/api/nodes/node-local-001/settings/pull", 400],
+      ["GET", "/api/nodes/node-local-001/settings/sync-status", 400],
+      ["POST", "/api/nodes/node-local-001/auth/sync", 400],
+    ])("rejects local-node target on outbound %s %s with 400", async (method, path, expectedStatus) => {
+      mockGetNode.mockResolvedValue(createMockLocalNode());
+
+      const res = method === "GET"
+        ? await request(app, method, path)
+        : await request(app, method, path, JSON.stringify({}), { "content-type": "application/json" });
+
+      // FN-4833 auth/ownership hardening backstop for Node Settings Sync endpoints.
+      expect(res.status).toBe(expectedStatus);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["GET", "/api/nodes/unknown/settings"],
+      ["POST", "/api/nodes/unknown/settings/push"],
+      ["POST", "/api/nodes/unknown/settings/pull"],
+      ["GET", "/api/nodes/unknown/settings/sync-status"],
+      ["POST", "/api/nodes/unknown/auth/sync"],
+    ])("returns 404 Node not found on outbound %s %s", async (method, path) => {
+      mockGetNode.mockResolvedValue(null);
+
+      const res = method === "GET"
+        ? await request(app, method, path)
+        : await request(app, method, path, JSON.stringify({}), { "content-type": "application/json" });
+
+      // FN-4833 auth/ownership hardening backstop for Node Settings Sync endpoints.
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe("Node not found");
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("emits a redacted auth-sync diagnostic on POST /api/nodes/:id/auth/sync push without leaking credentials", async () => {
+      mockGetNode.mockResolvedValue(createMockRemoteNode());
+      mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) });
+
+      const res = await request(
+        app,
+        "POST",
+        "/api/nodes/node-remote-001/auth/sync",
+        JSON.stringify({ direction: "push" }),
+        { "content-type": "application/json" },
+      );
+
+      const authEvent = runtimeEvents.find((event) =>
+        event.scope.endsWith("routes:settings-sync:auth")
+        && event.context?.operation === "sync"
+        && event.context?.direction === "push"
+        && event.context?.route === "/nodes/:id/auth/sync",
+      );
+
+      // FN-4833 auth/ownership hardening backstop for Node Settings Sync endpoints.
+      expect(res.status).toBe(200);
+      expect(authEvent).toBeDefined();
+      expect(JSON.stringify(authEvent)).not.toContain("sk-ant-");
+      expect(JSON.stringify(authEvent)).not.toContain("Bearer ");
+    });
+  });
 });
