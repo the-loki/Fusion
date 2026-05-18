@@ -234,6 +234,18 @@ export type DatabaseMutationType =
   | "agent:delete:approved"
   | "agent:delete:denied"
   | "task:pr-conflict-reclaim"
+  /**
+   * Metadata shape:
+   * ```ts
+   * {
+   *   path: string;
+   *   existingHolder: string;
+   *   requestingTaskId: string;
+   *   phase: "acquire" | "rehydrate" | "release";
+   * }
+   * ```
+   */
+  | "worktree:pool-double-lease-detected"
   | "room:ambiguity:branch";
 
 // ── Filesystem mutation types ─────────────────────────────────────────────────
