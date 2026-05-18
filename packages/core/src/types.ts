@@ -2139,8 +2139,11 @@ export interface GlobalSettings {
   failureNotificationDelayMs?: number;
   /** `sticky-only` (default) defers failure notifications by `failureNotificationDelayMs`
    *  and suppresses them if the task self-recovers. `all` restores the legacy
-   *  immediate-dispatch behavior. */
-  failureNotificationMode?: "sticky-only" | "all";
+   *  immediate-dispatch behavior. `terminal-only` suppresses failure notifications
+   *  while the engine is still auto-retrying, and only notifies once the task is
+   *  parked paused (`task.paused === true`) or escalated (`column === "in-review"`
+   *  with `status === "failed"`). */
+  failureNotificationMode?: "sticky-only" | "all" | "terminal-only";
   /** When true, enables webhook notifications for task lifecycle events.
    *  Requires webhookUrl to be set. Default: false. */
   webhookEnabled?: boolean;
