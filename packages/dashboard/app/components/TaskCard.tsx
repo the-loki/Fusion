@@ -297,6 +297,8 @@ interface TaskCardProps {
   fanout?: BlockerFanoutEntry;
   /** Whether GitHub CLI auth is available for creating PRs from task cards. */
   prAuthAvailable?: boolean;
+  /** Whether project-level auto-merge is enabled (hides manual Create PR quick action when true). */
+  autoMergeEnabled?: boolean;
 }
 
 function areTaskBadgeInfosEqual(
@@ -425,6 +427,7 @@ function areTaskCardPropsEqual(previous: TaskCardProps, next: TaskCardProps): bo
     previous.globalPaused === next.globalPaused &&
     previous.taskStuckTimeoutMs === next.taskStuckTimeoutMs &&
     previous.prAuthAvailable === next.prAuthAvailable &&
+    previous.autoMergeEnabled === next.autoMergeEnabled &&
     previous.onOpenDetail === next.onOpenDetail &&
     previous.addToast === next.addToast &&
     previous.onUpdateTask === next.onUpdateTask &&
@@ -526,6 +529,7 @@ function TaskCardComponent({
   disableDrag,
   fanout,
   prAuthAvailable,
+  autoMergeEnabled = false,
 }: TaskCardProps) {
   const [dragging, setDragging] = useState(false);
   const [fileDragOver, setFileDragOver] = useState(false);
@@ -1063,6 +1067,7 @@ function TaskCardComponent({
   const showInReviewMoveControl = task.column === "in-review" && Boolean(onMoveTask);
   const showCreatePrQuickAction =
     task.column === "in-review"
+    && autoMergeEnabled !== true
     && !livePrInfo
     && prAuthAvailable === true
     && !isPaused
@@ -1074,8 +1079,7 @@ function TaskCardComponent({
     || task.status === "queued"
     || Boolean(task.blockedBy)
     || Boolean(task.overlapBlockedBy)
-    || Boolean(fanout && fanout.totalCount > 0)
-    || showCreatePrQuickAction;
+    || Boolean(fanout && fanout.totalCount > 0);
 
   const enterEditMode = useCallback((e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -1875,52 +1879,7 @@ function TaskCardComponent({
             </span>
           )}
           {(queued || task.status === "queued") && task.column !== "in-progress" && <span className="queued-badge"><Clock size={12} style={{ verticalAlign: "middle" }} /> Queued</span>}
-          {showCreatePrQuickAction && (
-            <button
-              type="button"
-              className="card-create-pr-action"
-              title="Create a PR for this task"
-              aria-label="Create pull request"
-              onClick={(event) => {
-                event.stopPropagation();
-                setIsPrCreateOpen(true);
-              }}
-            >
-              <GitPullRequest size={12} />
-              Create PR
-            </button>
-          )}
-          {showInReviewMoveControl && (
-            <div className="card-meta-move">
-              <div className="card-send-back" ref={sendBackRef}>
-                <button
-                  className="card-send-back-btn"
-                  onClick={handleSendBackClick}
-                  title="Move task"
-                  aria-label="Move task"
-                  aria-haspopup="menu"
-                  aria-expanded={showSendBackMenu}
-                >
-                  Move
-                  <ChevronDown size={10} />
-                </button>
-                {showSendBackMenu && (
-                  <div className="card-send-back-menu" role="menu">
-                    {VALID_TRANSITIONS["in-review"].map((col) => (
-                      <button
-                        key={col}
-                        className="card-send-back-menu-item"
-                        role="menuitem"
-                        onClick={(e) => handleSendBackOptionClick(e, col)}
-                      >
-                        {col === "done" ? "Done (no merge)" : COLUMN_LABELS[col]}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          
         </div>
       )}
       {(task.assignedAgentId || taskProviders.length > 0) && (
@@ -1946,9 +1905,24 @@ function TaskCardComponent({
           )}
         </div>
       )}
-      {showInReviewMoveControl && !metaRowVisible && (
-        <div className="card-bottom-row">
-          <div className="card-bottom-right-row">
+      {(showCreatePrQuickAction || showInReviewMoveControl) && (
+        <div className="card-action-row">
+          {showCreatePrQuickAction && (
+            <button
+              type="button"
+              className="card-create-pr-action"
+              title="Create a PR for this task"
+              aria-label="Create pull request"
+              onClick={(event) => {
+                event.stopPropagation();
+                setIsPrCreateOpen(true);
+              }}
+            >
+              <GitPullRequest size={12} />
+              Create PR
+            </button>
+          )}
+          {showInReviewMoveControl && (
             <div className="card-send-back" ref={sendBackRef}>
               <button
                 className="card-send-back-btn"
@@ -1976,7 +1950,7 @@ function TaskCardComponent({
                 </div>
               )}
             </div>
-          </div>
+          )}
         </div>
       )}
       <PluginSlot slotId="task-card-badge" projectId={projectId} />

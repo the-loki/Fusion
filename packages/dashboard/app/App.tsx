@@ -1337,6 +1337,7 @@ function AppInner() {
                   workflowStepNameLookup={workflowStepNameLookup}
                   disableDrag={true}
                   prAuthAvailable={prAuthAvailable}
+                  autoMergeEnabled={autoMerge}
                 />
               ),
               addToast,

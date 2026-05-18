@@ -275,8 +275,9 @@ export function Board({ tasks, projectId, maxConcurrent, onMoveTask, onPauseTask
             workflowStepNameLookup={workflowStepNameLookup}
             blockerFanoutMap={blockerFanoutMap}
             prAuthAvailable={prAuthAvailable}
+            autoMerge={autoMerge}
             {...(col === "triage" ? { onQuickCreate, onNewTask, onPlanningMode, onSubtaskBreakdown } : {})}
-            {...(col === "in-review" ? { autoMerge, onToggleAutoMerge } : {})}
+            {...(col === "in-review" ? { onToggleAutoMerge } : {})}
             {...(col === "done" ? { onArchiveAllDone } : {})}
             {...(col === "archived" ? { collapsed: archivedCollapsed, onToggleCollapse: handleToggleArchivedCollapse } : {})}
           />

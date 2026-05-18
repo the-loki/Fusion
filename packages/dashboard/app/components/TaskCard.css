@@ -132,10 +132,6 @@
   z-index: 1;
 }
 
-.card-meta-move {
-  margin-left: auto;
-  position: relative;
-}
 
 .card-retry-badge {
   cursor: pointer;
@@ -562,20 +558,13 @@
   margin-top: var(--space-xs);
 }
 
-.card-bottom-row {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: var(--space-sm);
-}
-
-.card-bottom-right-row {
+.card-action-row {
   display: flex;
   align-items: center;
-  min-width: 0;
-}
-
-.card-bottom-right-row:focus-within .card-send-back-btn {
-  opacity: 1;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+  flex-wrap: wrap;
+  row-gap: var(--space-xs);
 }
 
 .card-provider-icons {
@@ -1213,16 +1202,9 @@
   overflow: hidden;
 }
 
-.card-bottom-right-row .card-send-back-menu {
-  top: auto;
-  left: auto;
-  bottom: calc(100% + var(--space-xs));
-  right: 0;
-}
-
-.card-meta-move .card-send-back-menu {
-  left: auto;
-  right: 0;
+.card-action-row .card-send-back-menu {
+  left: 0;
+  right: auto;
 }
 
 .card-send-back-menu-item {
@@ -1351,9 +1333,6 @@
     min-height: var(--card-chip-height-mobile);
   }
 
-  .card-bottom-row {
-    margin-top: var(--space-xs);
-  }
 
   /* Card: smaller status badges for 280px width */
   .card-status-badge,

@@ -413,6 +413,34 @@ describe("TaskCard", () => {
     expect(screen.queryByRole("button", { name: "Create pull request" })).toBeNull();
   });
 
+  it("does not render Create PR quick action when autoMergeEnabled is true", () => {
+    render(
+      <TaskCard
+        task={makeTask({ column: "in-review", paused: false, userPaused: false, prInfo: undefined as any })}
+        onOpenDetail={noop}
+        addToast={noop}
+        prAuthAvailable={true}
+        autoMergeEnabled={true}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Create pull request" })).toBeNull();
+  });
+
+  it("renders Create PR quick action when autoMergeEnabled is false", () => {
+    render(
+      <TaskCard
+        task={makeTask({ column: "in-review", paused: false, userPaused: false, prInfo: undefined as any })}
+        onOpenDetail={noop}
+        addToast={noop}
+        prAuthAvailable={true}
+        autoMergeEnabled={false}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Create pull request" })).toBeDefined();
+  });
+
   it("does not render Create PR quick action when task already has prInfo", () => {
     render(
       <TaskCard
@@ -1621,7 +1649,7 @@ describe("TaskCard", () => {
     expect(actionsContainer?.contains(archiveBtn)).toBe(true);
   });
 
-  it("renders in-review Move control inline in card-meta when meta row is visible", () => {
+  it("renders in-review Move control inside card-action-row when meta row is visible", () => {
     const { container } = render(
       <TaskCard
         task={makeTask({ column: "in-review", blockedBy: "FN-777" })}
@@ -1633,15 +1661,16 @@ describe("TaskCard", () => {
 
     const moveButton = screen.getByRole("button", { name: "Move task" });
     const metaRow = container.querySelector(".card-meta");
-    const bottomRow = container.querySelector(".card-bottom-row");
+    const actionRow = container.querySelector(".card-action-row");
 
     expect(metaRow).not.toBeNull();
-    expect(metaRow?.contains(moveButton)).toBe(true);
-    expect(moveButton.closest(".card-meta")).not.toBeNull();
-    expect(bottomRow).toBeNull();
+    expect(metaRow?.contains(moveButton)).toBe(false);
+    expect(actionRow).not.toBeNull();
+    expect(actionRow?.contains(moveButton)).toBe(true);
+    expect(moveButton.closest(".card-action-row")).not.toBeNull();
   });
 
-  it("keeps in-review Move control in card-bottom-row when meta row is not visible", () => {
+  it("keeps in-review Move control in card-action-row when meta row is not visible", () => {
     const { container } = render(
       <TaskCard
         task={makeTask({ column: "in-review", dependencies: [], blockedBy: undefined, overlapBlockedBy: undefined, status: undefined as any })}
@@ -1652,17 +1681,37 @@ describe("TaskCard", () => {
     );
 
     const moveButton = screen.getByRole("button", { name: "Move task" });
-    const bottomRow = container.querySelector(".card-bottom-row");
+    const actionRow = container.querySelector(".card-action-row");
 
-    expect(moveButton.closest(".card-bottom-right-row")).not.toBeNull();
-    expect(bottomRow).not.toBeNull();
-    expect(bottomRow?.contains(moveButton)).toBe(true);
+    expect(actionRow).not.toBeNull();
+    expect(actionRow?.contains(moveButton)).toBe(true);
     expect(moveButton.closest(".card-meta")).toBeNull();
   });
 
+  it("renders Create PR before Move inside card-action-row", () => {
+    render(
+      <TaskCard
+        task={makeTask({ column: "in-review", paused: false, userPaused: false, prInfo: undefined as any })}
+        onOpenDetail={noop}
+        addToast={noop}
+        onMoveTask={vi.fn()}
+        prAuthAvailable={true}
+        autoMergeEnabled={false}
+      />,
+    );
+
+    const createPrButton = screen.getByRole("button", { name: "Create pull request" });
+    const moveButton = screen.getByRole("button", { name: "Move task" });
+    const actionRow = createPrButton.closest(".card-action-row");
+
+    expect(actionRow).not.toBeNull();
+    expect(moveButton.closest(".card-action-row")).toBe(actionRow);
+    expect(createPrButton.compareDocumentPosition(moveButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it.each([
-    { name: "inline meta-row variant", task: makeTask({ column: "in-review", blockedBy: "FN-777" }) },
-    { name: "fallback bottom-row variant", task: makeTask({ column: "in-review", dependencies: [], blockedBy: undefined, overlapBlockedBy: undefined, status: undefined as any }) },
+    { name: "meta-row-visible variant", task: makeTask({ column: "in-review", blockedBy: "FN-777" }) },
+    { name: "no-meta variant", task: makeTask({ column: "in-review", dependencies: [], blockedBy: undefined, overlapBlockedBy: undefined, status: undefined as any }) },
   ])("keeps Move dropdown behavior for $name", ({ task }) => {
     const onMoveTask = vi.fn();
     render(

@@ -505,6 +505,7 @@ function ColumnComponent({ column, tasks, projectId, maxConcurrent, onMoveTask, 
                   workflowStepNameLookup={workflowStepNameLookup}
                   blockerFanoutMap={blockerFanoutMap}
                   prAuthAvailable={prAuthAvailable}
+                  autoMergeEnabled={Boolean(autoMerge)}
                 />
               ))
             )
@@ -533,6 +534,7 @@ function ColumnComponent({ column, tasks, projectId, maxConcurrent, onMoveTask, 
                   workflowStepNameLookup={workflowStepNameLookup}
                   fanout={blockerFanoutMap?.get(task.id)}
                   prAuthAvailable={prAuthAvailable}
+                  autoMergeEnabled={Boolean(autoMerge)}
                 />
               ))}
               {shouldPaginate && hiddenTaskCount > 0 && (
