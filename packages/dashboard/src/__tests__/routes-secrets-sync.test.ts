@@ -194,6 +194,32 @@ describe("routes secrets sync", () => {
     expect(noPassRes.status).toBe(400);
   });
 
+  it("GET /api/secrets/sync-export 401 variants and no token echo", async () => {
+    await setSyncPassphrase(secrets, "shared-pass");
+
+    for (const { headerValue, tokenToCheck } of [
+      { headerValue: undefined, tokenToCheck: "missing-token-marker" },
+      { headerValue: "Bearer ", tokenToCheck: "Bearer " },
+      { headerValue: "Basic abc", tokenToCheck: "abc" },
+      { headerValue: "Bearer wrong", tokenToCheck: "wrong" },
+    ]) {
+      const res = await request(
+        fixture.app,
+        "GET",
+        "/api/secrets/sync-export",
+        undefined,
+        headerValue ? { Authorization: headerValue } : undefined,
+      );
+      expect(res.status).toBe(401);
+      expect(JSON.stringify(res.body)).not.toContain(tokenToCheck);
+    }
+
+    vi.spyOn(CentralCore.prototype, "listNodes").mockResolvedValue([{ ...localNode, apiKey: "" } as any]);
+    const emptyApiKeyRes = await request(fixture.app, "GET", "/api/secrets/sync-export", undefined, { Authorization: "Bearer local-key" });
+    expect(emptyApiKeyRes.status).toBe(401);
+    expect(JSON.stringify(emptyApiKeyRes.body)).not.toContain("local-key");
+  });
+
   it("push->receive end-to-end preserves plaintext and avoids reserved key in payload", async () => {
     await setSyncPassphrase(secrets, "shared");
     await secrets.createSecret({ scope: "project", key: "A", plaintextValue: "1" });
