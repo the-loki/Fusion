@@ -2789,6 +2789,21 @@ export interface ProjectSettings {
    *  re-introduce code that an earlier sibling task already deleted.
    *  Default: true. */
   worktreeRebaseLocalBase?: boolean;
+  /** Master switch for pre-merge auto-prerebase policy. When false, merger
+   *  bypasses hot-file and divergence-threshold prerebase triggers.
+   *  Default: true. */
+  prerebaseAutoEnabled?: boolean;
+  /** Shared-infrastructure file paths that trigger pre-merge auto-prerebase
+   *  when they changed between `<task.baseCommitSha>` and local main HEAD.
+   *  Empty array disables hot-file triggering.
+   *  Default: curated project hot-file list. */
+  prerebaseHotFiles?: string[];
+  /** Commit-count threshold for pre-merge auto-prerebase. When the commit
+   *  count of `<task.baseCommitSha>..localMainHead` exceeds this value, the
+   *  merger auto-prerebases regardless of hot-file overlap.
+   *  Set to 0 or undefined to disable count-based triggering.
+   *  Default: 50. */
+  prerebaseDivergenceThreshold?: number;
   /** Strategy used when a merge conflict can't be resolved by AI. See
    *  {@link MergeConflictStrategy}. Default: "smart". */
   mergeConflictStrategy?: MergeConflictStrategy;

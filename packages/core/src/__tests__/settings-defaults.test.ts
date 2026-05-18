@@ -41,6 +41,25 @@ describe("settings defaults invariants", () => {
     ).toBe(true);
   });
 
+  describe("prerebase policy defaults", () => {
+    it("keeps prerebase policy defaults project-scoped", () => {
+      expect(DEFAULT_PROJECT_SETTINGS.prerebaseAutoEnabled).toBe(true);
+      expect(DEFAULT_PROJECT_SETTINGS.prerebaseDivergenceThreshold).toBe(50);
+      expect(DEFAULT_PROJECT_SETTINGS.prerebaseHotFiles).toEqual([
+        "AGENTS.md",
+        "packages/core/src/store.ts",
+        "packages/core/src/db.ts",
+        "packages/engine/src/executor.ts",
+        "packages/engine/src/scheduler.ts",
+        "packages/engine/src/merger.ts",
+        "packages/dashboard/app/styles.css",
+      ]);
+      expect("prerebaseAutoEnabled" in DEFAULT_GLOBAL_SETTINGS).toBe(false);
+      expect("prerebaseHotFiles" in DEFAULT_GLOBAL_SETTINGS).toBe(false);
+      expect("prerebaseDivergenceThreshold" in DEFAULT_GLOBAL_SETTINGS).toBe(false);
+    });
+  });
+
   describe("recycleWorktrees default", () => {
     it("keeps recycleWorktrees explicitly false in project defaults", () => {
       expect(DEFAULT_PROJECT_SETTINGS.recycleWorktrees).toBe(false);
