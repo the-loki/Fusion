@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { Column, Task, TaskStore } from "../types.js";
+import type { Column, Task } from "../types.js";
+import type { TaskStore } from "../store.js";
 import {
   __getDeterministicGuardMutexSize,
   reconcileDeterministicDuplicate,

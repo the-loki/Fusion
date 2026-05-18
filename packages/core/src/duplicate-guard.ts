@@ -1,4 +1,5 @@
-import type { Task, TaskStore } from "./types.js";
+import type { Task } from "./types.js";
+import type { TaskStore } from "./store.js";
 import { computeContentFingerprint } from "./duplicate-detection.js";
 
 const DEFAULT_WINDOW_MS = 60_000;
