@@ -395,6 +395,24 @@ interface OrphanBranchInspection {
   registeredWorktreePath: string | null;
 }
 
+type RebindOutcome =
+  | {
+    taskId: string;
+    result: "applied";
+    branch: string;
+    aheadCount: number;
+    integrationBase: string;
+    previousBranch: string | null;
+  }
+  | {
+    taskId: string;
+    result: "skipped";
+    reason: "binding-intact" | "no-live-branch" | "ambiguous-candidates" | "no-unique-work";
+    candidates?: Array<{ branch: string; aheadCount: number }>;
+  };
+
+export type RebindResult = { repaired: number; outcomes: RebindOutcome[] };
+
 interface LandedTaskCommit {
   sha: string;
   subject?: string;
@@ -562,6 +580,12 @@ export class SelfHealingManager {
         // In-memory only counter; resets on engine restart.
         this.boardStallWindow.transitionsOutOfInProgressInWindow++;
       }
+      if (to === "in-review") {
+        void this.reconcileInReviewBranchRebind({ includeTaskIds: new Set([task.id]) }).catch((err: unknown) => {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          log.warn(`[self-healing] task:moved in-review rebind failed for ${task.id}: ${errorMessage}`);
+        });
+      }
       const shouldReconcile =
         (from === "in-review" && to === "done") ||
         (from === "done" && to === "archived");
@@ -630,6 +654,7 @@ export class SelfHealingManager {
       { name: "reclaim-self-owned-branch-conflicts", fn: () => this.reclaimSelfOwnedBranchConflicts().then(() => undefined) },
       // FN-4962 ordering invariant: metadata reconcile must run before stale-active reclaim.
       { name: "reconcile-task-worktree-metadata", fn: () => this.reconcileTaskWorktreeMetadata().then(() => undefined) },
+      { name: "reconcile-in-review-branch-rebind", fn: () => this.reconcileInReviewBranchRebind().then(() => undefined) },
       { name: "reclaim-stale-active-branches", fn: () => this.reclaimStaleActiveBranches().then(() => undefined) },
       { name: "surface-in-review-stalls", fn: () => this.surfaceInReviewStalls().then(() => undefined) },
       { name: "surface-stale-paused-reviews", fn: () => this.surfaceStalePausedReviews().then(() => undefined) },
@@ -1214,6 +1239,7 @@ export class SelfHealingManager {
           { name: "reclaim-self-owned-branch-conflicts", fn: () => this.reclaimSelfOwnedBranchConflicts() },
           // FN-4962 ordering invariant: metadata reconcile must run before stale-active reclaim.
           { name: "reconcile-task-worktree-metadata", fn: () => this.reconcileTaskWorktreeMetadata() },
+          { name: "reconcile-in-review-branch-rebind", fn: () => this.reconcileInReviewBranchRebind().then(() => undefined) },
           { name: "reclaim-stale-active-branches", fn: () => this.reclaimStaleActiveBranches() },
           { name: "surface-in-review-stalls", fn: () => this.surfaceInReviewStalls() },
           { name: "surface-stale-paused-reviews", fn: () => this.surfaceStalePausedReviews() },
@@ -2488,6 +2514,197 @@ export class SelfHealingManager {
       worktreeMetadataReconcileLog.warn(
         `Failed to record ${input.mutationType} for ${input.taskId}: ${errorMessage}`,
       );
+    }
+  }
+
+  private async emitBranchRebindAuditEvent(input: {
+    taskId: string;
+    mutationType: "task:auto-rebind-applied" | "task:auto-rebind-skipped";
+    metadata: Record<string, unknown>;
+  }): Promise<void> {
+    try {
+      const auditor = createRunAuditor(this.store, {
+        runId: generateSyntheticRunId("self-heal", input.taskId),
+        agentId: "self-healing",
+        taskId: input.taskId,
+        phase: "in-review-branch-rebind",
+      });
+      await auditor.database({
+        type: input.mutationType,
+        target: input.taskId,
+        metadata: input.metadata,
+      });
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      worktreeMetadataReconcileLog.warn(
+        `Failed to record ${input.mutationType} for ${input.taskId}: ${errorMessage}`,
+      );
+    }
+  }
+
+  async reconcileInReviewBranchRebind(options?: { includeTaskIds?: Set<string> }): Promise<RebindResult> {
+    const result: RebindResult = { repaired: 0, outcomes: [] };
+    try {
+      const settings = await this.store.getSettings();
+      if (settings.globalPause || settings.enginePaused) return result;
+
+      const allTasks = await this.store.listTasks({ slim: true, includeArchived: false });
+      const tasks = allTasks.filter((task) => task.column === "in-review");
+      const fusionRefOutput = await execAsync("git for-each-ref --format='%(refname:short)' refs/heads/fusion/", {
+        cwd: this.options.rootDir,
+        timeout: 30_000,
+      }).catch(() => ({ stdout: "" }));
+      const fusionBranches = fusionRefOutput.stdout.split("\n").map((line) => line.trim()).filter(Boolean);
+
+      for (const task of tasks) {
+        if (options?.includeTaskIds && !options.includeTaskIds.has(task.id)) continue;
+
+        const existingBinding = task.branch;
+        if (existingBinding) {
+          try {
+            await execAsync(`git show-ref --verify --quiet ${shellQuote(`refs/heads/${existingBinding}`)}`, {
+              cwd: this.options.rootDir,
+              timeout: 30_000,
+            });
+            result.outcomes.push({ taskId: task.id, result: "skipped", reason: "binding-intact" });
+            continue;
+          } catch {
+            // broken binding, evaluate candidates
+          }
+        }
+
+        const normalizedId = task.id.toLowerCase();
+        const candidates = new Set<string>([`fusion/${normalizedId}`, `fusion/${task.id}`]);
+        for (const branch of fusionBranches) {
+          const stem = branch.startsWith("fusion/") ? branch.slice("fusion/".length) : "";
+          if (stem.toLowerCase() === normalizedId) candidates.add(branch);
+        }
+
+        const integrationBase = task.baseBranch || "main";
+        const existingCandidatesByRef = new Map<string, { branch: string; aheadCount: number }>();
+        for (const branch of candidates) {
+          try {
+            await execAsync(`git show-ref --verify --quiet ${shellQuote(`refs/heads/${branch}`)}`, {
+              cwd: this.options.rootDir,
+              timeout: 30_000,
+            });
+          } catch {
+            continue;
+          }
+
+          let comparisonBase = integrationBase;
+          try {
+            await execAsync(`git rev-parse --verify ${shellQuote(comparisonBase)}`, {
+              cwd: this.options.rootDir,
+              timeout: 30_000,
+            });
+          } catch {
+            const originBase = `origin/${comparisonBase}`;
+            await execAsync(`git rev-parse --verify ${shellQuote(originBase)}`, {
+              cwd: this.options.rootDir,
+              timeout: 30_000,
+            });
+            comparisonBase = originBase;
+          }
+          const mergeBase = (await execAsync(`git merge-base ${shellQuote(comparisonBase)} ${shellQuote(branch)}`, {
+            cwd: this.options.rootDir,
+            timeout: 30_000,
+          })).stdout.trim();
+          const aheadCountRaw = await execAsync(`git rev-list --count ${shellQuote(mergeBase)}..${shellQuote(branch)}`, {
+            cwd: this.options.rootDir,
+            timeout: 30_000,
+          });
+          const aheadCount = Number.parseInt(aheadCountRaw.stdout.trim(), 10);
+          const normalizedBranchRef = branch.toLowerCase();
+          const existingCandidate = existingCandidatesByRef.get(normalizedBranchRef);
+          const normalizedCandidate = `fusion/${normalizedId}`;
+          if (!existingCandidate || branch === normalizedCandidate) {
+            existingCandidatesByRef.set(normalizedBranchRef, {
+              branch,
+              aheadCount: Number.isFinite(aheadCount) ? aheadCount : 0,
+            });
+          }
+        }
+
+        const existingCandidates = [...existingCandidatesByRef.values()];
+
+        if (existingCandidates.length === 0) {
+          await this.emitBranchRebindAuditEvent({
+            taskId: task.id,
+            mutationType: "task:auto-rebind-skipped",
+            metadata: { taskId: task.id, reason: "no-live-branch" },
+          });
+          result.outcomes.push({ taskId: task.id, result: "skipped", reason: "no-live-branch" });
+          continue;
+        }
+
+        const withUniqueWork = existingCandidates.filter((candidate) => candidate.aheadCount > 0);
+        if (withUniqueWork.length === 1) {
+          const selected = withUniqueWork[0];
+          const patch: Partial<Task> = { branch: selected.branch, worktree: null };
+          if (!task.baseCommitSha) {
+            patch.baseCommitSha = (await execAsync(
+              `git merge-base ${shellQuote(integrationBase)} ${shellQuote(selected.branch)}`,
+              { cwd: this.options.rootDir, timeout: 30_000 },
+            )).stdout.trim() || null;
+          }
+          // TODO(FN-5066): tighten composition once helper API is final.
+          try {
+            const maybeAsserting = this as unknown as { assertSafeToAutoMutate?: (opts: unknown) => Promise<void> };
+            await maybeAsserting.assertSafeToAutoMutate?.({ taskId: task.id, reason: "in-review-branch-rebind" });
+          } catch (assertErr: unknown) {
+            const message = assertErr instanceof Error ? assertErr.message : String(assertErr);
+            log.warn(`[self-healing] assertSafeToAutoMutate warning for ${task.id}: ${message}; continuing rebind`);
+          }
+          await this.store.updateTask(task.id, patch);
+          await this.emitBranchRebindAuditEvent({
+            taskId: task.id,
+            mutationType: "task:auto-rebind-applied",
+            metadata: {
+              taskId: task.id,
+              branch: selected.branch,
+              aheadCount: selected.aheadCount,
+              integrationBase,
+              source: "auto-rebind-in-review",
+              previousBranch: task.branch ?? null,
+            },
+          });
+          result.repaired++;
+          result.outcomes.push({
+            taskId: task.id,
+            result: "applied",
+            branch: selected.branch,
+            aheadCount: selected.aheadCount,
+            integrationBase,
+            previousBranch: task.branch ?? null,
+          });
+          continue;
+        }
+
+        if (withUniqueWork.length > 1) {
+          await this.emitBranchRebindAuditEvent({
+            taskId: task.id,
+            mutationType: "task:auto-rebind-skipped",
+            metadata: { taskId: task.id, reason: "ambiguous-candidates", candidates: withUniqueWork },
+          });
+          log.warn(`[self-healing] ambiguous branch rebind candidates for ${task.id}: ${JSON.stringify(withUniqueWork)}`);
+          result.outcomes.push({ taskId: task.id, result: "skipped", reason: "ambiguous-candidates", candidates: withUniqueWork });
+          continue;
+        }
+
+        await this.emitBranchRebindAuditEvent({
+          taskId: task.id,
+          mutationType: "task:auto-rebind-skipped",
+          metadata: { taskId: task.id, reason: "no-unique-work" },
+        });
+        result.outcomes.push({ taskId: task.id, result: "skipped", reason: "no-unique-work" });
+      }
+
+      return result;
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      worktreeMetadataReconcileLog.error(`reconcileInReviewBranchRebind failed: ${errorMessage}`);
+      return result;
     }
   }
 
