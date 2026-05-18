@@ -31,6 +31,7 @@ import type { HeartbeatTriggerScheduler } from "./agent-heartbeat.js";
 import { ResearchOrchestrator } from "./research-orchestrator.js";
 import { ResearchRunDispatcher } from "./research-dispatcher.js";
 import { ResearchStepRunner } from "./research-step-runner.js";
+import { createRunAuditor, generateSyntheticRunId } from "./run-audit.js";
 import { TunnelProcessManager } from "./remote-access/tunnel-process-manager.js";
 import type {
   ExternalTunnelInfo,
@@ -1604,6 +1605,41 @@ export class ProjectEngine {
               // unrelated regression that won't be fixed by re-running this
               // task's branch).
               try {
+                const checkBeforeWrite = await store.getTask(taskId).catch(() => null);
+                if (checkBeforeWrite?.column === "done" && checkBeforeWrite.mergeDetails?.mergeConfirmed === true) {
+                  const commitSha = checkBeforeWrite.mergeDetails.commitSha;
+                  const shortSha = typeof commitSha === "string" && commitSha.length > 0
+                    ? commitSha.slice(0, 8)
+                    : "unknown";
+                  const failedCommand = err instanceof VerificationError
+                    ? err.verificationResult?.testResult?.command ?? err.verificationResult?.buildResult?.command ?? null
+                    : null;
+                  const exitCode = err instanceof VerificationError
+                    ? err.verificationResult?.testResult?.exitCode ?? err.verificationResult?.buildResult?.exitCode ?? null
+                    : null;
+                  const errorTail = errorMsg.length > 200 ? `${errorMsg.slice(0, 200)}…` : errorMsg;
+                  const message = `[verification] post-finalize VerificationError on already-done task — no action (commit=${shortSha}, cmd=${failedCommand ?? "unknown"}, exit=${exitCode ?? "unknown"}, error=${errorTail})`;
+                  await store.logEntry(taskId, message, "VerificationError").catch(() => undefined);
+                  runtimeLog.log(`Auto-merge: ${taskId} ${message}`);
+                  const auditor = createRunAuditor(store, {
+                    runId: generateSyntheticRunId("auto-merge", taskId),
+                    agentId: "auto-merge",
+                    taskId,
+                    phase: "merge",
+                  });
+                  await auditor.database({
+                    type: "task:post-finalize-verification-no-op",
+                    target: taskId,
+                    metadata: {
+                      taskId,
+                      commitSha,
+                      failedCommand,
+                      exitCode,
+                      errorTail,
+                    },
+                  }).catch(() => undefined);
+                  continue;
+                }
                 await store.updateTask(taskId, {
                   status: "failed",
                   verificationFailureCount: nextBounces,
@@ -1662,6 +1698,41 @@ export class ProjectEngine {
 
             // Under cap — bounce back as before, but record the increment.
             try {
+              const checkBeforeWrite = await store.getTask(taskId).catch(() => null);
+              if (checkBeforeWrite?.column === "done" && checkBeforeWrite.mergeDetails?.mergeConfirmed === true) {
+                const commitSha = checkBeforeWrite.mergeDetails.commitSha;
+                const shortSha = typeof commitSha === "string" && commitSha.length > 0
+                  ? commitSha.slice(0, 8)
+                  : "unknown";
+                const failedCommand = err instanceof VerificationError
+                  ? err.verificationResult?.testResult?.command ?? err.verificationResult?.buildResult?.command ?? null
+                  : null;
+                const exitCode = err instanceof VerificationError
+                  ? err.verificationResult?.testResult?.exitCode ?? err.verificationResult?.buildResult?.exitCode ?? null
+                  : null;
+                const errorTail = errorMsg.length > 200 ? `${errorMsg.slice(0, 200)}…` : errorMsg;
+                const message = `[verification] post-finalize VerificationError on already-done task — no action (commit=${shortSha}, cmd=${failedCommand ?? "unknown"}, exit=${exitCode ?? "unknown"}, error=${errorTail})`;
+                await store.logEntry(taskId, message, "VerificationError").catch(() => undefined);
+                runtimeLog.log(`Auto-merge: ${taskId} ${message}`);
+                const auditor = createRunAuditor(store, {
+                  runId: generateSyntheticRunId("auto-merge", taskId),
+                  agentId: "auto-merge",
+                  taskId,
+                  phase: "merge",
+                });
+                await auditor.database({
+                  type: "task:post-finalize-verification-no-op",
+                  target: taskId,
+                  metadata: {
+                    taskId,
+                    commitSha,
+                    failedCommand,
+                    exitCode,
+                    errorTail,
+                  },
+                }).catch(() => undefined);
+                continue;
+              }
               await store.addTaskComment(
                 taskId,
                 `Deterministic ${failedKind} verification failed during merge (attempt ${nextBounces}/${cap}). ` +
