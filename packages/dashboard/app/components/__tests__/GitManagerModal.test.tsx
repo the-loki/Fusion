@@ -1436,6 +1436,44 @@ describe("GitManagerModal", () => {
     );
   });
 
+  it("FN-4985: pull split toggle matches the main Pull button height on non-mobile", async () => {
+    render(
+      <GitManagerModal isOpen={true} onClose={vi.fn()} tasks={mockTasks} addToast={mockAddToast} />
+    );
+    fireEvent.click(screen.getByRole("tab", { name: /remotes/i }));
+
+    const syncCard = await screen.findByTestId("remote-sync-card");
+    const pullMainButton = within(syncCard).getByRole("button", { name: /^pull$/i });
+    const pullToggleButton = within(syncCard).getByRole("button", { name: /pull options/i });
+
+    vi.spyOn(pullMainButton, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 96,
+      height: 36,
+      top: 0,
+      right: 96,
+      bottom: 36,
+      left: 0,
+      toJSON: () => ({}),
+    });
+    vi.spyOn(pullToggleButton, "getBoundingClientRect").mockReturnValue({
+      x: 96,
+      y: 0,
+      width: 36,
+      height: 36,
+      top: 0,
+      right: 132,
+      bottom: 36,
+      left: 96,
+      toJSON: () => ({}),
+    });
+
+    expect(pullToggleButton.getBoundingClientRect().height).toBe(
+      pullMainButton.getBoundingClientRect().height
+    );
+  });
+
   it("closes pull options menu on outside click and Escape", async () => {
     const user = userEvent.setup();
     render(
