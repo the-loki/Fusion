@@ -87,6 +87,7 @@ describe("reliability interactions: FN-4917 worktree incomplete session-start", 
 
   it("preserves progress when steps already completed", async () => {
     const store = createMockStore();
+    const events: any[] = [];
     let task = makeTask({
       worktree: "/tmp/wt",
       branch: "fusion/fn-4917-t",
@@ -95,7 +96,7 @@ describe("reliability interactions: FN-4917 worktree incomplete session-start", 
         { id: "2", title: "next", status: "pending" },
       ],
     });
-    store.recordRunAuditEvent = vi.fn(async () => undefined);
+    store.recordRunAuditEvent = vi.fn(async (event: any) => events.push(event));
     store.getTask.mockImplementation(async () => task);
     store.updateTask.mockImplementation(async (_id: string, updates: any) => {
       task = { ...task, ...updates };
@@ -108,6 +109,14 @@ describe("reliability interactions: FN-4917 worktree incomplete session-start", 
     await executor.execute(task);
 
     expect(store.moveTask).toHaveBeenCalledWith("FN-4917-T", "todo", { preserveProgress: true });
+    expect(store.moveTask.mock.calls).not.toContainEqual(["FN-4917-T", "todo"]);
+    for (const call of store.logEntry.mock.calls) {
+      const leaked = call.some((arg) => typeof arg === "string" && /Refusing to start coding agent/.test(arg));
+      expect(leaked).toBe(false);
+    }
+    expect(events).toContainEqual(expect.objectContaining({
+      metadata: expect.objectContaining({ action: "requeue-todo", classification: "incomplete" }),
+    }));
   });
 
   it("escalates when session-start auto-recovery reaches retry cap", async () => {
