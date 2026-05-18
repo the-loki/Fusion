@@ -1,5 +1,5 @@
 import "./GitHubImportModal.css";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type KeyboardEvent, type PointerEvent } from "react";
 import type { Task } from "@fusion/core";
 import { getErrorMessage } from "@fusion/core";
 import {
@@ -27,8 +27,16 @@ interface GitHubImportModalProps {
 
 // Mobile breakpoint in pixels
 const MOBILE_BREAKPOINT = 640;
+const GITHUB_IMPORT_LIST_PANE_MIN_WIDTH = 240;
+const GITHUB_IMPORT_LIST_PANE_MAX_WIDTH = 640;
+const GITHUB_IMPORT_LIST_PANE_DEFAULT_WIDTH = 360;
+const GITHUB_IMPORT_LIST_PANE_STORAGE_KEY = "fusion:github-import-list-pane-width";
 
 type TabType = "issues" | "pulls";
+
+function clampListPaneWidth(width: number) {
+  return Math.max(GITHUB_IMPORT_LIST_PANE_MIN_WIDTH, Math.min(GITHUB_IMPORT_LIST_PANE_MAX_WIDTH, width));
+}
 
 export function GitHubImportModal({ isOpen, onClose, onImport, tasks, projectId }: GitHubImportModalProps) {
   useMobileScrollLock(isOpen);
@@ -63,6 +71,25 @@ export function GitHubImportModal({ isOpen, onClose, onImport, tasks, projectId 
   // Mobile view state
   const [isMobile, setIsMobile] = useState(false);
   const [mobileView, setMobileView] = useState<"list" | "preview">("list");
+  const [listPaneWidth, setListPaneWidth] = useState(() => {
+    if (typeof window === "undefined") {
+      return GITHUB_IMPORT_LIST_PANE_DEFAULT_WIDTH;
+    }
+
+    try {
+      const stored = window.localStorage.getItem(GITHUB_IMPORT_LIST_PANE_STORAGE_KEY);
+      if (!stored) {
+        return GITHUB_IMPORT_LIST_PANE_DEFAULT_WIDTH;
+      }
+      const parsed = Number.parseInt(stored, 10);
+      if (!Number.isFinite(parsed)) {
+        return GITHUB_IMPORT_LIST_PANE_DEFAULT_WIDTH;
+      }
+      return clampListPaneWidth(parsed);
+    } catch {
+      return GITHUB_IMPORT_LIST_PANE_DEFAULT_WIDTH;
+    }
+  });
 
   // Track which owner/repo we've already auto-loaded to prevent duplicate loads
   const autoLoadedRef = useRef<{ owner: string; repo: string; labels: string; tab: TabType } | null>(null);
@@ -256,6 +283,75 @@ export function GitHubImportModal({ isOpen, onClose, onImport, tasks, projectId 
     window.addEventListener("resize", checkMobile);
     return () => window.removeEventListener("resize", checkMobile);
   }, [isOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      window.localStorage.setItem(GITHUB_IMPORT_LIST_PANE_STORAGE_KEY, String(listPaneWidth));
+    } catch {
+      // Ignore storage write failures.
+    }
+  }, [listPaneWidth]);
+
+  const handleListPaneResizeStart = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    if (isMobile) {
+      return;
+    }
+
+    const startX = event.clientX;
+    const startWidth = listPaneWidth;
+    const target = event.currentTarget;
+    target.setPointerCapture(event.pointerId);
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      setListPaneWidth(clampListPaneWidth(startWidth + deltaX));
+    };
+
+    const handlePointerUp = () => {
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
+      if (target.hasPointerCapture(event.pointerId)) {
+        target.releasePointerCapture(event.pointerId);
+      }
+    };
+
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handlePointerUp);
+  }, [isMobile, listPaneWidth]);
+
+  const handleListPaneResizeKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+    if (isMobile) {
+      return;
+    }
+
+    const step = event.shiftKey ? 50 : 10;
+
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      setListPaneWidth((current) => clampListPaneWidth(current - step));
+      return;
+    }
+
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      setListPaneWidth((current) => clampListPaneWidth(current + step));
+      return;
+    }
+
+    if (event.key === "Home") {
+      event.preventDefault();
+      setListPaneWidth(GITHUB_IMPORT_LIST_PANE_MIN_WIDTH);
+      return;
+    }
+
+    if (event.key === "End") {
+      event.preventDefault();
+      setListPaneWidth(GITHUB_IMPORT_LIST_PANE_MAX_WIDTH);
+    }
+  }, [isMobile]);
 
   // Handle issue selection - switch to preview view on mobile
   const handleIssueSelect = useCallback((issueNumber: number) => {
@@ -509,6 +605,7 @@ export function GitHubImportModal({ isOpen, onClose, onImport, tasks, projectId 
             {/* Left pane: Issue/PR list */}
             <section
               className={`github-import-list-pane ${isMobile ? 'mobile' : ''} ${mobileView === 'list' ? 'active' : ''}`}
+              style={!isMobile ? { flex: `0 0 ${listPaneWidth}px` } : undefined}
               data-testid="github-import-list-pane"
               aria-labelledby="github-import-results-heading"
             >
@@ -645,6 +742,22 @@ export function GitHubImportModal({ isOpen, onClose, onImport, tasks, projectId 
                 )}
               </div>
             </section>
+
+            {!isMobile && (
+              <div
+                className="github-import-workspace__resize-handle"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize issues list"
+                aria-valuemin={GITHUB_IMPORT_LIST_PANE_MIN_WIDTH}
+                aria-valuemax={GITHUB_IMPORT_LIST_PANE_MAX_WIDTH}
+                aria-valuenow={listPaneWidth}
+                tabIndex={0}
+                onPointerDown={handleListPaneResizeStart}
+                onKeyDown={handleListPaneResizeKeyDown}
+                data-testid="github-import-resize-handle"
+              />
+            )}
 
             {/* Right pane: Preview */}
             <section
