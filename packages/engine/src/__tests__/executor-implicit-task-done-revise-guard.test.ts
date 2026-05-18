@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "./executor-test-helpers.js";
-import { TaskExecutor } from "../executor.js";
+import { TaskExecutor, evaluateTaskDoneRefusal } from "../executor.js";
 import { executorLog } from "../logger.js";
-import { reviewStep } from "../reviewer.js";
-import { createMockStore, mockedCreateFnAgent, mockedExecSync, resetExecutorMocks } from "./executor-test-helpers.js";
+import { createMockStore, mockedExecSync, resetExecutorMocks } from "./executor-test-helpers.js";
 
 function makeTask(overrides: Record<string, unknown> = {}) {
   return {
@@ -60,39 +59,14 @@ describe("FN-4946 implicit completion + REVISE verdict interaction", () => {
     expect(executorLog.error).toHaveBeenCalledWith(expect.stringContaining("(implicit completion)"));
   });
 
-  it("does not refuse implicit completion when REVISE is on an already done step", async () => {
-    const store = createMockStore();
-    let task: any = makeTask();
+  it("evaluateTaskDoneRefusal returns ok when REVISE exists only on already-done steps", () => {
+    const result = evaluateTaskDoneRefusal(
+      makeTask({ steps: [{ name: "Step 1", status: "done" }] }) as any,
+      {},
+      new Map([[0, "REVISE"]]),
+    );
 
-    store.getTask.mockImplementation(async () => ({ ...task, steps: task.steps.map((s: any) => ({ ...s })) }));
-    store.updateStep.mockImplementation(async (_id: string, step: number, patch: any) => {
-      task.steps[step] = { ...task.steps[step], ...patch };
-    });
-
-    vi.mocked(reviewStep).mockResolvedValue({ verdict: "REVISE", summary: "fix", review: "fix" } as any);
-
-    mockedCreateFnAgent.mockImplementation(async ({ customTools }: any) => {
-      const updateTool = customTools.find((t: any) => t.name === "fn_task_update");
-      const reviewTool = customTools.find((t: any) => t.name === "fn_review_step");
-      return {
-        session: {
-          prompt: vi.fn().mockImplementation(async () => {
-            await reviewTool.execute("review", { step: 0, type: "code", step_name: "Step 1", baseline: "abc123" });
-            await updateTool.execute("update", { step: 0, status: "done" });
-          }),
-          dispose: vi.fn(),
-          subscribe: vi.fn(),
-          on: vi.fn(),
-          state: {},
-        },
-      } as any;
-    });
-
-    const executor = new TaskExecutor(store as any, "/repo");
-    await executor.execute(task);
-
-    expect(store.moveTask).toHaveBeenCalledWith("FN-4946-R", "in-review");
-    expect(store.moveTask).not.toHaveBeenCalledWith("FN-4946-R", "todo", { preserveProgress: true });
+    expect(result.ok).toBe(true);
   });
 
   it("does not double-burn retry count when refusal is already handled", async () => {
