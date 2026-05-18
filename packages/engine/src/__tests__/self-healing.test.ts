@@ -1868,7 +1868,7 @@ describe("SelfHealingManager", () => {
 
   describe("recoverMissingWorktreeReviewFailures", () => {
     it("does not hard-code unusable-worktree assertion literals in self-healing", async () => {
-      const source = await readFile(join(process.cwd(), "packages/engine/src/self-healing.ts"), "utf8");
+      const source = await readFile(new URL("../self-healing.ts", import.meta.url), "utf8");
       expect(source).not.toMatch(/Refusing to start coding agent/);
     });
 
