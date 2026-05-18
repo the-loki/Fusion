@@ -29,6 +29,8 @@ interface WorktreeGroupProps {
   workflowStepNameLookup?: ReadonlyMap<string, string>;
   /** Precomputed blocker fanout keyed by blocker task ID. */
   blockerFanoutMap?: ReadonlyMap<string, BlockerFanoutEntry>;
+  /** Whether GitHub CLI auth is available for creating PRs from task cards. */
+  prAuthAvailable?: boolean;
 }
 
 function WorktreeGroupComponent({
@@ -47,6 +49,7 @@ function WorktreeGroupComponent({
   lastFetchTimeMs,
   workflowStepNameLookup,
   blockerFanoutMap,
+  prAuthAvailable,
 }: WorktreeGroupProps) {
   return (
     <div className="worktree-group">
@@ -57,7 +60,7 @@ function WorktreeGroupComponent({
         <span className="worktree-label">{label}</span>
       </div>
       {activeTasks.map((task) => (
-        <TaskCard key={task.id} task={task} projectId={projectId} onOpenDetail={onOpenDetail} addToast={addToast} globalPaused={globalPaused} onUpdateTask={onUpdateTask} onRetryTask={onRetryTask} onOpenDetailWithTab={onOpenDetailWithTab} taskStuckTimeoutMs={taskStuckTimeoutMs} onOpenMission={onOpenMission} lastFetchTimeMs={lastFetchTimeMs} workflowStepNameLookup={workflowStepNameLookup} fanout={blockerFanoutMap?.get(task.id)} />
+        <TaskCard key={task.id} task={task} projectId={projectId} onOpenDetail={onOpenDetail} addToast={addToast} globalPaused={globalPaused} onUpdateTask={onUpdateTask} onRetryTask={onRetryTask} onOpenDetailWithTab={onOpenDetailWithTab} taskStuckTimeoutMs={taskStuckTimeoutMs} onOpenMission={onOpenMission} lastFetchTimeMs={lastFetchTimeMs} workflowStepNameLookup={workflowStepNameLookup} fanout={blockerFanoutMap?.get(task.id)} prAuthAvailable={prAuthAvailable} />
       ))}
       {queuedTasks.map((task) => (
         <TaskCard
@@ -76,6 +79,7 @@ function WorktreeGroupComponent({
           lastFetchTimeMs={lastFetchTimeMs}
           workflowStepNameLookup={workflowStepNameLookup}
           fanout={blockerFanoutMap?.get(task.id)}
+          prAuthAvailable={prAuthAvailable}
         />
       ))}
     </div>

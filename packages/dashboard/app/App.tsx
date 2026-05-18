@@ -1336,6 +1336,7 @@ function AppInner() {
                   addToast={addToast}
                   workflowStepNameLookup={workflowStepNameLookup}
                   disableDrag={true}
+                  prAuthAvailable={prAuthAvailable}
                 />
               ),
               addToast,
@@ -1601,6 +1602,7 @@ function AppInner() {
             staleHighFanoutBlockerAgeThresholdMs={staleHighFanoutBlockerAgeThresholdMs}
             onOpenMission={handleOpenMission}
             lastFetchTimeMs={lastFetchTimeMs}
+            prAuthAvailable={prAuthAvailable}
           />
         </PageErrorBoundary>
       );

@@ -294,6 +294,8 @@ interface TaskCardProps {
   disableDrag?: boolean;
   /** Downstream fan-out entry for this task, computed at board-level. */
   fanout?: BlockerFanoutEntry;
+  /** Whether GitHub CLI auth is available for creating PRs from task cards. */
+  prAuthAvailable?: boolean;
 }
 
 function areTaskBadgeInfosEqual(
@@ -421,6 +423,7 @@ function areTaskCardPropsEqual(previous: TaskCardProps, next: TaskCardProps): bo
     previous.projectId === next.projectId &&
     previous.globalPaused === next.globalPaused &&
     previous.taskStuckTimeoutMs === next.taskStuckTimeoutMs &&
+    previous.prAuthAvailable === next.prAuthAvailable &&
     previous.onOpenDetail === next.onOpenDetail &&
     previous.addToast === next.addToast &&
     previous.onUpdateTask === next.onUpdateTask &&
@@ -521,6 +524,7 @@ function TaskCardComponent({
   workflowStepNameLookup,
   disableDrag,
   fanout,
+  prAuthAvailable,
 }: TaskCardProps) {
   const [dragging, setDragging] = useState(false);
   const [fileDragOver, setFileDragOver] = useState(false);

@@ -69,9 +69,11 @@ interface ColumnProps {
   workflowStepNameLookup?: ReadonlyMap<string, string>;
   /** Precomputed blocker fanout keyed by blocker task ID. */
   blockerFanoutMap?: ReadonlyMap<string, BlockerFanoutEntry>;
+  /** Whether GitHub CLI auth is available for creating PRs from task cards. */
+  prAuthAvailable?: boolean;
 }
 
-function ColumnComponent({ column, tasks, projectId, maxConcurrent, onMoveTask, onPauseTask, onOpenDetail, addToast, onQuickCreate, onNewTask, autoMerge, onToggleAutoMerge, globalPaused, onUpdateTask, onRetryTask, onArchiveTask, onUnarchiveTask, onDeleteTask, onArchiveAllDone, collapsed, onToggleCollapse, allTasks, availableModels, onPlanningMode, onSubtaskBreakdown, onOpenDetailWithTab, favoriteProviders, favoriteModels, onToggleFavorite, onToggleModelFavorite, isSearchActive, taskStuckTimeoutMs, onOpenMission, lastFetchTimeMs, workflowStepNameLookup, blockerFanoutMap }: ColumnProps) {
+function ColumnComponent({ column, tasks, projectId, maxConcurrent, onMoveTask, onPauseTask, onOpenDetail, addToast, onQuickCreate, onNewTask, autoMerge, onToggleAutoMerge, globalPaused, onUpdateTask, onRetryTask, onArchiveTask, onUnarchiveTask, onDeleteTask, onArchiveAllDone, collapsed, onToggleCollapse, allTasks, availableModels, onPlanningMode, onSubtaskBreakdown, onOpenDetailWithTab, favoriteProviders, favoriteModels, onToggleFavorite, onToggleModelFavorite, isSearchActive, taskStuckTimeoutMs, onOpenMission, lastFetchTimeMs, workflowStepNameLookup, blockerFanoutMap, prAuthAvailable }: ColumnProps) {
   const [dragOver, setDragOver] = useState(false);
   const [visibleTaskCount, setVisibleTaskCount] = useState(VISIBLE_TASKS_INITIAL);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -502,6 +504,7 @@ function ColumnComponent({ column, tasks, projectId, maxConcurrent, onMoveTask, 
                   lastFetchTimeMs={lastFetchTimeMs}
                   workflowStepNameLookup={workflowStepNameLookup}
                   blockerFanoutMap={blockerFanoutMap}
+                  prAuthAvailable={prAuthAvailable}
                 />
               ))
             )
@@ -529,6 +532,7 @@ function ColumnComponent({ column, tasks, projectId, maxConcurrent, onMoveTask, 
                   lastFetchTimeMs={lastFetchTimeMs}
                   workflowStepNameLookup={workflowStepNameLookup}
                   fanout={blockerFanoutMap?.get(task.id)}
+                  prAuthAvailable={prAuthAvailable}
                 />
               ))}
               {shouldPaginate && hiddenTaskCount > 0 && (
