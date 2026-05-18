@@ -116,19 +116,16 @@ describe("reliability-metrics", () => {
       },
     ];
 
-    const activity: ActivityLogEntry[] = [
-      { id: "m1", timestamp: "2026-05-10T12:00:00.000Z", type: "task:merged", taskId: "FN-1", details: "merged" },
-      { id: "m2", timestamp: "2026-05-10T13:00:00.000Z", type: "task:merged", taskId: "FN-2", details: "merged" },
-    ];
+    const mergedTaskIds = new Set(["FN-1", "FN-2"]);
 
-    const metric = mergeAttemptsPerMergedTask(events, activity, Date.parse("2026-05-10T00:00:00.000Z"), Date.parse("2026-05-11T00:00:00.000Z"));
+    const metric = mergeAttemptsPerMergedTask(events, mergedTaskIds, Date.parse("2026-05-10T00:00:00.000Z"), Date.parse("2026-05-11T00:00:00.000Z"));
     expect(metric.mean).toBe(1.5);
     expect(metric.max).toBe(2);
     expect(metric.histogram).toEqual({ "1": 1, "2": 1 });
   });
 
   it("returns no-audit-coverage when merge attempts cannot be inferred", () => {
-    const metric = mergeAttemptsPerMergedTask([], [], Date.parse("2026-05-10T00:00:00.000Z"), Date.parse("2026-05-11T00:00:00.000Z"));
+    const metric = mergeAttemptsPerMergedTask([], new Set<string>(), Date.parse("2026-05-10T00:00:00.000Z"), Date.parse("2026-05-11T00:00:00.000Z"));
     expect(metric).toEqual({ mean: null, max: null, histogram: {}, reason: "no-audit-coverage" });
   });
 

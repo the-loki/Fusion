@@ -145,13 +145,7 @@ export function inReviewDurationMetrics(activity: ActivityLogEntry[], startMs: n
   };
 }
 
-export function mergeAttemptsPerMergedTask(events: RunAuditEvent[], activity: ActivityLogEntry[], startMs: number, endMs: number): MergeAttemptsMetric {
-  const mergedTaskIds = new Set(
-    activity
-      .filter((entry) => entry.type === "task:merged" && entry.taskId && inWindow(entry.timestamp, startMs, endMs))
-      .map((entry) => entry.taskId as string),
-  );
-
+export function mergeAttemptsPerMergedTask(events: RunAuditEvent[], mergedTaskIds: Set<string>, startMs: number, endMs: number): MergeAttemptsMetric {
   const phasesByTask = new Map<string, Set<string>>();
   for (const event of events) {
     if (event.domain !== "git" || !event.taskId || !inWindow(event.timestamp, startMs, endMs)) {

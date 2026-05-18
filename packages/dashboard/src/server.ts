@@ -69,8 +69,6 @@ import {
   mergeAttemptsPerMergedTask,
   postMergeAuditFailuresPerDay,
   recoverAlreadyMergedReviewTasksRecoveriesPerDay,
-  tasksBouncedToInProgressPerDay,
-  tasksEnteredInReviewPerDay,
 } from "./reliability-metrics.js";
 import { loadViewChunkManifest } from "./view-chunk-manifest.js";
 
@@ -1219,18 +1217,19 @@ export function createServer(store: TaskStore, options?: ServerOptions): ReturnT
     const startIso = new Date(effectiveStartMs).toISOString();
     const endIso = new Date(nowMs).toISOString();
 
-    const [runAuditEvents, activityLog] = await Promise.all([
+    const [runAuditEvents, enteredByDay, bouncedByDay, durationEvents, mergedTaskIds] = await Promise.all([
       Promise.resolve(store.getRunAuditEvents({ startTime: startIso, endTime: endIso, limit: 50_000 })),
-      store.getActivityLog({ since: startIso, limit: 50_000 }),
+      store.getTaskMovedCountsByDay({ since: startIso, until: endIso, toColumn: "in-review" }),
+      store.getTaskMovedCountsByDay({ since: startIso, until: endIso, fromColumn: "in-review", toColumn: "in-progress" }),
+      store.getInReviewDurationEvents({ since: startIso, until: endIso }),
+      store.getTaskMergedTaskIds({ since: startIso, until: endIso }),
     ]);
 
-    const enteredByDay = tasksEnteredInReviewPerDay(activityLog, effectiveStartMs, nowMs);
-    const bouncedByDay = tasksBouncedToInProgressPerDay(activityLog, effectiveStartMs, nowMs);
     const postMergeByDay = postMergeAuditFailuresPerDay(runAuditEvents, effectiveStartMs, nowMs);
     const fileScopeByDay = fileScopeInvariantFailuresPerDay(runAuditEvents, effectiveStartMs, nowMs);
     const recoveriesByDay = recoverAlreadyMergedReviewTasksRecoveriesPerDay(runAuditEvents, effectiveStartMs, nowMs);
-    const duration = inReviewDurationMetrics(activityLog, effectiveStartMs, nowMs);
-    const mergeAttempts = mergeAttemptsPerMergedTask(runAuditEvents, activityLog, effectiveStartMs, nowMs);
+    const duration = inReviewDurationMetrics(durationEvents, effectiveStartMs, nowMs);
+    const mergeAttempts = mergeAttemptsPerMergedTask(runAuditEvents, mergedTaskIds, effectiveStartMs, nowMs);
     const headline = inReviewFailureRate7d(enteredByDay, bouncedByDay, nowMs);
 
     const perDay: Array<{

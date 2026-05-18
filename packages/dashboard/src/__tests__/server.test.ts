@@ -82,6 +82,9 @@ function createMockStore(overrides: Partial<TaskStore> = {}): TaskStore {
     addSteeringComment: vi.fn(),
     updatePrInfo: vi.fn().mockResolvedValue(undefined),
     updateIssueInfo: vi.fn().mockResolvedValue(undefined),
+    getTaskMovedCountsByDay: vi.fn().mockResolvedValue({}),
+    getInReviewDurationEvents: vi.fn().mockResolvedValue([]),
+    getTaskMergedTaskIds: vi.fn().mockResolvedValue(new Set<string>()),
     getRootDir: vi.fn().mockReturnValue("/fake/root"),
     getFusionDir: vi.fn().mockReturnValue("/fake/root/.fusion"),
     getDatabase: vi.fn().mockReturnValue({
@@ -493,11 +496,6 @@ describe("createServer health and headless mode", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-13T12:00:00.000Z"));
 
-    const activityLog = [
-      { id: "e1", timestamp: "2026-05-13T10:00:00.000Z", type: "task:moved", taskId: "FN-1", details: "", metadata: { from: "todo", to: "in-review" } },
-      { id: "e2", timestamp: "2026-05-13T11:00:00.000Z", type: "task:moved", taskId: "FN-1", details: "", metadata: { from: "in-review", to: "in-progress" } },
-      { id: "m1", timestamp: "2026-05-13T11:30:00.000Z", type: "task:merged", taskId: "FN-1", details: "" },
-    ];
     const runAuditEvents = [
       {
         id: "ra1",
@@ -513,7 +511,12 @@ describe("createServer health and headless mode", () => {
     ];
 
     const store = createMockStore({
-      getActivityLog: vi.fn().mockResolvedValue(activityLog),
+      getTaskMovedCountsByDay: vi
+        .fn()
+        .mockResolvedValueOnce({ "2026-05-13": 1 })
+        .mockResolvedValueOnce({ "2026-05-13": 1 }),
+      getInReviewDurationEvents: vi.fn().mockResolvedValue([]),
+      getTaskMergedTaskIds: vi.fn().mockResolvedValue(new Set(["FN-1"])),
       getRunAuditEvents: vi.fn().mockReturnValue(runAuditEvents),
     });
 
@@ -536,12 +539,87 @@ describe("createServer health and headless mode", () => {
     vi.useRealTimers();
   });
 
-  it("applies windowDays filter to activity and run-audit query windows", async () => {
+  it("FN-4908: preserves non-zero prior-day reliability rows under large activity volume", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-13T12:00:00.000Z"));
 
     const store = createMockStore({
-      getActivityLog: vi.fn().mockResolvedValue([]),
+      getTaskMovedCountsByDay: vi
+        .fn()
+        .mockResolvedValueOnce({
+          "2026-05-08": 9,
+          "2026-05-09": 7,
+          "2026-05-10": 4,
+          "2026-05-11": 3,
+          "2026-05-12": 5,
+          "2026-05-13": 6,
+        })
+        .mockResolvedValueOnce({
+          "2026-05-08": 2,
+          "2026-05-09": 1,
+          "2026-05-10": 1,
+          "2026-05-11": 1,
+          "2026-05-12": 2,
+          "2026-05-13": 3,
+        }),
+      getRunAuditEvents: vi.fn().mockReturnValue([]),
+    });
+
+    const app = createServer(store);
+    const res = await GET(app, "/api/health/reliability");
+
+    expect(res.status).toBe(200);
+    expect(res.body.perDay).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ date: "2026-05-08", tasksEnteredInReview: 9, tasksBouncedToInProgress: 2, hasSamples: true }),
+        expect.objectContaining({ date: "2026-05-09", tasksEnteredInReview: 7, tasksBouncedToInProgress: 1, hasSamples: true }),
+        expect.objectContaining({ date: "2026-05-10", tasksEnteredInReview: 4, tasksBouncedToInProgress: 1, hasSamples: true }),
+      ]),
+    );
+    expect(res.body.perDayNonEmpty).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ date: "2026-05-08" }),
+        expect.objectContaining({ date: "2026-05-09" }),
+        expect.objectContaining({ date: "2026-05-10" }),
+      ]),
+    );
+
+    vi.useRealTimers();
+  });
+
+  it("does not use getActivityLog row-capped hot path for reliability counts", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-13T12:00:00.000Z"));
+
+    const store = createMockStore({
+      getActivityLog: vi.fn().mockResolvedValue([
+        { id: "truncated", timestamp: "2026-05-13T11:59:59.000Z", type: "task:moved", taskId: "FN-999", details: "", metadata: { from: "todo", to: "in-review" } },
+      ]),
+      getTaskMovedCountsByDay: vi.fn().mockResolvedValueOnce({ "2026-05-10": 5 }).mockResolvedValueOnce({ "2026-05-10": 2 }),
+      getRunAuditEvents: vi.fn().mockReturnValue([]),
+    });
+
+    const app = createServer(store);
+    const res = await GET(app, "/api/health/reliability");
+
+    expect(res.status).toBe(200);
+    expect(store.getActivityLog).not.toHaveBeenCalled();
+    expect(res.body.perDay).toEqual(expect.arrayContaining([expect.objectContaining({ date: "2026-05-10", tasksEnteredInReview: 5, tasksBouncedToInProgress: 2 })]));
+
+    vi.useRealTimers();
+  });
+
+  it("applies windowDays filter to activity and run-audit query windows", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-13T12:00:00.000Z"));
+
+    const getTaskMovedCountsByDay = vi.fn().mockResolvedValue({});
+    const getInReviewDurationEvents = vi.fn().mockResolvedValue([]);
+    const getTaskMergedTaskIds = vi.fn().mockResolvedValue(new Set<string>());
+    const store = createMockStore({
+      getTaskMovedCountsByDay,
+      getInReviewDurationEvents,
+      getTaskMergedTaskIds,
       getRunAuditEvents: vi.fn().mockReturnValue([]),
     });
     const app = createServer(store);
@@ -549,11 +627,28 @@ describe("createServer health and headless mode", () => {
     const res = await GET(app, "/api/health/reliability?windowDays=3");
 
     expect(res.status).toBe(200);
-    expect(store.getActivityLog).toHaveBeenCalledWith(
+    expect(getTaskMovedCountsByDay).toHaveBeenNthCalledWith(
+      1,
       expect.objectContaining({
         since: "2026-05-10T12:00:00.000Z",
-        limit: 50_000,
+        until: "2026-05-13T12:00:00.000Z",
+        toColumn: "in-review",
       }),
+    );
+    expect(getTaskMovedCountsByDay).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        since: "2026-05-10T12:00:00.000Z",
+        until: "2026-05-13T12:00:00.000Z",
+        fromColumn: "in-review",
+        toColumn: "in-progress",
+      }),
+    );
+    expect(getInReviewDurationEvents).toHaveBeenCalledWith(
+      expect.objectContaining({ since: "2026-05-10T12:00:00.000Z", until: "2026-05-13T12:00:00.000Z" }),
+    );
+    expect(getTaskMergedTaskIds).toHaveBeenCalledWith(
+      expect.objectContaining({ since: "2026-05-10T12:00:00.000Z", until: "2026-05-13T12:00:00.000Z" }),
     );
     expect(store.getRunAuditEvents).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -570,26 +665,11 @@ describe("createServer health and headless mode", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-13T12:00:00.000Z"));
 
-    const activityLog = Array.from({ length: 10 }, (_, index) => ({
-      id: `entered-${index}`,
-      timestamp: "2026-05-13T10:00:00.000Z",
-      type: "task:moved",
-      taskId: `FN-${index}`,
-      details: "",
-      metadata: { from: "todo", to: "in-review" },
-    })).concat(
-      Array.from({ length: 2 }, (_, index) => ({
-        id: `bounce-${index}`,
-        timestamp: "2026-05-13T10:05:00.000Z",
-        type: "task:moved",
-        taskId: `FN-${index}`,
-        details: "",
-        metadata: { from: "in-review", to: "in-progress" },
-      })),
-    );
-
     const store = createMockStore({
-      getActivityLog: vi.fn().mockResolvedValue(activityLog),
+      getTaskMovedCountsByDay: vi
+        .fn()
+        .mockResolvedValueOnce({ "2026-05-13": 10 })
+        .mockResolvedValueOnce({ "2026-05-13": 2 }),
       getRunAuditEvents: vi.fn().mockReturnValue([]),
     });
 
@@ -606,9 +686,14 @@ describe("createServer health and headless mode", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-13T12:00:00.000Z"));
 
+    const getTaskMovedCountsByDay = vi.fn().mockResolvedValue({});
+    const getInReviewDurationEvents = vi.fn().mockResolvedValue([]);
+    const getTaskMergedTaskIds = vi.fn().mockResolvedValue(new Set<string>());
     const store = createMockStore({
       getSettings: vi.fn().mockResolvedValue({ reliabilityStatsResetAt: "2026-05-12T00:00:00.000Z" }),
-      getActivityLog: vi.fn().mockResolvedValue([]),
+      getTaskMovedCountsByDay,
+      getInReviewDurationEvents,
+      getTaskMergedTaskIds,
       getRunAuditEvents: vi.fn().mockReturnValue([]),
     });
     const app = createServer(store);
@@ -617,7 +702,20 @@ describe("createServer health and headless mode", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.resetAt).toBe("2026-05-12T00:00:00.000Z");
-    expect(store.getActivityLog).toHaveBeenCalledWith(expect.objectContaining({ since: "2026-05-12T00:00:00.000Z" }));
+    expect(getTaskMovedCountsByDay).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ since: "2026-05-12T00:00:00.000Z", until: "2026-05-13T12:00:00.000Z" }),
+    );
+    expect(getTaskMovedCountsByDay).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ since: "2026-05-12T00:00:00.000Z", until: "2026-05-13T12:00:00.000Z" }),
+    );
+    expect(getInReviewDurationEvents).toHaveBeenCalledWith(
+      expect.objectContaining({ since: "2026-05-12T00:00:00.000Z", until: "2026-05-13T12:00:00.000Z" }),
+    );
+    expect(getTaskMergedTaskIds).toHaveBeenCalledWith(
+      expect.objectContaining({ since: "2026-05-12T00:00:00.000Z", until: "2026-05-13T12:00:00.000Z" }),
+    );
     expect(store.getRunAuditEvents).toHaveBeenCalledWith(
       expect.objectContaining({ startTime: "2026-05-12T00:00:00.000Z", endTime: "2026-05-13T12:00:00.000Z" }),
     );
