@@ -40,6 +40,7 @@ export type { ChatMessageInfo, FailureInfo, FallbackInfo, ToolCallInfo } from ".
 import type { ChatMessageInfo, FailureInfo, FallbackInfo, ToolCallInfo } from "./chatTypes";
 import { createChatStreamHandlers } from "./createChatStreamHandlers";
 import { isLikelyTabSuspensionError, useTabVisibilitySuspension } from "./visibilitySuspension";
+import { clearCache, readCache, SWR_CACHE_KEYS, SWR_TASKS_MAX_AGE_MS, writeCache } from "../utils/swrCache";
 
 export interface UseChatReturn {
   // Session state
@@ -241,10 +242,27 @@ export function useChat(
   projectId?: string,
   addToast?: (msg: string, type?: "success" | "error" | "warning") => void,
 ): UseChatReturn {
+  const getChatSessionsCacheKey = useCallback(
+    (targetProjectId?: string) => (targetProjectId ? `${SWR_CACHE_KEYS.CHAT_SESSIONS_PREFIX}${targetProjectId}` : null),
+    [],
+  );
+
+  const readCachedSessions = useCallback(
+    (targetProjectId?: string) => {
+      const cacheKey = getChatSessionsCacheKey(targetProjectId);
+      if (!cacheKey) {
+        return [] as ChatSessionInfo[];
+      }
+
+      return readCache<ChatSessionInfo[]>(cacheKey, { maxAgeMs: SWR_TASKS_MAX_AGE_MS }) ?? [];
+    },
+    [getChatSessionsCacheKey],
+  );
+
   // Session state
-  const [sessions, setSessions] = useState<ChatSessionInfo[]>([]);
+  const [sessions, setSessions] = useState<ChatSessionInfo[]>(() => readCachedSessions(projectId));
   const [activeSession, setActiveSession] = useState<ChatSessionInfo | null>(null);
-  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionsLoading, setSessionsLoading] = useState(() => readCachedSessions(projectId).length === 0);
 
   // Message state
   const [messages, setMessages] = useState<ChatMessageInfo[]>([]);
@@ -329,17 +347,33 @@ export function useChat(
         (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
       );
       setSessions(sorted);
+      const cacheKey = getChatSessionsCacheKey(projectId);
+      if (cacheKey) {
+        writeCache(cacheKey, sorted, { maxBytes: 500_000 });
+      }
     } catch {
+      if (sessionsRef.current.length === 0) {
+        const cacheKey = getChatSessionsCacheKey(projectId);
+        if (cacheKey) {
+          clearCache(cacheKey);
+        }
+      }
       // Silently fail on refresh
     } finally {
       setSessionsLoading(false);
     }
-  }, [projectId]);
+  }, [getChatSessionsCacheKey, projectId]);
+
+  useEffect(() => {
+    const cachedSessions = readCachedSessions(projectId);
+    setSessions(cachedSessions);
+    setSessionsLoading(cachedSessions.length === 0);
+  }, [projectId, readCachedSessions]);
 
   // Initial load
   useEffect(() => {
     refreshSessions();
-  }, [refreshSessions]);
+  }, [refreshSessions, projectId]);
 
   // Restore active session from localStorage after initial load.
   // Uses refs to avoid circular dependency with selectSession and to avoid
