@@ -1,4 +1,5 @@
 import { mkdtempSync, mkdirSync, existsSync } from "node:fs";
+import type { PathLike } from "node:fs";
 import * as fsPromises from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -64,7 +65,7 @@ describe("removeDesktopBuildArtifacts", () => {
     for (const path of DESKTOP_ARTIFACT_RELATIVE_PATHS) {
       mkdirSync(join(root, path), { recursive: true });
     }
-    const rmSpy = vi.mocked(fsPromises.rm).mockImplementation(async (pathLike: fsPromises.PathLike) => {
+    const rmSpy = vi.mocked(fsPromises.rm).mockImplementation(async (pathLike: PathLike) => {
       if (String(pathLike).endsWith("packages/desktop/dist")) {
         throw new Error("boom");
       }
