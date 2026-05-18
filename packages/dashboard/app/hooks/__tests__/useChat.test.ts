@@ -7,6 +7,7 @@ import { act, fireEvent, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useChat } from "../useChat";
 import * as apiModule from "../../api";
+import * as swrCacheModule from "../../utils/swrCache";
 import type { ChatSession, ChatMessage } from "@fusion/core";
 
 // Mock the API module
@@ -167,7 +168,7 @@ describe("useChat", () => {
     expect(result.current.sessions).toHaveLength(2);
     expect(result.current.sessionsLoading).toBe(false);
 
-    act(() => {
+    await act(async () => {
       resolveFetch?.({ sessions: [] });
     });
 
@@ -216,19 +217,18 @@ describe("useChat", () => {
   });
 
   it("clears stale cache envelope when refresh fails with empty in-memory sessions", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-04-10T00:02:30.000Z"));
-
     const projectId = "proj-empty-failure";
     localStorage.setItem(
       chatSessionsCacheKey(projectId),
       JSON.stringify({
-        savedAt: new Date("2026-04-10T00:00:00.000Z").getTime(),
+        savedAt: Date.now() - 120_000,
         data: [makeSession({ id: "session-stale", agentId: "agent-001" })],
       }),
     );
 
-    mockFetchChatSessions.mockRejectedValueOnce(new Error("network down"));
+    const clearCacheSpy = vi.spyOn(swrCacheModule, "clearCache");
+    mockFetchChatSessions.mockReset();
+    mockFetchChatSessions.mockRejectedValue(new Error("network down"));
 
     const { result } = renderHook(() => useChat(projectId));
 
@@ -238,8 +238,9 @@ describe("useChat", () => {
       expect(result.current.sessionsLoading).toBe(false);
     });
 
-    expect(localStorage.getItem(chatSessionsCacheKey(projectId))).toBeNull();
-    vi.useRealTimers();
+    await waitFor(() => {
+      expect(clearCacheSpy).toHaveBeenCalledWith(chatSessionsCacheKey(projectId));
+    });
   });
 
   it("preserves cache envelope when refresh fails after cached sessions hydrate", async () => {

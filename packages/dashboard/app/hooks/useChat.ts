@@ -339,7 +339,9 @@ export function useChat(
 
   // Fetch sessions
   const refreshSessions = useCallback(async () => {
-    setSessionsLoading(true);
+    if (sessionsRef.current.length === 0) {
+      setSessionsLoading(true);
+    }
     try {
       const data: ChatSessionListResponse = await fetchChatSessions(projectId);
       // Sort by updatedAt descending
@@ -352,7 +354,8 @@ export function useChat(
         writeCache(cacheKey, sorted, { maxBytes: 500_000 });
       }
     } catch {
-      if (sessionsRef.current.length === 0) {
+      const cacheHydratedSessions = readCachedSessions(projectId);
+      if (sessionsRef.current.length === 0 && cacheHydratedSessions.length === 0) {
         const cacheKey = getChatSessionsCacheKey(projectId);
         if (cacheKey) {
           clearCache(cacheKey);
