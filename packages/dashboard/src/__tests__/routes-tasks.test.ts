@@ -682,7 +682,7 @@ describe("POST /tasks", () => {
     );
   });
 
-  it("attempts tracking issue creation for explicit task-level override when defaults are unset", async () => {
+  it("does not synchronously create tracking issues in POST /tasks route", async () => {
     const createIssueSpy = vi.spyOn(GitHubClient.prototype, "createIssue").mockResolvedValue({
       owner: "task",
       repo: "repo",
@@ -711,9 +711,9 @@ describe("POST /tasks", () => {
     );
 
     expect(res.status).toBe(201);
-    expect(createIssueSpy).toHaveBeenCalledWith(expect.objectContaining({ owner: "task", repo: "repo" }));
-    expect(linkGithubIssue).toHaveBeenCalledWith("FN-001", expect.objectContaining({ owner: "task", repo: "repo", number: 42 }));
-    expect(recordActivity).toHaveBeenCalledWith(expect.objectContaining({ metadata: expect.objectContaining({ type: "github-issue-created" }) }));
+    expect(createIssueSpy).not.toHaveBeenCalled();
+    expect(linkGithubIssue).not.toHaveBeenCalled();
+    expect(recordActivity).not.toHaveBeenCalled();
     createIssueSpy.mockRestore();
   });
 
@@ -722,21 +722,18 @@ describe("POST /tasks", () => {
       name: "project default when task override is omitted",
       projectSettings: { githubTrackingEnabledByDefault: true, githubTrackingDefaultRepo: "task/repo", githubAuthMode: "token", githubAuthToken: "tok" },
       globalSettings: {},
-      expectedCreatesIssue: true,
     },
     {
       name: "global default when project default is omitted",
       projectSettings: { githubTrackingDefaultRepo: "task/repo", githubAuthMode: "token", githubAuthToken: "tok" },
       globalSettings: { githubTrackingEnabledByDefault: true },
-      expectedCreatesIssue: true,
     },
     {
       name: "disabled when defaults are off at every level",
       projectSettings: { githubTrackingDefaultRepo: "task/repo", githubAuthMode: "token", githubAuthToken: "tok" },
       globalSettings: { githubTrackingEnabledByDefault: false },
-      expectedCreatesIssue: false,
     },
-  ])("honors tracking precedence: $name", async ({ projectSettings, globalSettings, expectedCreatesIssue }) => {
+  ])("honors tracking precedence: $name", async ({ projectSettings, globalSettings }) => {
     const createIssueSpy = vi.spyOn(GitHubClient.prototype, "createIssue").mockResolvedValue({
       owner: "task",
       repo: "repo",
@@ -756,7 +753,7 @@ describe("POST /tasks", () => {
     (store.getGlobalSettingsStore as ReturnType<typeof vi.fn>).mockReturnValue(mockGlobalSettingsStore);
     (store.createTask as ReturnType<typeof vi.fn>).mockResolvedValue({
       ...FAKE_TASK_DETAIL,
-      githubTracking: expectedCreatesIssue ? { enabled: true, repoOverride: "task/repo" } : undefined,
+      githubTracking: { enabled: true, repoOverride: "task/repo" },
     });
 
     const res = await REQUEST(
@@ -768,12 +765,8 @@ describe("POST /tasks", () => {
     );
 
     expect(res.status).toBe(201);
-    if (expectedCreatesIssue) {
-      expect(createIssueSpy).toHaveBeenCalledTimes(1);
-      expect(store.linkGithubIssue).toHaveBeenCalledWith("FN-001", expect.objectContaining({ owner: "task", repo: "repo", number: 43 }));
-    } else {
-      expect(createIssueSpy).not.toHaveBeenCalled();
-    }
+    expect(createIssueSpy).not.toHaveBeenCalled();
+    expect(store.linkGithubIssue).not.toHaveBeenCalled();
 
     createIssueSpy.mockRestore();
   });
