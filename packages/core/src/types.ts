@@ -3403,8 +3403,10 @@ export const COLUMN_DESCRIPTIONS: Record<Column, string> = {
 };
 
 export const VALID_TRANSITIONS: Record<Column, Column[]> = {
-  triage: ["todo"],
-  todo: ["in-progress", "triage"],
+  // FN-4892: intake-side heuristics may cold-archive tasks before execution starts.
+  triage: ["todo", "archived"],
+  // FN-4892: allow direct archival for newly specified intake tasks.
+  todo: ["in-progress", "triage", "archived"],
   // NOTE: "in-progress" → "done" is enabled for mission validation tasks that complete directly.
   // Regular implementation tasks should move through "in-review" before "done".
   "in-progress": ["in-review", "todo", "triage", "done"],

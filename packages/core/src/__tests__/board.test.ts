@@ -36,9 +36,8 @@ describe("board", () => {
       expect(canTransition("done", "in-review")).toBe(false);
       // archived cannot go directly back to in-progress
       expect(canTransition("archived", "in-progress")).toBe(false);
-      // triage cannot go backwards at all (no transitions before it)
+      // triage cannot go directly to done
       expect(canTransition("triage", "done")).toBe(false);
-      expect(canTransition("triage", "archived")).toBe(false);
     });
 
     it("returns false for skipping columns", () => {
@@ -48,6 +47,11 @@ describe("board", () => {
       expect(canTransition("todo", "in-review")).toBe(false);
       // Note: in-progress can transition to done for mission validation tasks
       // so we don't test that case here
+    });
+
+    it("allows intake-side archival transitions", () => {
+      expect(canTransition("triage", "archived")).toBe(true);
+      expect(canTransition("todo", "archived")).toBe(true);
     });
   });
 
@@ -60,18 +64,18 @@ describe("board", () => {
 
     it("returns a copy of the array (modifications don't affect original)", () => {
       const transitions = getValidTransitions("todo");
-      transitions.push("archived" as Column);
+      transitions.push("done" as Column);
 
       // Original should be unchanged
-      expect(getValidTransitions("todo")).not.toContain("archived");
+      expect(getValidTransitions("todo")).not.toContain("done");
     });
 
     it("returns correct transitions for triage", () => {
-      expect(getValidTransitions("triage")).toEqual(["todo"]);
+      expect(getValidTransitions("triage")).toEqual(["todo", "archived"]);
     });
 
     it("returns correct transitions for todo", () => {
-      expect(getValidTransitions("todo")).toEqual(["in-progress", "triage"]);
+      expect(getValidTransitions("todo")).toEqual(["in-progress", "triage", "archived"]);
     });
 
     it("returns correct transitions for in-progress", () => {
