@@ -162,6 +162,8 @@ export type DatabaseMutationType =
   | "task:dependency:add"
   | "task:auto-recover-already-merged"
   | "task:auto-recover-finalize-already-on-main"
+  /** Metadata: { taskId, commitSha, failedCommand, exitCode, errorTail } */
+  | "task:post-finalize-verification-no-op"
   | "task:auto-recover-branch-misbound"
   | "task:auto-recover-misrouted-foreign-commit"
   | "task:auto-recover-foreign-only-contamination"
