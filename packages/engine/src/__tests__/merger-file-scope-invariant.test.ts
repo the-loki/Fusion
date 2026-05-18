@@ -151,6 +151,30 @@ describe("assertSquashOverlapsFileScope", () => {
     } satisfies Partial<FileScopeViolationError>);
   });
 
+  it("accepts declared scope as a single changeset file when staged matches exactly", async () => {
+    const store = createInvariantStore([".changeset/fn-4767-pr-flow.md"]);
+    mockStagedFiles([".changeset/fn-4767-pr-flow.md"]);
+
+    await expect(assertSquashOverlapsFileScope({
+      store: store as never,
+      taskId: "FN-4073",
+      rootDir: "/tmp/root",
+      task: await (store as any).getTask("FN-4073"),
+    })).resolves.toBeUndefined();
+  });
+
+  it("accepts declared scope as a changeset glob when staged file matches", async () => {
+    const store = createInvariantStore([".changeset/*.md"]);
+    mockStagedFiles([".changeset/fn-4767-pr-flow.md"]);
+
+    await expect(assertSquashOverlapsFileScope({
+      store: store as never,
+      taskId: "FN-4073",
+      rootDir: "/tmp/root",
+      task: await (store as any).getTask("FN-4073"),
+    })).resolves.toBeUndefined();
+  });
+
   it("bypasses enforcement and logs once when scopeOverride is true", async () => {
     const store = createInvariantStore(["packages/engine/src/merger.ts"], { scopeOverride: true });
     mockStagedFiles(["packages/core/src/store.ts"]);
