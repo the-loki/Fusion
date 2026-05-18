@@ -77,10 +77,23 @@ describe("FN-4946 implicit refusal budget handling", () => {
     const executor = new TaskExecutor(store as any, "/repo");
     await executor.execute(currentTask);
 
+    // Burn explicit-path refusal budget from 2 -> 3 (still todo), then implicit refusal should escalate immediately.
     await doneTool.execute("d1", { summary: "I am not done yet." });
-    await (executor as any).handleImplicitTaskDoneRefusal({ ...currentTask, id: "FN-4946-B2" }, "/repo/.worktrees/swift-falcon", refusal());
+    expect(currentTask.taskDoneRetryCount).toBe(3);
 
-    expect(store.moveTask).toHaveBeenCalledWith("FN-4946-B2", "in-review");
+    await (executor as any).handleImplicitTaskDoneRefusal(
+      { ...currentTask, id: "FN-4946-B2", column: "todo" },
+      "/repo/.worktrees/swift-falcon",
+      refusal(),
+    );
+
+    const inReviewMoves = store.moveTask.mock.calls.filter((call: any[]) => call[0] === "FN-4946-B2" && call[1] === "in-review");
+    expect(inReviewMoves.length).toBeGreaterThanOrEqual(1);
+    const implicitEscalationUpdate = store.updateTask.mock.calls.find(
+      ([id, patch]: [string, Record<string, unknown>]) =>
+        id === "FN-4946-B2" && patch.status === "failed" && !("taskDoneRetryCount" in patch),
+    );
+    expect(implicitEscalationUpdate).toBeTruthy();
   });
 
   it("resets taskDoneRetryCount after later clean completion", async () => {

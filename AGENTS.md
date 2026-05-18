@@ -367,6 +367,7 @@ The Ink-based TUI is part of `fn` (no separate `@fusion/tui` package). Implement
 Structured logging via `createLogger()` from `packages/engine/src/logger.ts`. All lines prefixed with subsystem name. See [docs/diagnostics.md](./docs/diagnostics.md) for the full key-diagnostic-points catalog. Notable subsystems include `[executor]`, `[scheduler]`, `[stuck-detector]`, `[auto-claim-snapshot]`, `[prompt-size]`, `[wake-trigger-diagnostics]`, `[retry-burned]`, and `[room-ambiguity]`.
 
 `AgentSemaphore` (`packages/engine/src/concurrency.ts`) has defensive guards: `limit` getter returns minimum 1; `availableCount` returns 0 for invalid limits.
+- `[executor] FN-XXX: fn_task_done refused (<class>) — <reason>` (explicit tool path) and `[executor] FN-XXX: fn_task_done refused (<class>) — <reason> (implicit completion)` (implicit all-steps-done path) now share refusal-class diagnostics for `summary-claims-incomplete` (explicit only), `bulk-step-completion-without-review`, and `pending-code-review-revise`; both paths consume the same `MAX_TASK_DONE_REQUEUE_RETRIES` budget and escalate to `in-review` with `status: "failed"` on exhaustion.
 
 ## Dashboard UI Styling Guide
 
