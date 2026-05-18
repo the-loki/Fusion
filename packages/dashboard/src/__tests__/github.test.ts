@@ -1,3 +1,7 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execSync } from "node:child_process";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { GitHubClient, CreatePrParams, PrComment, isPrMergeReady } from "../github.js";
 
@@ -1200,6 +1204,104 @@ describe("GitHubClient", () => {
       expect(mockFetch).toHaveBeenCalled();
       expect(result).toEqual(expect.objectContaining({ number: 5, commentCount: 2 }));
       vi.restoreAllMocks();
+    });
+  });
+
+  describe("getPrConflictDiagnostics", () => {
+    function createConflictRepo(): string {
+      const repoRoot = mkdtempSync(join(tmpdir(), "fn-4966-conflict-"));
+      execSync("git init -b main", { cwd: repoRoot, stdio: "ignore" });
+      execSync("git config user.email 'test@example.com'", { cwd: repoRoot, stdio: "ignore" });
+      execSync("git config user.name 'Test User'", { cwd: repoRoot, stdio: "ignore" });
+      writeFileSync(join(repoRoot, "conflict.txt"), "base\n");
+      execSync("git add conflict.txt && git commit -m 'base'", { cwd: repoRoot, stdio: "ignore" });
+      execSync("git checkout -b feature", { cwd: repoRoot, stdio: "ignore" });
+      writeFileSync(join(repoRoot, "conflict.txt"), "feature\n");
+      execSync("git add conflict.txt && git commit -m 'feature'", { cwd: repoRoot, stdio: "ignore" });
+      execSync("git checkout main", { cwd: repoRoot, stdio: "ignore" });
+      writeFileSync(join(repoRoot, "conflict.txt"), "main\n");
+      execSync("git add conflict.txt && git commit -m 'main'", { cwd: repoRoot, stdio: "ignore" });
+      execSync("git update-ref refs/remotes/origin/main main", { cwd: repoRoot, stdio: "ignore" });
+      execSync("git update-ref refs/remotes/origin/feature feature", { cwd: repoRoot, stdio: "ignore" });
+      return repoRoot;
+    }
+
+    it("returns conflicting files from local git path", async () => {
+      const repoRoot = createConflictRepo();
+      const diagnostics = await client.getPrConflictDiagnostics("owner", "repo", 42, {
+        baseBranch: "main",
+        headBranch: "feature",
+        repoRoot,
+      });
+
+      expect(diagnostics.conflictingFiles).toContain("conflict.txt");
+      expect(diagnostics.suggestedCommands).toEqual([
+        "git fetch origin",
+        "git checkout feature",
+        "git rebase origin/main",
+        "# Resolve conflicts then: git add <files> && git rebase --continue",
+      ]);
+      expect(mockRunGhJsonAsync).not.toHaveBeenCalled();
+    });
+
+    it("falls back to gh compare files when local repo path fails", async () => {
+      mockRunGhJsonAsync.mockResolvedValueOnce({ files: [{ filename: "a.ts" }, { filename: "b.ts" }] });
+      const diagnostics = await client.getPrConflictDiagnostics("owner", "repo", 42, {
+        baseBranch: "main",
+        headBranch: "feature",
+        repoRoot: "/does/not/exist",
+      });
+
+      expect(diagnostics.conflictingFiles).toEqual(["a.ts", "b.ts"]);
+      expect(diagnostics.suggestedCommands.at(-1)).toContain("file list reflects PR changes");
+    });
+
+    it("composes commands for each direct-merge strategy", async () => {
+      mockRunGhJsonAsync.mockResolvedValue({ files: [] });
+
+      const squash = await client.getPrConflictDiagnostics("owner", "repo", 1, {
+        baseBranch: "main",
+        headBranch: "feature",
+        directMergeCommitStrategy: "always-squash",
+      });
+      expect(squash.suggestedCommands).toEqual([
+        "git fetch origin",
+        "git checkout feature",
+        "git merge origin/main",
+        "# Resolve conflicts then: git add <files> && git commit",
+      ]);
+
+      const rebase = await client.getPrConflictDiagnostics("owner", "repo", 1, {
+        baseBranch: "main",
+        headBranch: "feature",
+        directMergeCommitStrategy: "always-rebase",
+      });
+      expect(rebase.suggestedCommands[2]).toBe("git rebase origin/main");
+
+      const auto = await client.getPrConflictDiagnostics("owner", "repo", 1, {
+        baseBranch: "main",
+        headBranch: "feature",
+        directMergeCommitStrategy: "auto",
+      });
+      expect(auto.suggestedCommands[2]).toBe("git rebase origin/main");
+    });
+
+    it("returns non-throwing defaults when both detection paths fail", async () => {
+      mockRunGhJsonAsync.mockRejectedValueOnce(new Error("gh compare failed"));
+      const diagnostics = await client.getPrConflictDiagnostics("owner", "repo", 42, {
+        baseBranch: "main",
+        headBranch: "feature",
+        repoRoot: "/does/not/exist",
+      });
+
+      expect(diagnostics.conflictingFiles).toEqual([]);
+      expect(diagnostics.suggestedCommands).toEqual([
+        "git fetch origin",
+        "git checkout feature",
+        "git rebase origin/main",
+        "# Resolve conflicts then: git add <files> && git rebase --continue",
+      ]);
+      expect(() => new Date(diagnostics.capturedAt)).not.toThrow();
     });
   });
 

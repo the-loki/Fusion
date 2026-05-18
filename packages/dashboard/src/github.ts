@@ -1,4 +1,9 @@
-import type { IssueInfo, PrConflictState, PrInfo, TaskReviewData, TaskReviewItem, TaskReviewSummary } from "@fusion/core";
+import { exec } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+import type { DirectMergeCommitStrategy, IssueInfo, PrConflictDiagnostics, PrConflictState, PrInfo, TaskReviewData, TaskReviewItem, TaskReviewSummary } from "@fusion/core";
 import {
   isGhAvailable,
   isGhAuthenticated,
@@ -8,6 +13,38 @@ import {
   getCurrentRepo,
   runGh,
 } from "@fusion/core";
+
+const execAsync = promisify(exec);
+
+function quoteGitArg(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function buildSuggestedCommands(
+  headBranch: string,
+  baseBranch: string,
+  directMergeCommitStrategy?: DirectMergeCommitStrategy,
+  hasFallbackFiles = false,
+): string[] {
+  const commands = [
+    "git fetch origin",
+    `git checkout ${headBranch}`,
+  ];
+
+  if (directMergeCommitStrategy === "always-squash") {
+    commands.push(`git merge origin/${baseBranch}`);
+    commands.push("# Resolve conflicts then: git add <files> && git commit");
+  } else {
+    commands.push(`git rebase origin/${baseBranch}`);
+    commands.push("# Resolve conflicts then: git add <files> && git rebase --continue");
+  }
+
+  if (hasFallbackFiles) {
+    commands.push("# Note: file list reflects PR changes; resolve conflicts as reported by git status during rebase.");
+  }
+
+  return commands;
+}
 
 /**
  * Sleep for a specified number of milliseconds.
@@ -1052,6 +1089,98 @@ export class GitHubClient {
           author: { login: review.author?.login ?? "reviewer" },
         }];
       }),
+    };
+  }
+
+  async getPrConflictDiagnostics(
+    owner: string | undefined,
+    repo: string | undefined,
+    number: number,
+    opts: {
+      baseBranch: string;
+      headBranch: string;
+      repoRoot?: string;
+      directMergeCommitStrategy?: DirectMergeCommitStrategy;
+    },
+  ): Promise<PrConflictDiagnostics> {
+    const capturedAt = new Date().toISOString();
+    let conflictingFiles: string[] = [];
+    let usedFallbackFiles = false;
+
+    if (opts.repoRoot) {
+      try {
+        await execAsync(`git -C ${quoteGitArg(opts.repoRoot)} rev-parse --git-dir`, {
+          timeout: 30_000,
+          maxBuffer: 10 * 1024 * 1024,
+        });
+
+        const baseRef = `origin/${opts.baseBranch}`;
+        const headRef = `origin/${opts.headBranch}`;
+        await execAsync(`git -C ${quoteGitArg(opts.repoRoot)} fetch --no-tags --quiet origin ${quoteGitArg(opts.baseBranch)} ${quoteGitArg(opts.headBranch)}`, {
+          timeout: 30_000,
+          maxBuffer: 10 * 1024 * 1024,
+        }).catch(() => undefined);
+
+        const { stdout: mergeBaseStdout } = await execAsync(
+          `git -C ${quoteGitArg(opts.repoRoot)} merge-base ${quoteGitArg(baseRef)} ${quoteGitArg(headRef)}`,
+          { timeout: 30_000, maxBuffer: 10 * 1024 * 1024 },
+        );
+        const mergeBase = mergeBaseStdout.trim();
+
+        const indexDir = await mkdtemp(join(tmpdir(), "fn-pr-conflict-"));
+        const indexPath = join(indexDir, "index");
+        const gitEnv = { ...process.env, GIT_INDEX_FILE: indexPath };
+
+        try {
+          await execAsync(`git -C ${quoteGitArg(opts.repoRoot)} read-tree -m ${quoteGitArg(mergeBase)} ${quoteGitArg(baseRef)} ${quoteGitArg(headRef)}`, {
+            timeout: 30_000,
+            maxBuffer: 10 * 1024 * 1024,
+            env: gitEnv,
+          }).catch(() => undefined);
+
+          const { stdout } = await execAsync(`git -C ${quoteGitArg(opts.repoRoot)} ls-files --unmerged`, {
+            timeout: 30_000,
+            maxBuffer: 10 * 1024 * 1024,
+            env: gitEnv,
+          });
+
+          conflictingFiles = [
+            ...new Set(
+              stdout
+                .split("\n")
+                .map((line) => line.trim())
+                .filter(Boolean)
+                .map((line) => line.split(/\s+/).slice(3).join(" ").trim())
+                .filter(Boolean),
+            ),
+          ];
+        } finally {
+          await rm(indexDir, { recursive: true, force: true });
+        }
+      } catch {
+        conflictingFiles = [];
+      }
+    }
+
+    if (conflictingFiles.length === 0 && owner && repo) {
+      try {
+        const compare = await runGhJsonAsync<{ files?: Array<{ filename?: string | null } | null> }>([
+          "api",
+          `repos/${owner}/${repo}/compare/${opts.baseBranch}...${opts.headBranch}`,
+        ]);
+        conflictingFiles = [
+          ...new Set((compare.files ?? []).map((file) => file?.filename?.trim()).filter((file): file is string => Boolean(file))),
+        ];
+        usedFallbackFiles = conflictingFiles.length > 0;
+      } catch {
+        conflictingFiles = [];
+      }
+    }
+
+    return {
+      conflictingFiles,
+      suggestedCommands: buildSuggestedCommands(opts.headBranch, opts.baseBranch, opts.directMergeCommitStrategy, usedFallbackFiles),
+      capturedAt,
     };
   }
 
