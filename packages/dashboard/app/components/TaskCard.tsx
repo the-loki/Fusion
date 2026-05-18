@@ -1,6 +1,6 @@
 import "./TaskCard.css";
 import { memo, useCallback, useState, useRef, useEffect, useMemo } from "react";
-import { Link, Clock, Layers, Pencil, ChevronDown, Folder, Target, Bot, Trash2, RotateCw, Zap, GitBranch } from "lucide-react";
+import { Link, Clock, Layers, Pencil, ChevronDown, Folder, Target, Bot, Trash2, RotateCw, Zap, GitBranch, GitPullRequest } from "lucide-react";
 import type { Task, TaskDetail, Column, PrInfo, IssueInfo, TaskPriority, GithubIssueAction } from "@fusion/core";
 import {
   COLUMN_LABELS,
@@ -12,6 +12,7 @@ import {
 } from "@fusion/core";
 import { fetchTaskDetail, uploadAttachment, fetchMission, fetchAgent } from "../api";
 import { GitHubBadge } from "./GitHubBadge";
+import { PrCreateModal } from "./PrCreateModal";
 import { ProviderIcon } from "./ProviderIcon";
 import { PluginSlot } from "./PluginSlot";
 import { useBadgeWebSocket } from "../hooks/useBadgeWebSocket";
@@ -539,6 +540,7 @@ function TaskCardComponent({
   const [agentName, setAgentName] = useState<string | null>(null);
   const [showSendBackMenu, setShowSendBackMenu] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
+  const [isPrCreateOpen, setIsPrCreateOpen] = useState(false);
   const [timeIndicatorNowMs, setTimeIndicatorNowMs] = useState(() => Date.now());
 
   const descTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -821,14 +823,6 @@ function TaskCardComponent({
   const showTrackingIndicator = hasGithubTrackingLink
     && !hasMatchingIssueInfoBadge
     && !hasMatchingSourceIssue;
-  const showInReviewMoveControl = task.column === "in-review" && Boolean(onMoveTask);
-  const metaRowVisible =
-    (task.dependencies?.length ?? 0) > 0
-    || queued
-    || task.status === "queued"
-    || Boolean(task.blockedBy)
-    || Boolean(task.overlapBlockedBy)
-    || Boolean(fanout && fanout.totalCount > 0);
   const branchMetadata = useMemo(() => getVisibleTaskCardBranches(task), [task.id, task.branch, task.baseBranch]);
   const hasBranchMetadata = Boolean(branchMetadata.branch || branchMetadata.baseBranch);
   const isAgentCreated = isAgentCreatedTask(task);
@@ -1065,6 +1059,23 @@ function TaskCardComponent({
 
     return bestData;
   }, [liveBadgeData, batchData, task.issueInfo, task.updatedAt]);
+
+  const showInReviewMoveControl = task.column === "in-review" && Boolean(onMoveTask);
+  const showCreatePrQuickAction =
+    task.column === "in-review"
+    && !livePrInfo
+    && prAuthAvailable === true
+    && !isPaused
+    && !isFailed
+    && !queued;
+  const metaRowVisible =
+    (task.dependencies?.length ?? 0) > 0
+    || queued
+    || task.status === "queued"
+    || Boolean(task.blockedBy)
+    || Boolean(task.overlapBlockedBy)
+    || Boolean(fanout && fanout.totalCount > 0)
+    || showCreatePrQuickAction;
 
   const enterEditMode = useCallback((e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -1864,6 +1875,21 @@ function TaskCardComponent({
             </span>
           )}
           {(queued || task.status === "queued") && task.column !== "in-progress" && <span className="queued-badge"><Clock size={12} style={{ verticalAlign: "middle" }} /> Queued</span>}
+          {showCreatePrQuickAction && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              title="Create a PR for this task"
+              aria-label="Create pull request"
+              onClick={(event) => {
+                event.stopPropagation();
+                setIsPrCreateOpen(true);
+              }}
+            >
+              <GitPullRequest />
+              Create PR
+            </button>
+          )}
           {showInReviewMoveControl && (
             <div className="card-meta-move">
               <div className="card-send-back" ref={sendBackRef}>
@@ -1954,6 +1980,19 @@ function TaskCardComponent({
         </div>
       )}
       <PluginSlot slotId="task-card-badge" projectId={projectId} />
+      {(showCreatePrQuickAction || isPrCreateOpen) && (
+        <PrCreateModal
+          open={isPrCreateOpen}
+          taskId={task.id}
+          projectId={projectId}
+          onClose={() => setIsPrCreateOpen(false)}
+          onCreated={(prInfo) => {
+            setIsPrCreateOpen(false);
+            addToast(`Created PR #${prInfo.number}`, "success");
+          }}
+          addToast={addToast}
+        />
+      )}
     </div>
   );
 }
