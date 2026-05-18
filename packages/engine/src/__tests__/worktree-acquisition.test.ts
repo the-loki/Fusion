@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { promisify } from "node:util";
 import { acquireTaskWorktree } from "../worktree-acquisition.js";
-import { classifyTaskWorktree } from "../worktree-pool.js";
+import { classifyTaskWorktree, PoolDoubleLeaseError } from "../worktree-pool.js";
 
 vi.mock("../worktree-pool.js", async () => {
   const actual = await vi.importActual<any>("../worktree-pool.js");
@@ -144,6 +144,29 @@ describe("acquireTaskWorktree", () => {
       metadata: expect.objectContaining({ classification: "unregistered", source: "resume" }),
     }));
     expect(store.updateTask).toHaveBeenCalledWith("FN-1", { worktree: null, branch: null, sessionFile: null });
+  });
+
+  it("falls through to fresh creation when pool acquire throws PoolDoubleLeaseError", async () => {
+    const createWorktree = vi.fn().mockResolvedValue({ path: "/tmp/new", branch: "fusion/fn-1" });
+    const result = await acquireTaskWorktree({
+      task,
+      rootDir: process.cwd(),
+      store,
+      settings: { recycleWorktrees: true } as any,
+      pool: {
+        acquire: () => {
+          throw new PoolDoubleLeaseError("/tmp/pooled", "FN-OTHER", "FN-1", "acquire");
+        },
+        prepareForTask: vi.fn(),
+        release: vi.fn(),
+      } as any,
+      createWorktree,
+      logger: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    expect(result.source).toBe("fresh");
+    expect(createWorktree).toHaveBeenCalled();
+    expect(store.logEntry).toHaveBeenCalledWith("FN-1", expect.stringContaining("Pool double-lease guard triggered"), undefined, undefined);
   });
 
   it("creates fresh when pool disabled", async () => {

@@ -8,7 +8,7 @@ vi.mock("node:fs", () => ({
   realpathSync: vi.fn((path: string) => path),
 }));
 
-import { WorktreePool } from "../worktree-pool.js";
+import { PoolDoubleLeaseError, WorktreePool } from "../worktree-pool.js";
 
 // FN-4954 deterministic race backstop.
 describe("WorktreePool double-lease guard", () => {
@@ -34,6 +34,31 @@ describe("WorktreePool double-lease guard", () => {
     expect(pool.size).toBe(0);
     expect(pool.getLeasedPaths().get("/tmp/wt-race")).toBe("FN-A");
     expect(violations).toEqual([{ phase: "rehydrate", existingHolder: "FN-A" }]);
+  });
+
+  it("throws PoolDoubleLeaseError when corrupted idle state tries to re-lease a leased path", () => {
+    const violations: Array<{ phase: string; requestingTaskId: string; existingHolder: string }> = [];
+    pool.setInvariantViolationHandler((violation) => {
+      violations.push({
+        phase: violation.phase,
+        requestingTaskId: violation.requestingTaskId,
+        existingHolder: violation.existingHolder,
+      });
+    });
+
+    pool.release("/tmp/wt-race");
+    expect(pool.acquire("FN-A")).toBe("/tmp/wt-race");
+    (pool as any).idle.add("/tmp/wt-race");
+
+    expect(() => pool.acquire("FN-B")).toThrow(PoolDoubleLeaseError);
+    expect(violations).toEqual([{ phase: "acquire", requestingTaskId: "FN-B", existingHolder: "FN-A" }]);
+  });
+
+  it("does not throw for same-task re-entry when no idle path exists", () => {
+    pool.release("/tmp/wt-race");
+    expect(pool.acquire("FN-A")).toBe("/tmp/wt-race");
+    expect(() => pool.acquire("FN-A")).not.toThrow();
+    expect(pool.acquire("FN-A")).toBeNull();
   });
 
   it("keeps release best-effort when releasing task differs", () => {
