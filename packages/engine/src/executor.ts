@@ -8880,6 +8880,15 @@ Backward compat fallback: if JSON is unavailable, you may still begin output wit
     branch: string,
     taskId: string,
   ): Promise<boolean> {
+    const activeSessionRecord = activeSessionRegistry.lookupByPath(worktreePath);
+    if (activeSessionRecord?.taskId === taskId) {
+      executorLog.warn(
+        `[FN-4976] ${taskId}: clearing stale self-owned activeSessionRegistry entry before cleanup for ${worktreePath}`,
+      );
+      activeSessionRegistry.unregisterPath(worktreePath);
+      await this.store.logEntry(taskId, "Cleared stale self-owned activeSessionRegistry entry", worktreePath);
+    }
+
     // FN-4811: Hard liveness gate — refuse to remove a worktree that is currently bound to
     // an active executor/merger session, regardless of git-level conflict classification.
     // This is the canonical guard against the FN-4781/FN-4804 race where a startup cleanup
@@ -8903,18 +8912,6 @@ Backward compat fallback: if JSON is unavailable, you may still begin output wit
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         executorLog.warn(`${taskId}: failed to unlock conflicting worktree ${worktreePath} before cleanup: ${msg}`);
-      }
-
-      // Remove stale self-owned active-session entry if no live in-memory binding exists.
-      const activeSessionRecord = activeSessionRegistry.lookupByPath(worktreePath);
-      if (activeSessionRecord?.taskId === taskId && !this.hasActiveWorktreeBinding(taskId, worktreePath)) {
-        const reconcileResult = activeSessionRegistry.reconcileStaleSelfOwned(worktreePath, taskId);
-        if (reconcileResult.reconciled) {
-          await this.store.logEntry(taskId, "Reconciled stale self-owned active-session registration", worktreePath);
-          executorLog.log(
-            `[executor] reconciled stale self-owned active-session entry taskId=${taskId} worktreePath=${worktreePath} reason=${reconcileResult.reason}`,
-          );
-        }
       }
 
       // Remove the worktree
