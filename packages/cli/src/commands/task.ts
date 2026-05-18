@@ -1439,6 +1439,11 @@ export interface PrCreateOptions {
   title?: string;
   base?: string;
   body?: string;
+  draft?: boolean;
+  /** When true (default), call generatePrMetadata for title/body unless user provided both. */
+  ai?: boolean;
+  /** Repeatable --reviewer flag values. */
+  reviewers?: string[];
 }
 
 export async function runTaskPrCreate(id: string, options: PrCreateOptions = {}, projectName?: string) {
@@ -1501,18 +1506,38 @@ export async function runTaskPrCreate(id: string, options: PrCreateOptions = {},
   // Build branch name using the established project convention
   const branchName = `fusion/${id.toLowerCase()}`;
 
-  // Build PR title
-  let title: string;
-  if (options.title) {
-    title = options.title;
-  } else if (task.title) {
-    title = task.title;
-  } else {
-    // Generate from description (first 50 chars, sentence case)
-    const desc = task.description.trim();
-    title = desc.charAt(0).toUpperCase() + desc.slice(1, 50);
-    if (desc.length > 50) {
-      title += "…";
+  // Build deterministic fallback PR title
+  const fallbackTitle = options.title
+    ? options.title
+    : task.title
+      ? task.title
+      : (() => {
+        const desc = task.description.trim();
+        let derived = desc.charAt(0).toUpperCase() + desc.slice(1, 50);
+        if (desc.length > 50) {
+          derived += "…";
+        }
+        return derived;
+      })();
+
+  let resolvedTitle = fallbackTitle;
+  let resolvedBody = options.body;
+
+  const shouldUseAi = options.ai !== false && !(options.title && options.body);
+  if (shouldUseAi) {
+    try {
+      const repoRoot = await getProjectPath(projectName);
+      const settings = "getSettings" in store ? await store.getSettings() : {};
+      const generated = await dashboard.generatePrMetadata({ task, repoRoot, settings });
+      if (!options.title) {
+        resolvedTitle = generated.title;
+      }
+      if (!options.body) {
+        resolvedBody = generated.body;
+      }
+      console.log("  → Using AI-generated title/body (use --no-ai to skip)");
+    } catch (err) {
+      process.stderr.write(`AI metadata generation failed; using fallback PR metadata. ${getGhErrorMessage(err)}\n`);
     }
   }
 
@@ -1523,10 +1548,12 @@ export async function runTaskPrCreate(id: string, options: PrCreateOptions = {},
     const prInfo = await client.createPr({
       owner,
       repo,
-      title,
-      body: options.body,
+      title: resolvedTitle,
+      body: resolvedBody,
       head: branchName,
       base: options.base,
+      draft: options.draft,
+      reviewers: options.reviewers,
     });
 
     // Store PR info

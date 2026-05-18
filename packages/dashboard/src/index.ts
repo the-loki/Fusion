@@ -12,6 +12,7 @@ export {
 } from "./runtime-logger.js";
 export { createSkillsAdapter, getProjectSettingsPath, type SkillsAdapter, type DiscoveredSkill, type CatalogEntry, type CatalogFetchResult, type ToggleSkillResult, type UpstreamError, type UpstreamErrorCode, type SkillContent, type SkillFileEntry } from "./skills-adapter.js";
 export { GitHubClient, isPrMergeReady, type GitHubClientOptions, type PrMergeStatus, type PrCheckStatus, type ReviewDecision, type MergePrParams, type FindPrParams, type CreateIssueParams, type CreatedIssue } from "./github.js";
+export { generatePrMetadata, type GeneratedPrMetadata } from "./pr-metadata-generator.js";
 export { maybeCreateTrackingIssue, type MaybeCreateTrackingIssueDeps } from "./github-tracking.js";
 export {
   buildIssueSearchQueries,

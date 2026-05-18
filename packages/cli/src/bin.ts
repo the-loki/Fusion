@@ -288,12 +288,12 @@ Usage:
   fn task retry <id>                  Retry a failed task (clears error, moves to todo)
   fn task branch-recovery <id> [--reclaim <branch>] [--discard <branch> --yes]
                                       Inspect, reclaim, or discard stranded task branches
-  fn task pr-create <id> [--title <title>] [--base <branch>] [--body <body>]
+  fn task pr-create <id> [--title <title>] [--base <branch>] [--body <body>] [--draft] [--no-ai] [--reviewer <login>]
                          Alias of: fn pr create
   fn task import <owner/repo> [opts]  Import GitHub issues as tasks
 
 PR:
-  fn pr create <task-id> [--title <title>] [--base <branch>] [--body <body>] [--draft] [--no-ai]
+  fn pr create <task-id> [--title <title>] [--base <branch>] [--body <body>] [--draft] [--no-ai] [--reviewer <login>]
                                       Create a GitHub PR for a task (default: AI-generated title/body)
   fn research create --query <text> [--wait] [--max-wait-ms <ms>] [--json]
                                       Create and optionally wait for a cited-research run (search/fetch/synthesis)
@@ -457,6 +457,31 @@ function getFlagValueNumber(args: string[], flag: string): number | undefined {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parsePrCreateOptions(args: string[]) {
+  const title = getFlagValue(args, "--title");
+  const base = getFlagValue(args, "--base");
+  const body = getFlagValue(args, "--body");
+  const draft = args.includes("--draft");
+  const ai = !args.includes("--no-ai");
+  const reviewers: string[] = [];
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--reviewer" && i + 1 < args.length) {
+      reviewers.push(args[i + 1]);
+      i += 1;
+    }
+  }
+
+  return {
+    title,
+    base,
+    body,
+    draft,
+    ai,
+    reviewers: reviewers.length > 0 ? reviewers : undefined,
+  };
 }
 
 /**
@@ -705,6 +730,26 @@ async function main() {
           global: args.includes("--global") ? true : undefined,
           json: args.includes("--json"),
         });
+        break;
+      }
+
+      case "pr": {
+        const subcommand = args[1];
+        switch (subcommand) {
+          case "create": {
+            const id = args[2];
+            if (!id) {
+              console.error("Usage: fn pr create <task-id> [--title <title>] [--base <branch>] [--body <body>] [--draft] [--no-ai] [--reviewer <login>]");
+              process.exit(1);
+            }
+            await runTaskPrCreate(id, parsePrCreateOptions(args.slice(3)), projectName);
+            break;
+          }
+          default:
+            console.error(`Unknown subcommand: pr ${subcommand || ""}`);
+            console.error("Usage: fn pr create <task-id> [--title <title>] [--base <branch>] [--body <body>] [--draft] [--no-ai] [--reviewer <login>]");
+            process.exit(1);
+        }
         break;
       }
 
@@ -1190,31 +1235,11 @@ async function main() {
           case "pr-create": {
             const id = args[2];
             if (!id) {
-              console.error("Usage: fn task pr-create <id> [--title <title>] [--base <branch>] [--body <body>]");
+              console.error("Usage: fn task pr-create <id> [--title <title>] [--base <branch>] [--body <body>] [--draft] [--no-ai] [--reviewer <login>]");
               process.exit(1);
             }
 
-            // Parse optional flags
-            let title: string | undefined;
-            let base: string | undefined;
-            let body: string | undefined;
-
-            const titleIdx = args.indexOf("--title");
-            if (titleIdx !== -1 && titleIdx + 1 < args.length) {
-              title = args[titleIdx + 1];
-            }
-
-            const baseIdx = args.indexOf("--base");
-            if (baseIdx !== -1 && baseIdx + 1 < args.length) {
-              base = args[baseIdx + 1];
-            }
-
-            const bodyIdx = args.indexOf("--body");
-            if (bodyIdx !== -1 && bodyIdx + 1 < args.length) {
-              body = args[bodyIdx + 1];
-            }
-
-            await runTaskPrCreate(id, { title, base, body }, projectName);
+            await runTaskPrCreate(id, parsePrCreateOptions(args.slice(3)), projectName);
             break;
           }
           case "import": {

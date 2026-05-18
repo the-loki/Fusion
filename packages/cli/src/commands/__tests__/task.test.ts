@@ -65,6 +65,7 @@ vi.mock("@fusion/dashboard", () => ({
   GitHubClient: vi.fn().mockImplementation(() => ({
     createPr: vi.fn(),
   })),
+  generatePrMetadata: vi.fn(),
   loadTlsCredentialsFromEnv: vi.fn().mockReturnValue(undefined),
 }));
 
@@ -111,7 +112,7 @@ import {
   isGhAvailable,
   runGhJsonAsync,
 } from "@fusion/core/gh-cli";
-import { GitHubClient } from "@fusion/dashboard";
+import { GitHubClient, generatePrMetadata } from "@fusion/dashboard";
 import { createSession, submitResponse } from "@fusion/dashboard/planning";
 import { resolveProject } from "../../project-context.js";
 import { aiMergeTask, listBranchRecoveryCandidates } from "@fusion/engine";
@@ -2605,6 +2606,7 @@ describe("runTaskPrCreate", () => {
     vi.mocked(GitHubClient).mockImplementation(() => ({
       createPr: mockCreatePr,
     } as unknown as GitHubClient));
+    vi.mocked(generatePrMetadata).mockResolvedValue({ title: "AI Generated Title", body: "AI Generated Body", templateUsed: false });
 
     // Setup gh-cli mocks
     vi.mocked(isGhAvailable).mockReturnValue(true);
@@ -2670,7 +2672,7 @@ describe("runTaskPrCreate", () => {
     mockGetTask.mockResolvedValueOnce(task);
     mockCreatePr.mockResolvedValueOnce(makePrInfo({ title: "My Task Title" }));
 
-    await runTaskPrCreate("FN-001", {});
+    await runTaskPrCreate("FN-001", { ai: false });
 
     expect(mockCreatePr).toHaveBeenCalledWith(expect.objectContaining({
       title: "My Task Title",
@@ -2683,7 +2685,7 @@ describe("runTaskPrCreate", () => {
     mockGetTask.mockResolvedValueOnce(task);
     mockCreatePr.mockResolvedValueOnce(makePrInfo());
 
-    await runTaskPrCreate("FN-001", {});
+    await runTaskPrCreate("FN-001", { ai: false });
 
     // Title should be first 50 chars of description, sentence-cased, with ellipsis if truncated
     expect(mockCreatePr).toHaveBeenCalledWith(expect.objectContaining({
@@ -2888,5 +2890,48 @@ describe("runTaskPrCreate", () => {
     expect(output).toContain("fn pr create <task-id>");
     expect(exitSpy).toHaveBeenCalledWith(1);
     exitSpy.mockRestore();
+  });
+
+  describe("flag coverage", () => {
+    it.each([
+      { draft: true, reviewers: ["alice", "bob"] },
+      { draft: false, reviewers: undefined },
+    ])("forwards draft/reviewers %#", async ({ draft, reviewers }) => {
+      const task = makeInReviewTask();
+      mockGetTask.mockResolvedValueOnce(task);
+      mockCreatePr.mockResolvedValueOnce(makePrInfo());
+
+      await runTaskPrCreate("FN-001", { draft, reviewers, ai: false });
+
+      expect(mockCreatePr).toHaveBeenCalledWith(expect.objectContaining({
+        draft,
+        reviewers,
+      }));
+    });
+  });
+
+  describe("AI metadata parity", () => {
+    it("uses generated metadata when title/body are not provided", async () => {
+      const task = makeInReviewTask();
+      mockGetTask.mockResolvedValueOnce(task);
+      vi.mocked(generatePrMetadata).mockResolvedValueOnce({ title: "AI Title", body: "AI Body", templateUsed: false });
+      mockCreatePr.mockResolvedValueOnce(makePrInfo());
+
+      await runTaskPrCreate("FN-001", {});
+
+      expect(generatePrMetadata).toHaveBeenCalledTimes(1);
+      expect(mockCreatePr).toHaveBeenCalledWith(expect.objectContaining({ title: "AI Title", body: "AI Body" }));
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Using AI-generated title/body"));
+    });
+
+    it("skips AI metadata when --no-ai is set", async () => {
+      const task = makeInReviewTask();
+      mockGetTask.mockResolvedValueOnce(task);
+      mockCreatePr.mockResolvedValueOnce(makePrInfo());
+
+      await runTaskPrCreate("FN-001", { ai: false });
+
+      expect(generatePrMetadata).not.toHaveBeenCalled();
+    });
   });
 });

@@ -648,6 +648,31 @@ describe("bin command routing and fallbacks", () => {
     expect(logSpy).toHaveBeenCalledWith("Try: fn research create | list | show | export | cancel | retry");
   });
 
+  it("routes top-level pr create with draft/no-ai/reviewer flags", async () => {
+    await runBin(["pr", "create", "FN-001", "--draft", "--no-ai", "--reviewer", "alice", "--reviewer", "bob"]);
+    expect(commandMocks.runTaskPrCreate).toHaveBeenCalledWith(
+      "FN-001",
+      expect.objectContaining({ draft: true, ai: false, reviewers: ["alice", "bob"] }),
+      undefined,
+    );
+  });
+
+  it("routes task pr-create alias with same flags", async () => {
+    await runBin(["task", "pr-create", "FN-001", "--draft"]);
+    expect(commandMocks.runTaskPrCreate).toHaveBeenCalledWith(
+      "FN-001",
+      expect.objectContaining({ draft: true, ai: true }),
+      undefined,
+    );
+  });
+
+  it("errors on missing pr subcommand", async () => {
+    await expect(runBin(["pr"]))
+      .rejects.toThrow("process.exit:1");
+    expect(errorSpy).toHaveBeenCalledWith("Unknown subcommand: pr ");
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Usage: fn pr create <task-id>"));
+  });
+
   it("routes desktop flags to runDesktop", async () => {
     await runBin(["desktop", "--dev", "--paused", "--interactive"]);
     expect(commandMocks.runDesktop).toHaveBeenCalledWith({
