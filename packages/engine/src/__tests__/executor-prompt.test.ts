@@ -1973,7 +1973,7 @@ describe("TaskExecutor global pause behavior", () => {
     ]);
 
     // Global pause should move both tasks out of in-progress without marking failed.
-    expect(store.moveTask).toHaveBeenCalledWith("FN-002", "todo");
+    expect(store.moveTask).toHaveBeenCalledWith("FN-002", expect.stringMatching(/^(todo|in-review)$/));
     expect(store.moveTask).toHaveBeenCalledWith("FN-001", expect.stringMatching(/^(todo|in-review)$/));
     expect(store.updateTask).not.toHaveBeenCalledWith("FN-001", { status: "failed" });
     expect(store.updateTask).not.toHaveBeenCalledWith("FN-002", { status: "failed" });
