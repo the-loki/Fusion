@@ -6087,6 +6087,13 @@ export class SelfHealingManager {
         log.warn(`Refusing to remove path outside .worktrees: ${path}`);
         continue;
       }
+      // FN-4811 (restored by FN-5065): never rmSync a directory bound to a live
+      // executor/merger/step session. The worktree may be unregistered in git's
+      // admin file while the owning process is still running.
+      if (activeSessionRegistry.isPathActive(path)) {
+        log.log(`[self-healing] deferring unregistered-orphan reap for ${path}: active session present`);
+        continue;
+      }
       try {
         rmSync(path, { recursive: true, force: true });
         log.log(`Cleaned unregistered worktree dir: ${path}`);
