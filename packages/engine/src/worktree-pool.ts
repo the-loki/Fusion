@@ -17,6 +17,7 @@ import {
 import { cleanupSecretsEnvFile } from "./secrets-env-writer.js";
 import { removeDesktopBuildArtifacts } from "./worktree-desktop-artifacts.js";
 import type { RunAuditor } from "./run-audit.js";
+import { pruneWorktreeAdminEntries } from "./worktree-prune.js";
 
 export {
   NativeWorktreeBackend,
@@ -695,6 +696,12 @@ export async function cleanupOrphanedWorktrees(
           throw new Error(`Refusing to remove path outside .worktrees: ${worktreePath}`);
         }
         rmSync(worktreePath, { recursive: true, force: true });
+        await pruneWorktreeAdminEntries({
+          rootDir,
+          reason: "pool-cleanup-orphan",
+          target: worktreePath,
+          logger: worktreePoolLog,
+        }).catch(() => undefined);
       }
       worktreePoolLog.log(`Cleaned up orphaned worktree: ${worktreePath}`);
       cleaned++;
@@ -805,6 +812,12 @@ export async function reapOrphanWorktrees(
         worktreePoolLog.warn(`secrets-env cleanup failed for orphan ${name}: ${error instanceof Error ? error.message : String(error)}`);
       }
       rmSync(resolvedFull, { recursive: true, force: true });
+      await pruneWorktreeAdminEntries({
+        rootDir: projectRoot,
+        reason: "pool-reap-orphan",
+        target: resolvedFull,
+        logger: worktreePoolLog,
+      }).catch(() => undefined);
       worktreePoolLog.log(`reapOrphanWorktrees: removed half-initialized orphan ${name}`);
       removed++;
     } catch (err: unknown) {

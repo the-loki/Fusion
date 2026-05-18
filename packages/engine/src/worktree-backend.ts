@@ -10,6 +10,7 @@ import { resolveTaskWorktreePath } from "./worktree-paths.js";
 import { inspectBranchConflict } from "./branch-conflicts.js";
 import { formatError } from "./logger.js";
 import { installTaskWorktreeIdentityGuard } from "./worktree-hooks.js";
+import { pruneWorktreeAdminEntries } from "./worktree-prune.js";
 import {
   StaleWorktreeIndexLockError,
   classifyStaleLock,
@@ -187,6 +188,13 @@ export class NativeWorktreeBackend implements WorktreeBackend {
           timeout: REMOVE_TIMEOUT_MS,
           maxBuffer: MAX_BUFFER,
         }).catch(() => undefined);
+        await pruneWorktreeAdminEntries({
+          rootDir: input.rootDir,
+          auditor: this.deps.audit,
+          reason: "backend-guard-failed",
+          target: worktreePath,
+          logger: this.deps.logger,
+        }).catch(() => undefined);
         throw error;
       }
     };
@@ -363,6 +371,7 @@ export class WorktrunkWorktreeBackend implements WorktreeBackend {
     private readonly deps: {
       binaryPath: string | (() => Promise<string | null>) | null;
       logger?: { log: (m: string) => void; warn: (m: string) => void };
+      audit?: Pick<RunAuditor, "git">;
     },
   ) {}
 
@@ -474,6 +483,13 @@ export class WorktrunkWorktreeBackend implements WorktreeBackend {
         encoding: "utf-8",
         timeout: REMOVE_TIMEOUT_MS,
         maxBuffer: MAX_BUFFER,
+      }).catch(() => undefined);
+      await pruneWorktreeAdminEntries({
+        rootDir: input.rootDir,
+        auditor: this.deps.audit,
+        reason: "backend-guard-failed",
+        target: resolvedPath,
+        logger: this.deps.logger,
       }).catch(() => undefined);
       throw error;
     }

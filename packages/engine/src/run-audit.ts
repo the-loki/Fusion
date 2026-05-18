@@ -120,6 +120,18 @@ export type GitMutationType =
   | "worktree:worktrunk-fallback"
   | "worktree:worktrunk-failure"
   | "worktree:worktrunk-fallback-native"
+  /**
+   * Metadata shape:
+   * ```ts
+   * {
+   *   success: boolean;
+   *   reason: string;
+   *   target?: string;
+   *   error?: string;
+   * }
+   * ```
+   */
+  | "worktree:admin-entry-pruned"
   | "worktree:removal-refused-active-session"
   | "worktree:removal-forced-over-active-session"
   | "worktree:stale-lock-detected"

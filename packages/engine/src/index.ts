@@ -94,6 +94,11 @@ export {
 export { HEARTBEAT_PROCEDURE, HEARTBEAT_SYSTEM_PROMPT, HEARTBEAT_NO_TASK_SYSTEM_PROMPT } from "./agent-heartbeat.js";
 export { WorktreePool, scanIdleWorktrees, cleanupOrphanedWorktrees, reapOrphanWorktrees } from "./worktree-pool.js";
 export {
+  pruneWorktreeAdminEntries,
+  pruneWorktreeAdminEntriesSync,
+  type PruneWorktreeAdminEntriesOptions,
+} from "./worktree-prune.js";
+export {
   BranchConflictError,
   BranchCrossContaminationError,
   assertCleanBranchAtBase,

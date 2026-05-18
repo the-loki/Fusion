@@ -50,6 +50,7 @@ import {
   createTaskLogTool,
 } from "./agent-tools.js";
 import { RemovalReason, removeWorktree } from "./worktree-backend.js";
+import { pruneWorktreeAdminEntries } from "./worktree-prune.js";
 import { activeSessionRegistry } from "./active-session-registry.js";
 
 const stepExecLog = createLogger("step-session-executor");
@@ -1343,6 +1344,12 @@ Follow instructions precisely and avoid unrelated changes.`,
         // best-effort cleanup; log but don't mask the original error
         stepExecLog.log(`Warning: failed to remove partial worktree directory after creation failure: ${worktreePath}`);
       }
+      await pruneWorktreeAdminEntries({
+        rootDir,
+        reason: "step-session-create-failed",
+        target: worktreePath,
+        logger: stepExecLog,
+      }).catch(() => undefined);
       throw err;
     }
 
@@ -1357,6 +1364,12 @@ Follow instructions precisely and avoid unrelated changes.`,
       } catch {
         stepExecLog.log(`Warning: failed to remove worktree after identity-guard install failure: ${worktreePath}`);
       }
+      await pruneWorktreeAdminEntries({
+        rootDir,
+        reason: "step-session-guard-failed",
+        target: worktreePath,
+        logger: stepExecLog,
+      }).catch(() => undefined);
       throw err;
     }
 
