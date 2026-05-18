@@ -7,12 +7,31 @@ interface BackendConnectionErrorPageProps {
   onManageConnection?: () => void;
 }
 
+function isDesktopShell(): boolean {
+  if (typeof window === "undefined") return false;
+  return typeof window.fusionShell?.resetDesktopMode === "function";
+}
+
+async function changeLaunchMode(): Promise<void> {
+  const shell = typeof window !== "undefined" ? window.fusionShell : undefined;
+  try {
+    await shell?.resetDesktopMode?.();
+  } catch {
+    // Best-effort; still strip query params and reload.
+  }
+  const url = new URL(window.location.href);
+  url.searchParams.delete("serverBaseUrl");
+  url.searchParams.delete("shellMode");
+  window.location.replace(url.toString());
+}
+
 export function BackendConnectionErrorPage({
   errorMessage,
   isRetrying,
   onRetry,
   onManageConnection,
 }: BackendConnectionErrorPageProps) {
+  const showChangeLaunchMode = isDesktopShell();
   return (
     <div className="project-overview-empty" role="alert" aria-live="polite">
       <h2>Can&apos;t reach the Fusion backend</h2>
@@ -24,6 +43,11 @@ export function BackendConnectionErrorPage({
         <button type="button" className="btn btn-primary" onClick={onRetry} disabled={isRetrying}>
           {isRetrying ? "Retrying…" : "Retry Connection"}
         </button>
+        {showChangeLaunchMode && (
+          <button type="button" className="btn" onClick={() => void changeLaunchMode()}>
+            Change Launch Mode…
+          </button>
+        )}
         {onManageConnection && (
           <button type="button" className="btn" onClick={onManageConnection}>
             Manage Connection

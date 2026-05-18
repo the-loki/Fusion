@@ -21,7 +21,7 @@ import {
 import { setupTray } from "./tray.js";
 import { getRendererUrl, getRendererFilePath, isUrlRenderer } from "./renderer.js";
 import { LocalRuntimeManager } from "./local-runtime.js";
-import { readShellSettings } from "./shell-settings.js";
+import { readShellSettings, writeShellSettings } from "./shell-settings.js";
 
 // Re-export for backward compatibility
 export { IS_DEVELOPMENT } from "./renderer.js";
@@ -68,6 +68,44 @@ async function startLocalRuntimeOnce(): Promise<void> {
 
 export function getCurrentDesktopLaunchMode(): DesktopLaunchMode {
   return currentDesktopLaunchMode;
+}
+
+async function resetLaunchModeAndReload(window: BrowserWindow): Promise<void> {
+  console.log("[desktop/main] resetLaunchModeAndReload start");
+  try {
+    const settings = await readShellSettings();
+    settings.desktopMode = null;
+    settings.hasCompletedModeSelection = false;
+    await writeShellSettings(settings);
+    await saveDesktopLaunchMode("choose");
+  } catch (error) {
+    console.error("[desktop/main] Failed to reset shell settings", error);
+  }
+  if (localRuntimeManager) {
+    try {
+      await localRuntimeManager.stopLocal();
+    } catch (error) {
+      console.error("[desktop/main] Failed to stop local runtime during reset", error);
+    }
+  }
+  currentDesktopLaunchMode = "choose";
+  currentRemoteLaunch = null;
+  localRuntimeStartupAttempted = false;
+
+  // Force a clean reload to the renderer entrypoint without any cached
+  // serverBaseUrl / shellMode query params so the gate re-prompts.
+  try {
+    if (isUrlRenderer()) {
+      console.log("[desktop/main] reloading URL renderer", getRendererUrl());
+      await window.loadURL(getRendererUrl());
+    } else {
+      console.log("[desktop/main] reloading file renderer", getRendererFilePath());
+      await window.loadFile(getRendererFilePath());
+    }
+    console.log("[desktop/main] resetLaunchModeAndReload complete");
+  } catch (error) {
+    console.error("[desktop/main] reload failed", error);
+  }
 }
 
 export function createMainWindow(state?: WindowState, launchTargetUrl?: string): BrowserWindow {
@@ -179,6 +217,9 @@ export async function initializeApp(): Promise<void> {
   buildAppMenu({
     mainWindow: createdWindow,
     appName: "Fusion",
+    onChangeLaunchMode: async () => {
+      await resetLaunchModeAndReload(createdWindow);
+    },
   });
 
   tray = new Tray(nativeImage.createEmpty());

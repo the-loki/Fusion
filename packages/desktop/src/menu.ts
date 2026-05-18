@@ -8,20 +8,24 @@ import {
 export interface AppMenuOptions {
   mainWindow: BrowserWindow;
   appName: string;
+  onChangeLaunchMode?: () => Promise<void> | void;
 }
 
 function buildConnectionSubmenu(options: AppMenuOptions): MenuItemConstructorOptions {
-  const { mainWindow } = options;
   return {
     label: "Connection",
     submenu: [
       {
         label: "Change Launch Mode…",
         click: () => {
-          // The renderer-side gate listens for this and calls
-          // shell.resetDesktopMode() before reloading without the cached
-          // serverBaseUrl query param.
-          mainWindow.webContents.send("shell:reset-desktop-mode-request");
+          console.log("[desktop/menu] Change Launch Mode clicked");
+          if (!options.onChangeLaunchMode) {
+            console.warn("[desktop/menu] onChangeLaunchMode callback not provided");
+            return;
+          }
+          void Promise.resolve(options.onChangeLaunchMode()).catch((error: unknown) => {
+            console.error("[desktop/menu] onChangeLaunchMode failed", error);
+          });
         },
       },
     ],
