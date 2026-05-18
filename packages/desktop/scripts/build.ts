@@ -44,7 +44,13 @@ async function buildElectronEntrypoints(): Promise<void> {
       entryPoints: [join(packageRoot, "src", "preload.ts")],
       outfile: join(desktopDistDir, "preload.js"),
       bundle: true,
-      format: "esm",
+      // Preload scripts must be CommonJS — Electron loads them via the
+      // sandboxed Node context, not as ESM. With format:"esm" the
+      // contextBridge calls silently no-op and window.fusionShell /
+      // window.fusionAPI stay undefined, which made the dashboard fall
+      // through to "can't reach the Fusion backend" and the launch gate
+      // always bypass.
+      format: "cjs",
       platform: "node",
       target: "node22",
       sourcemap: true,
