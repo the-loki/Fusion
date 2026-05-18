@@ -8,8 +8,10 @@ describe("reliability interactions: meta chain auto-close", () => {
       taskId: "FN-4890-FIXTURE",
       task: { id: "FN-4890-FIXTURE", title: "Fixture anchor", column: "todo" },
       settings: {
-        pausedScopeDecayMs: 30 * 60_000,
+        pausedScopeDecayMs: 1,
         metaTaskStallAutoCloseMs: 2 * 60 * 60_000,
+        boardStallSweepWindowMs: 2 * 60 * 60_000,
+        boardStallBlockedGrowthThreshold: 1,
       },
     });
 
@@ -19,15 +21,18 @@ describe("reliability interactions: meta chain auto-close", () => {
         title: "Target holder",
         description: "paused holder",
         column: "in-progress",
+        steps: [],
+      } as any);
+      await fixture.store.updateTask(holder.id, {
         paused: true,
         pausedReason: "waiting-for-review",
         columnMovedAt: new Date(now - 3 * 60 * 60_000).toISOString(),
-        steps: [],
       } as any);
+      expect((await fixture.store.getTask(holder.id))?.paused).toBe(true);
 
       const meta1 = await fixture.store.createTask({ id: "FN-4872", title: `Recover ${holder.id}`, description: "meta", column: "todo", noCommitsExpected: true, steps: [] } as any);
-      const meta2 = await fixture.store.createTask({ id: "FN-4878", title: `Recover ${holder.id}`, description: "meta", column: "triage", noCommitsExpected: true, steps: [] } as any);
-      const meta3 = await fixture.store.createTask({ id: "FN-4881", title: `Unblock ${meta1.id}`, description: "meta", column: "todo", noCommitsExpected: true, steps: [] } as any);
+      const meta2 = await fixture.store.createTask({ id: "FN-4878", title: `Recover ${meta1.id}`, description: "meta", column: "todo", noCommitsExpected: true, steps: [] } as any);
+      const meta3 = await fixture.store.createTask({ id: "FN-4881", title: `Unblock ${meta2.id}`, description: "meta", column: "todo", noCommitsExpected: true, steps: [] } as any);
       const meta4 = await fixture.store.createTask({ id: "FN-4883", title: `Finalize ${holder.id}`, description: "meta", column: "todo", noCommitsExpected: true, steps: [] } as any);
       const metaTasks = [meta1, meta2, meta3, meta4];
 
@@ -38,31 +43,39 @@ describe("reliability interactions: meta chain auto-close", () => {
           title: `Follower ${idx}`,
           description: "blocked follower",
           column: "todo",
-          blockedBy: holder.id,
           steps: [],
         } as any);
+        await fixture.store.updateTask(follower.id, { blockedBy: holder.id } as any);
         followerIds.push(follower.id);
       }
 
       await (fixture.manager as any).runMaintenance();
-
-      const taskMapAfterFirstTick = new Map(
-        (await fixture.store.listTasks({ includeArchived: true })).map((task) => [task.id, task]),
-      );
-
       await (fixture.manager as any).runMaintenance();
 
       const taskMapAfterSecondTick = new Map(
         (await fixture.store.listTasks({ includeArchived: true })).map((task) => [task.id, task]),
       );
 
+      expect(taskMapAfterSecondTick.get(holder.id)?.column).toBe("todo");
       const remainingFollowers = followerIds.filter(
         (followerId) => taskMapAfterSecondTick.get(followerId)?.blockedBy === holder.id,
       );
-      expect(remainingFollowers.length).toBeLessThan(5);
+      expect(remainingFollowers).toHaveLength(0);
+      const metaColumns = Object.fromEntries(
+        metaTasks.map((meta) => [meta.id, taskMapAfterSecondTick.get(meta.id)?.column]),
+      );
+      expect(metaColumns).toEqual({
+        [meta1.id]: "archived",
+        [meta2.id]: "todo",
+        [meta3.id]: "archived",
+        [meta4.id]: "archived",
+      });
 
-      expect(taskMapAfterSecondTick.has(holder.id)).toBe(true);
-      expect(taskMapAfterSecondTick.size).toBeGreaterThanOrEqual(metaTasks.length + followerIds.length + 1);
+      const runAudits = fixture.store.getRunAuditEvents({ limit: 200 });
+      const decayAudits = runAudits.filter((event) => event.mutationType === "task:auto-rebound-paused-scope-decay");
+      const metaResolvedAudits = runAudits.filter((event) => event.mutationType === "task:auto-archived-meta-resolved");
+      expect(decayAudits.length).toBeGreaterThanOrEqual(1);
+      expect(metaResolvedAudits.length).toBeGreaterThanOrEqual(3);
     } finally {
       await fixture.cleanup();
     }

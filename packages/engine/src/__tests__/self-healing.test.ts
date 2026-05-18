@@ -5914,7 +5914,7 @@ describe("clearStaleBlockedBy", () => {
     manager.stop();
   });
 
-  it("does not clear blockedBy on an in-progress task when blocker is still active", async () => {
+  it("clears blockedBy on an in-progress task when blocker has moved back to todo", async () => {
     const store = createRunningStore();
     const blockerId = "FN-4101";
     const taskA = createTask("FN-4076", { column: "in-progress", blockedBy: blockerId });
@@ -5924,8 +5924,8 @@ describe("clearStaleBlockedBy", () => {
     const manager = new SelfHealingManager(store, { rootDir: "/tmp/test-project" });
     const recovered = await manager.clearStaleBlockedBy();
 
-    expect(recovered).toBe(0);
-    expect(store.updateTask).not.toHaveBeenCalled();
+    expect(recovered).toBe(1);
+    expect(store.updateTask).toHaveBeenCalledWith("FN-4076", { blockedBy: null });
     manager.stop();
   });
 

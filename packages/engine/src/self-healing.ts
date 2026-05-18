@@ -2517,8 +2517,8 @@ export class SelfHealingManager {
       const rebounded = Boolean(reboundedTargets?.has(classified.targetTaskId));
       if (!resolved && !rebounded && chainDepth < 2) continue;
       try {
-        await this.archiveMetaTask(task.id);
         await this.store.logEntry(task.id, `Auto-archived meta-task (FN-4890): target ${classified.targetTaskId} resolved/superseded.`);
+        await this.archiveMetaTask(task.id);
         const auditor = createRunAuditor(this.store, { runId: generateSyntheticRunId("fn4890-meta", task.id), agentId: "self-healing", taskId: task.id, phase: "auto-archive-meta-resolved" });
         await auditor.database({ type: "task:auto-archived-meta-resolved", target: task.id, metadata: { taskId: task.id, targetTaskId: classified.targetTaskId, targetColumn: target?.column ?? "unknown", chainDepth } });
         archived++;
@@ -2548,8 +2548,8 @@ export class SelfHealingManager {
       const targetStalled = !Number.isFinite(targetMovedAtMs) || (now - targetMovedAtMs >= thresholdMs);
       if (chainDepth < 2 && !targetStalled) continue;
       try {
-        await this.archiveMetaTask(task.id);
         await this.store.logEntry(task.id, `Auto-archived meta-task (FN-4890): superseded — not spawning further meta; rely on self-heal on target ${classified.targetTaskId}`);
+        await this.archiveMetaTask(task.id);
         const auditor = createRunAuditor(this.store, { runId: generateSyntheticRunId("fn4890-meta", task.id), agentId: "self-healing", taskId: task.id, phase: "auto-archive-meta-stalled" });
         await auditor.database({ type: "task:auto-archived-meta-stalled", target: task.id, metadata: { taskId: task.id, targetTaskId: classified.targetTaskId, chainDepth, stalledMs: Math.max(ageMs, 0) } });
         archived++;
@@ -2649,9 +2649,9 @@ export class SelfHealingManager {
       const activeMergeTaskId = this.options.getActiveMergeTaskId?.() ?? null;
       const now = Date.now();
 
-      const todoTasks = await this.store.listTasks({ column: "todo", slim: true });
-      const inProgressTasks = await this.store.listTasks({ column: "in-progress", slim: true });
-      const inReviewTasks = await this.store.listTasks({ column: "in-review", slim: true });
+      const todoTasks = await this.store.listTasks({ column: "todo" });
+      const inProgressTasks = await this.store.listTasks({ column: "in-progress" });
+      const inReviewTasks = await this.store.listTasks({ column: "in-review" });
       const blockedTasks = [
         ...todoTasks,
         ...inProgressTasks,
@@ -2663,7 +2663,7 @@ export class SelfHealingManager {
 
       if (blockedTasks.length === 0 && queuedDependencyTasks.length === 0) return 0;
 
-      const allTasks = await this.store.listTasks({ slim: true, includeArchived: true });
+      const allTasks = await this.store.listTasks({ includeArchived: true });
       const taskById = new Map(allTasks.map((task) => [task.id, task]));
 
       let recovered = 0;
@@ -2699,6 +2699,8 @@ export class SelfHealingManager {
             reason = `blocker ${blockerId} is done`;
           } else if (blocker.column === "archived") {
             reason = `blocker ${blockerId} is archived`;
+          } else if (blocker.column === "todo") {
+            reason = `blocker ${blockerId} moved to todo`;
           } else if (blocker.column === "in-review" && blocker.paused) {
             reason = `blocker ${blockerId} in-review + paused`;
           } else if (
