@@ -159,6 +159,7 @@ function createMockStore(overrides: Record<string, unknown> = {}): TaskStore & E
     listTasks: vi.fn().mockResolvedValue([]),
     createTask: vi.fn().mockResolvedValue({ id: "FN-RESCUE", lineageId: "lin-rescue" }),
     recordRunAuditEvent: vi.fn().mockResolvedValue(undefined),
+    getBootstrappedAt: vi.fn().mockReturnValue(null),
     getRootDir: vi.fn().mockReturnValue("/tmp/test-project"),
     clearStaleExecutionStartBranchReferences: vi.fn().mockReturnValue([]),
     ...overrides,

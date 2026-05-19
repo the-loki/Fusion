@@ -316,7 +316,7 @@ describe("Database", () => {
       expect(bootstrappedAt).toBeGreaterThan(0);
       expect(bootstrappedAt).toBeLessThanOrEqual(Date.now());
 
-      const reopened = new Database(tempDir);
+      const reopened = new Database(fusionDir);
       reopened.init();
       try {
         expect(reopened.getBootstrappedAt()).toBe(bootstrappedAt);

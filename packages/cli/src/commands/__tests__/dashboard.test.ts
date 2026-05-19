@@ -306,8 +306,15 @@ const mockListen = vi.fn((port: number) => {
 
 vi.mock("@fusion/dashboard", () => ({
   createServer: vi.fn((_store: unknown, opts: Record<string, any> = {}) => {
-    if (opts.engine && !opts.onMerge) {
-      opts.onMerge = (taskId: string) => opts.engine.onMerge(taskId);
+    if (!opts.onMerge) {
+      if (opts.engine) {
+        opts.onMerge = (taskId: string) => opts.engine.onMerge(taskId);
+      } else if (opts.engineManager?.ensureEngine) {
+        opts.onMerge = async (taskId: string) => {
+          const engine = await opts.engineManager.ensureEngine("project-1");
+          return engine?.onMerge(taskId);
+        };
+      }
     }
     opts.onProjectFirstAccessed?.("project-1");
     return { listen: mockListen };
@@ -1249,7 +1256,9 @@ describe("runDashboard — WorktreePool wiring", () => {
 
     await managerInstance.getEngine("project-1").onMerge("FN-TEST");
 
-    expect(aiMergeTask).toHaveBeenCalled();
+    await waitForAsyncExpectation(() => {
+      expect(aiMergeTask).toHaveBeenCalled();
+    });
     const mergeCallOpts = (aiMergeTask as ReturnType<typeof vi.fn>).mock.calls[0][3];
     expect(mergeCallOpts.pool).toBeInstanceOf(WorktreePool);
   });
@@ -1266,6 +1275,11 @@ describe("runDashboard — WorktreePool wiring", () => {
     });
 
     await managerInstance.getEngine("project-1").onMerge("FN-TEST");
+
+    await waitForAsyncExpectation(() => {
+      expect(capturedExecutorOpts).toBeDefined();
+      expect((aiMergeTask as ReturnType<typeof vi.fn>).mock.calls[0]?.[3]?.pool).toBeDefined();
+    });
 
     const executorPool = capturedExecutorOpts!.pool;
     const mergerPool = (aiMergeTask as ReturnType<typeof vi.fn>).mock.calls[0][3].pool;
@@ -2524,7 +2538,7 @@ describe("runDashboard — PR feedback follow-up wiring", () => {
     await capturedOnClosedPrFeedback("FN-001", mockPrInfo, mockComments);
 
     // The PrCommentHandler mock should have been called
-    const handlerInstance = (PrCommentHandler as unknown as ReturnType<typeof vi.fn>).mock.results[0].value;
+    const handlerInstance = (PrCommentHandler as unknown as ReturnType<typeof vi.fn>).mock.results.at(-1)?.value;
     expect(handlerInstance.createFollowUpTask).toHaveBeenCalledWith("FN-001", mockPrInfo, mockComments);
   });
 
