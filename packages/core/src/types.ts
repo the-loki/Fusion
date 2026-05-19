@@ -2724,6 +2724,10 @@ export interface ProjectSettings {
    *  Defaults to `"KB"`. Only affects new tasks — existing tasks retain
    *  their original IDs. */
   taskPrefix?: string;
+  /** Preferred commit trailer keys for task attribution in priority order.
+   *  The first value is used by commit-msg hook installation when enabled.
+   *  Defaults to `["Fusion-Task-Id"]`. */
+  taskAttributionTrailerNames?: string[];
   /** When true, Fusion installs a commit-msg hook in managed task worktrees
    *  that appends the configured task attribution trailer (e.g. `Fusion-Task-Id: FN-123`).
    *  Set to false for projects with custom hook infrastructure. Default: true. */

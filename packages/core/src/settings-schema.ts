@@ -215,6 +215,7 @@ export const DEFAULT_PROJECT_SETTINGS = {
   },
   worktreesDir: undefined,
   taskPrefix: "FN",
+  taskAttributionTrailerNames: ["Fusion-Task-Id"],
   commitMsgHookEnabled: true,
   includeTaskIdInCommit: true,
   commitAuthorEnabled: true,
