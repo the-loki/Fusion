@@ -43,6 +43,12 @@ interface TrackedTask {
    */
   loopObservedInLifecycle: boolean;
   /**
+   * True while compact-and-resume recovery has been accepted but the executor
+   * has not yet resumed normal prompting. Keep tracking alive so FN-5168 can
+   * still accumulate ignored-step rebuffs after recovery resumes.
+   */
+  recoveryInProgress: boolean;
+  /**
    * The canonical task ID used for all external callbacks (beforeRequeue,
    * onStuck, onLoopDetected).  In step-session mode the map key is a compound
    * string like "FN-1452-step-1"; this field always holds the bare task ID
@@ -97,8 +103,8 @@ export interface StuckTaskDetectorOptions {
    *  the agent session.
    *
    *  Return `true` to signal "executor accepted ownership of recovery for this
-   *  run" — the detector will skip dispose/requeue and remove the task from
-   *  tracking (the caller is now responsible for the task's fate).
+   *  run" — the detector will skip dispose/requeue and keep the task tracked
+   *  for FN-5168 churn accounting while the caller owns recovery.
    *  Return `false` to let the detector proceed with the normal kill/requeue path.
    *
    *  Errors in this callback fall through to the normal kill path (treated as `false`). */
@@ -186,6 +192,7 @@ export class StuckTaskDetector {
             activitySinceProgress: 0,
             ignoredStepUpdateCount: 0,
             loopObservedInLifecycle: false,
+            recoveryInProgress: false,
             canonicalTaskId: canonicalId,
           });
           stuckLog.log(`Tracking task ${trackingKey} (canonical=${canonicalId}, total tracked: ${this.tracked.size})`);
@@ -201,6 +208,7 @@ export class StuckTaskDetector {
             activitySinceProgress: 0,
             ignoredStepUpdateCount: 0,
             loopObservedInLifecycle: false,
+            recoveryInProgress: false,
             canonicalTaskId: canonicalId,
           });
           stuckLog.log(`Tracking task ${trackingKey} (canonical=${canonicalId}, total tracked: ${this.tracked.size})`);
@@ -216,6 +224,7 @@ export class StuckTaskDetector {
       activitySinceProgress: 0,
       ignoredStepUpdateCount: 0,
       loopObservedInLifecycle: false,
+      recoveryInProgress: false,
       canonicalTaskId: canonicalId,
     });
     stuckLog.log(`Tracking task ${trackingKey} (canonical=${canonicalId}, total tracked: ${this.tracked.size})`);
@@ -267,6 +276,17 @@ export class StuckTaskDetector {
     }
   }
 
+  private findTrackedEntry(taskId: string): TrackedTask | undefined {
+    const direct = this.tracked.get(taskId);
+    if (direct) return direct;
+    for (const entry of this.tracked.values()) {
+      if (entry.canonicalTaskId === taskId) {
+        return entry;
+      }
+    }
+    return undefined;
+  }
+
   /**
    * Record a step progress event for a task's agent session.
    * Called on step transitions (in-progress, done, skipped).
@@ -276,26 +296,13 @@ export class StuckTaskDetector {
    * This method finds entries by canonical task ID when the direct key lookup fails.
    */
   recordProgress(taskId: string): void {
-    // First try direct key lookup (single-session mode)
-    const entry = this.tracked.get(taskId);
+    const entry = this.findTrackedEntry(taskId);
     if (entry) {
       entry.lastProgressAt = Date.now();
       entry.activitySinceProgress = 0;
       entry.ignoredStepUpdateCount = 0;
       entry.loopObservedInLifecycle = false;
-      return;
-    }
-
-    // Fall back to finding by canonical task ID (step-session mode).
-    // In step-session mode, entries are keyed by "FN-200-step-0" but we receive "FN-200".
-    for (const trackedEntry of this.tracked.values()) {
-      if (trackedEntry.canonicalTaskId === taskId) {
-        trackedEntry.lastProgressAt = Date.now();
-        trackedEntry.activitySinceProgress = 0;
-        trackedEntry.ignoredStepUpdateCount = 0;
-        trackedEntry.loopObservedInLifecycle = false;
-        return;
-      }
+      entry.recoveryInProgress = false;
     }
   }
 
@@ -324,11 +331,11 @@ export class StuckTaskDetector {
   }
 
   getIgnoredStepUpdateCount(taskId: string): number | undefined {
-    return this.tracked.get(taskId)?.ignoredStepUpdateCount;
+    return this.findTrackedEntry(taskId)?.ignoredStepUpdateCount;
   }
 
   recordIgnoredStepUpdate(taskId: string): void {
-    const entry = this.tracked.get(taskId);
+    const entry = this.findTrackedEntry(taskId);
     if (entry) {
       entry.lastActivity = Date.now();
       entry.activitySinceProgress++;
@@ -343,7 +350,7 @@ export class StuckTaskDetector {
   }
 
   markLoopObserved(taskId: string): void {
-    const entry = this.tracked.get(taskId);
+    const entry = this.findTrackedEntry(taskId);
     if (entry) {
       entry.loopObservedInLifecycle = true;
     }
@@ -483,7 +490,8 @@ export class StuckTaskDetector {
     // compact-and-resume) before falling through to the kill/requeue path.
     //
     // If the callback returns true, the caller owns the task — we skip
-    // dispose/requeue and just untrack.  Errors fall through to normal kill.
+    // dispose/requeue but keep tracking alive for FN-5168 churn accounting.
+    // Errors fall through to normal kill.
     if (reason === "loop" && this.onLoopDetected) {
       try {
         const handled = await this.onLoopDetected(event);
@@ -492,9 +500,10 @@ export class StuckTaskDetector {
             `${canonicalId} loop recovery accepted by onLoopDetected callback — ` +
             `skipping kill/requeue (caller owns recovery)`,
           );
-          // The caller is now responsible for the task; remove from tracking
-          // so we don't double-trigger.
-          this.tracked.delete(taskId);
+          // Keep the task tracked so FN-5168 can keep counting ignored
+          // step-update churn after recovery resumes, but suppress detector
+          // polling until the executor emits fresh progress on resume.
+          entry.recoveryInProgress = true;
           return;
         }
       } catch (err) {
@@ -554,6 +563,7 @@ export class StuckTaskDetector {
       entry.activitySinceProgress = 0;
       entry.ignoredStepUpdateCount = 0;
       entry.loopObservedInLifecycle = false;
+      entry.recoveryInProgress = false;
     }
   }
 
@@ -602,7 +612,10 @@ export class StuckTaskDetector {
 
     const stuckTasks: string[] = [];
 
-    for (const [taskId] of this.tracked) {
+    for (const [taskId, entry] of this.tracked) {
+      if (entry.recoveryInProgress) {
+        continue;
+      }
       const reason = this.classifyStuckReason(taskId, timeoutMs);
       if (reason !== null) {
         stuckTasks.push(taskId);

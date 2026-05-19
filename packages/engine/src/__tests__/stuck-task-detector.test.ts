@@ -270,6 +270,14 @@ describe("StuckTaskDetector", () => {
       expect(detector.getIgnoredStepUpdateCount("FN-001")).toBe(2);
       expect(detector.getActivitySinceProgress("FN-001")).toBe(2);
     });
+
+    it("finds step-session entries by canonical task id", () => {
+      detector.trackTask("FN-200-step-0", createMockSession(), "FN-200");
+
+      detector.recordIgnoredStepUpdate("FN-200");
+
+      expect(detector.getIgnoredStepUpdateCount("FN-200")).toBe(1);
+    });
   });
 
   describe("isStuck", () => {
@@ -1119,7 +1127,29 @@ describe("StuckTaskDetector", () => {
       expect(onLoopDetected).toHaveBeenCalledTimes(1);
       expect(onStuck).not.toHaveBeenCalled();
       expect(session.dispose).not.toHaveBeenCalled();
-      expect(customDetector.trackedCount).toBe(0); // untracked
+      expect(customDetector.trackedCount).toBe(1);
+
+      vi.useRealTimers();
+    });
+
+    it("keeps tracking alive after accepted recovery so churn can accumulate", async () => {
+      const onLoopDetected = vi.fn().mockResolvedValue(true);
+      const customDetector = new StuckTaskDetector(store, { onLoopDetected });
+      const session = createMockSession();
+
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      customDetector.trackTask("FN-200-step-0", session, "FN-200");
+      vi.advanceTimersByTime(61000);
+      for (let i = 0; i < 80; i++) {
+        customDetector.recordActivity("FN-200-step-0");
+      }
+
+      await customDetector.killAndRetry("FN-200-step-0", 60000);
+      customDetector.markLoopObserved("FN-200");
+      customDetector.recordIgnoredStepUpdate("FN-200");
+
+      expect(customDetector.trackedCount).toBe(1);
+      expect(customDetector.getIgnoredStepUpdateCount("FN-200")).toBe(1);
 
       vi.useRealTimers();
     });
