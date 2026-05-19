@@ -16,6 +16,9 @@ import {
   sortTasksByPriorityThenAgeAndId,
   compareTaskIdNumeric,
   resolveAgentMemoryInclusionMode,
+  extractIntentSignature,
+  findNearDuplicates,
+  type NearDuplicateCandidate,
 } from "@fusion/core";
 import type { ImageContent } from "@mariozechner/pi-ai";
 import { Type, type Static } from "@mariozechner/pi-ai";
@@ -2253,6 +2256,31 @@ export class TriageProcessor {
       taskUpdates.noCommitsExpected = true;
     }
 
+    const parsedFileScope = parseFileScopeFromPrompt(written);
+    let taskIntentSignature: ReturnType<typeof extractIntentSignature> = {
+      routePaths: [],
+      filePaths: [],
+      identifiers: [],
+      titleTokens: [],
+    };
+    try {
+      taskIntentSignature = extractIntentSignature({
+        title: task.title ?? "",
+        description: task.description ?? "",
+        fileScope: parsedFileScope,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      planLog.warn(`${task.id}: near-duplicate signature extraction failed open: ${message}`);
+    }
+    if (parsedFileScope.length > 0 || taskIntentSignature.routePaths.length + taskIntentSignature.filePaths.length + taskIntentSignature.identifiers.length > 0) {
+      taskUpdates.sourceMetadataPatch = {
+        ...(taskUpdates.sourceMetadataPatch ?? {}),
+        intentSignature: taskIntentSignature,
+        ...(parsedFileScope.length > 0 ? { fileScope: parsedFileScope } : {}),
+      };
+    }
+
     // Apply non-title metadata first. The title is held back and applied AFTER
     // the column transition (see below) because store.updateTask regenerates
     // PROMPT.md when title/description change, and the triage-stub regen path
@@ -2303,6 +2331,96 @@ export class TriageProcessor {
       planLog.warn(`${task.id}: ghost-bug preflight failed open: ${message}`);
     }
 
+    // FN-5152: post-PROMPT near-duplicate backstop (fail-open, bounded) before triage→todo transition.
+    try {
+      const nearDuplicateResult = await Promise.race([
+        (async () => {
+          const signalCount = taskIntentSignature.routePaths.length + taskIntentSignature.filePaths.length + taskIntentSignature.identifiers.length;
+          if (signalCount === 0 && parsedFileScope.length === 0) {
+            return;
+          }
+
+          const nowMs = Date.now();
+          const candidates = (await this.store.listTasks({ slim: false, includeArchived: false }))
+            .filter((candidate) => candidate.id !== task.id)
+            .filter((candidate) => candidate.column !== "done")
+            .filter((candidate) => Date.parse(candidate.createdAt) >= nowMs - 7 * 24 * 60 * 60 * 1000)
+            .map((candidate) => ({
+              id: candidate.id,
+              title: candidate.title ?? "",
+              description: candidate.description ?? "",
+              column: candidate.column,
+              createdAt: Date.parse(candidate.createdAt),
+              fileScope: Array.isArray(candidate.sourceMetadata?.fileScope)
+                ? candidate.sourceMetadata.fileScope.filter((entry): entry is string => typeof entry === "string")
+                : undefined,
+            } satisfies NearDuplicateCandidate));
+
+          const matches = findNearDuplicates(
+            { title: task.title ?? "", description: task.description ?? "", fileScope: parsedFileScope },
+            candidates,
+            { windowMs: 7 * 24 * 60 * 60 * 1000, nowMs },
+          );
+          if (matches.length === 0) {
+            return;
+          }
+
+          const taskCreatedAt = Date.parse(task.createdAt);
+          const candidatesById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+          const olderMatches = matches.filter((match) => {
+            const candidate = candidatesById.get(match.id);
+            return candidate ? candidate.createdAt <= taskCreatedAt : false;
+          });
+          const canonical = (olderMatches[0] ?? matches[0]);
+          const canonicalTask = candidatesById.get(canonical.id);
+          if (!canonicalTask) {
+            return;
+          }
+
+          if (canonicalTask.createdAt <= taskCreatedAt) {
+            await this.store.updateTask(task.id, {
+              sourceMetadataPatch: {
+                nearDuplicateOf: canonical.id,
+                intentSignature: taskIntentSignature,
+                ...(parsedFileScope.length > 0 ? { fileScope: parsedFileScope } : {}),
+              },
+            });
+            await this.store.logEntry(
+              task.id,
+              `Auto-archived as near-duplicate of ${canonical.id}`,
+              `Shared tokens: ${canonical.sharedTokens.join(", ")}`,
+            );
+            await this.store.moveTask(task.id, "archived");
+            await this.store.recordActivity({
+              type: "task:auto-archived-near-duplicate",
+              taskId: task.id,
+              taskTitle: task.title ?? "",
+              details: `Near-duplicate of ${canonical.id}`,
+              metadata: {
+                canonicalTaskId: canonical.id,
+                sharedTokens: canonical.sharedTokens,
+                score: canonical.score,
+              },
+            });
+            planLog.log(`${task.id} auto-archived as near-duplicate of ${canonical.id}`);
+            return "archived" as const;
+          }
+
+          planLog.warn(`${task.id}: near-duplicate candidate ${canonical.id} is newer; skipping auto-archive`);
+        })(),
+        new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 5_000)),
+      ]);
+      if (nearDuplicateResult === "archived") {
+        return;
+      }
+      if (nearDuplicateResult === "timeout") {
+        planLog.warn(`${task.id}: near-duplicate backstop timed out; proceeding`);
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      planLog.warn(`${task.id}: near-duplicate backstop failed open: ${message}`);
+    }
+
     if (settings.requirePlanApproval) {
       const approvalUpdates: Record<string, unknown> = { status: "awaiting-approval" };
       if (shouldApplyPromptDeclaredTitle && promptDeclaredTitle) {
@@ -2336,6 +2454,23 @@ export class TriageProcessor {
       planLog.log(`✓ ${task.id} specified and moved to todo`);
     }
   }
+}
+
+function parseFileScopeFromPrompt(text: string): string[] {
+  const match = text.match(/^##\s+File Scope\s*\n([\s\S]*?)(?=^##\s+|\Z)/m);
+  if (!match) return [];
+  const entries: string[] = [];
+  for (const rawLine of match[1].split("\n")) {
+    const trimmed = rawLine.trim();
+    if (!trimmed.startsWith("-")) continue;
+    const line = trimmed.replace(/^-+\s*/, "").replace(/`/g, "").trim();
+    if (!line || /^out of scope/i.test(line)) break;
+    const pathOnly = line.split(" ")[0]?.trim();
+    if (!pathOnly) continue;
+    entries.push(pathOnly);
+    if (entries.length >= 50) break;
+  }
+  return entries;
 }
 
 function extractPromptDeclaredTitle(prompt: string, taskId: string): string | null {
