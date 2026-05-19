@@ -613,12 +613,12 @@ export async function classifyForeignOnlyContamination(
   } catch {
     // fall back to persisted baseSha on any git failure
   }
-  const output = await runGit(repoDir, `git log --format=%H%x1f%s%x1f%b ${quoteShellArg(`${effectiveBaseSha}..${branchName}`)}`)
+  const persistedRangeOutput = await runGit(repoDir, `git log --format=%H%x1f%s%x1f%b ${quoteShellArg(`${baseSha}..${branchName}`)}`)
     .catch(() => "");
   const subjectPattern = /^(feat|fix|test|chore|docs|refactor|perf|build)\((FN-\d+)\):/i;
   const trailerPattern = /(?:^|\n)Fusion-Task-Id:\s*(FN-\d+)\s*(?:\n|$)/i;
   const foreignCommits: BranchCrossContaminationCommit[] = [];
-  for (const line of output.split("\n").map((entry) => entry.trim()).filter(Boolean)) {
+  for (const line of persistedRangeOutput.split("\n").map((entry) => entry.trim()).filter(Boolean)) {
     const [sha, subject, body] = line.split("\u001f");
     const subjectMatch = (subject ?? "").match(subjectPattern);
     const trailerMatch = (body ?? "").match(trailerPattern);
@@ -650,7 +650,7 @@ export async function classifyForeignOnlyContamination(
   const foreignClassification = await classifyForeignCommits({
     repoDir,
     branchName,
-    baseSha,
+    baseSha: effectiveBaseSha,
     foreignCommits,
     mainRef,
   });

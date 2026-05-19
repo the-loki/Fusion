@@ -249,6 +249,8 @@ export type DatabaseMutationType =
   | "task:finalize-unproven-blocked"
   | "task:integrity-reconcile-modified-files"
   | "task:integrity-warning"
+  /** FN-5092 watchdog: stale `status: "merging"` / `"merging-pr"` cleared on a done/archived task. Metadata: { previousColumn, previousStatus, ageMs, mergeConfirmed?: boolean } */
+  | "task:auto-recover-stale-merger-status"
   | "auto-recovery:classify-decision"
   | "auto-recovery:retry-issued"
   | "auto-recovery:ai-session-spawned"

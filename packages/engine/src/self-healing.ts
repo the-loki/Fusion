@@ -632,6 +632,9 @@ export class SelfHealingManager {
       { name: "interrupted-merging", fn: () => this.recoverInterruptedMergingTasks().then(() => undefined) },
       { name: "done-merge-metadata", fn: () => this.recoverDoneTaskMergeMetadata().then(() => undefined) },
       { name: "reconcile-done-task-integrity", fn: () => this.reconcileDoneTaskIntegrity().then(() => undefined) },
+      // FN-5092: must run BEFORE any merger pickup path so the merger queue is
+      // not stalled by a leaked `status: "merging"` on an already-done task.
+      { name: "reconcile-stale-merger-status", fn: () => this.reconcileStaleMergerStatus().then(() => undefined) },
       { name: "recover-already-merged-review", fn: () => this.recoverAlreadyMergedReviewTasks().then(() => undefined) },
       { name: "recover-completion-handoff-limbo", fn: () => this.recoverCompletionHandoffLimbo().then(() => undefined) },
       { name: "recover-branch-misbound-in-review", fn: () => this.recoverBranchMisboundInReviewTasks().then(() => undefined) },
@@ -1209,6 +1212,7 @@ export class SelfHealingManager {
           { name: "recover-stale-merging-status", fn: () => this.recoverStaleMergingStatus() },
           { name: "finalize-noop-review", fn: () => this.finalizeNoOpReviewTasks() },
           { name: "reconcile-done-task-integrity", fn: () => this.reconcileDoneTaskIntegrity() },
+          { name: "reconcile-stale-merger-status", fn: () => this.reconcileStaleMergerStatus() },
           { name: "recover-mergeable-review", fn: () => this.recoverMergeableReviewTasks() },
           { name: "recover-merged-review", fn: () => this.recoverMergedReviewTasks() },
           { name: "recover-already-merged-review", fn: () => this.recoverAlreadyMergedReviewTasks() },
@@ -3344,7 +3348,7 @@ export class SelfHealingManager {
     return recovered;
   }
 
-  private async recordIntegrityAudit(taskId: string, mutationType: "task:finalize-unproven-blocked" | "task:integrity-reconcile-modified-files" | "task:integrity-warning", metadata: Record<string, unknown>): Promise<void> {
+  private async recordIntegrityAudit(taskId: string, mutationType: "task:finalize-unproven-blocked" | "task:integrity-reconcile-modified-files" | "task:integrity-warning" | "task:auto-recover-stale-merger-status", metadata: Record<string, unknown>): Promise<void> {
     const auditor = createRunAuditor(this.store, {
       runId: generateSyntheticRunId("self-healing-integrity", taskId),
       agentId: "self-healing",
@@ -3352,6 +3356,67 @@ export class SelfHealingManager {
       phase: "self-healing",
     });
     await auditor.database({ type: mutationType, target: taskId, metadata });
+  }
+
+  /**
+   * FN-5092 watchdog: detect and repair tasks left in an impossible state where
+   * `column ∈ {done, archived}` but `status ∈ {merging, merging-pr}`.
+   *
+   * Cause: a recovery path (FN-4499 misbinding, FN-4500 already-on-main, manual
+   * finalization) moved the task to done WITHOUT going through the merger's
+   * `completeTask()`. The merger had previously set `status = "merging"` when it
+   * claimed `mergeActive[taskId]`; that slot is single-threaded and now leaks,
+   * stalling the entire merger queue for every subsequent in-review task.
+   *
+   * This watchdog catches the persistent-state half of the leak. The runtime
+   * in-memory `mergeActive` Map also has a periodic reconciler in
+   * `ProjectEngine.reconcileStaleMergeActive()`, but it skips entries that match
+   * the currently-active merge task; a status leak that survives across engine
+   * restarts can only be cleared at the storage layer.
+   */
+  async reconcileStaleMergerStatus(): Promise<number> {
+    try {
+      const done = await this.store.listTasks({ column: "done", slim: true });
+      const archived = await this.store.listTasks({ column: "archived", slim: true });
+      const candidates = [...done, ...archived].filter((task) => {
+        const s = task.status;
+        return s === "merging" || s === "merging-pr";
+      });
+      if (candidates.length === 0) return 0;
+
+      let cleared = 0;
+      for (const task of candidates) {
+        try {
+          const previousStatus = task.status;
+          const updatedAtMs = Date.parse(task.updatedAt ?? "") || Date.now();
+          const ageMs = Math.max(0, Date.now() - updatedAtMs);
+          await this.store.updateTask(task.id, { status: null });
+          await this.recordIntegrityAudit(task.id, "task:auto-recover-stale-merger-status", {
+            previousColumn: task.column,
+            previousStatus,
+            ageMs,
+            mergeConfirmed: task.mergeDetails?.mergeConfirmed === true,
+            commitSha: task.mergeDetails?.commitSha ?? null,
+          });
+          await this.store.logEntry(
+            task.id,
+            `Auto-recovered: cleared stale status="${previousStatus}" on ${task.column} task (age ${Math.round(ageMs / 1000)}s) — was blocking merger queue`,
+          );
+          cleared++;
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          log.warn(`reconcileStaleMergerStatus: failed for ${task.id}: ${errorMessage}`);
+        }
+      }
+      if (cleared > 0) {
+        log.warn(`Cleared ${cleared} stale merger-status leak${cleared === 1 ? "" : "s"} on done/archived tasks (FN-5092)`);
+      }
+      return cleared;
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`reconcileStaleMergerStatus failed: ${errorMessage}`);
+      return 0;
+    }
   }
 
   async finalizeNoOpReviewTasks(): Promise<number> {
