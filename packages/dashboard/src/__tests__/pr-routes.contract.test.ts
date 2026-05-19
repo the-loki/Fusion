@@ -93,4 +93,39 @@ describe("PR routes contract", () => {
 
     expect(response.status).not.toBe(409);
   });
+
+  it("returns structured 404 for PR options when task is missing", async () => {
+    const missingStore = createStore(createTask());
+    missingStore.getTask = vi.fn().mockRejectedValue(Object.assign(new Error("missing"), { code: "ENOENT" }));
+    const app = createServer(missingStore);
+
+    const response = await performGet(app, "/api/tasks/FN-404/pr/options");
+
+    expect(response.status).toBe(404);
+    expect(response.body).toMatchObject({ error: expect.stringContaining("Task FN-404 not found") });
+  });
+
+  it("returns structured 404 for PR preflight when task is missing", async () => {
+    const missingStore = createStore(createTask());
+    missingStore.getTask = vi.fn().mockRejectedValue(Object.assign(new Error("missing"), { code: "ENOENT" }));
+    const app = createServer(missingStore);
+
+    const response = await performGet(app, "/api/tasks/FN-404/pr/preflight");
+
+    expect(response.status).toBe(404);
+    expect(response.body).toMatchObject({ error: expect.stringContaining("Task FN-404 not found") });
+  });
+
+  it("returns structured 404 for PR metadata generation when task is missing", async () => {
+    const missingStore = createStore(createTask());
+    missingStore.getTask = vi.fn().mockRejectedValue(Object.assign(new Error("missing"), { code: "ENOENT" }));
+    const app = createServer(missingStore);
+
+    const response = await performRequest(app, "POST", "/api/tasks/FN-404/pr/generate-metadata", "{}", {
+      "content-type": "application/json",
+    });
+
+    expect(response.status).toBe(404);
+    expect(response.body).toMatchObject({ error: expect.stringContaining("Task FN-404 not found") });
+  });
 });

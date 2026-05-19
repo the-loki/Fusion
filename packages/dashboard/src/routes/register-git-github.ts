@@ -1,6 +1,7 @@
 import { type NextFunction, type Request, type Response } from "express";
 import { isAbsolute } from "node:path";
-import { spawn } from "node:child_process";
+import { exec as execCb, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import type {
   BatchStatusEntry,
   BatchStatusResponse,
@@ -30,6 +31,7 @@ import { GitHubTrackingStateService } from "../github-tracking-state.js";
 import { GitHubTrackingReconciler } from "../github-tracking-reconciler.js";
 import { githubRateLimiter } from "../github-poll.js";
 import * as projectStoreResolver from "../project-store-resolver.js";
+import { generatePrMetadata } from "../pr-metadata-generator.js";
 import {
   classifyWebhookEvent,
   getGitHubAppConfig,
@@ -39,6 +41,12 @@ import {
 } from "../github-webhooks.js";
 import type { ApiRoutesContext } from "./types.js";
 import { runGitCommand } from "./resolve-diff-base.js";
+
+const execAsync = promisify(execCb);
+const PR_ROUTE_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
+const PR_PREFLIGHT_TIMEOUT_MS = 15_000;
+const PR_OPTIONS_TIMEOUT_MS = 10_000;
+const SAFE_GIT_REF_PATTERN = /^[A-Za-z0-9._/-]+$/;
 
 function getCommandErrorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -161,6 +169,174 @@ const recentIssuesCache = new Map<string, { fetchedAt: number; items: Array<{
   repository: string;
   updatedAt?: string;
 }> }>();
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function ensureSafeGitRef(value: string, fieldName = "branch"): string {
+  const trimmed = value.trim();
+  if (!trimmed || !SAFE_GIT_REF_PATTERN.test(trimmed)) {
+    throw badRequest(`Invalid ${fieldName}`);
+  }
+  return trimmed;
+}
+
+function getExecErrorCode(error: unknown): number | undefined {
+  const code = (error as { code?: unknown } | undefined)?.code;
+  return typeof code === "number" ? code : undefined;
+}
+
+async function runPrShellCommand(command: string, cwd: string, timeoutMs: number): Promise<string> {
+  const { stdout } = await execAsync(command, {
+    cwd,
+    timeout: timeoutMs,
+    maxBuffer: PR_ROUTE_MAX_BUFFER_BYTES,
+  });
+  return stdout.trim();
+}
+
+async function tryRunPrShellCommand(command: string, cwd: string, timeoutMs: number): Promise<
+  | { ok: true; stdout: string }
+  | { ok: false; error: unknown; code?: number; stdout: string; stderr: string }
+> {
+  try {
+    const stdout = await runPrShellCommand(command, cwd, timeoutMs);
+    return { ok: true, stdout };
+  } catch (error) {
+    return {
+      ok: false,
+      error,
+      code: getExecErrorCode(error),
+      stdout: ((error as { stdout?: string } | undefined)?.stdout ?? "").trim(),
+      stderr: ((error as { stderr?: string } | undefined)?.stderr ?? "").trim(),
+    };
+  }
+}
+
+export const prRouteCommandRunner = {
+  run: runPrShellCommand,
+  tryRun: tryRunPrShellCommand,
+};
+
+async function resolvePrBaseRef(repoRoot: string, baseBranch: string): Promise<string> {
+  const safeBase = ensureSafeGitRef(baseBranch, "base branch");
+  const localCheck = await prRouteCommandRunner.tryRun(
+    `git rev-parse --verify ${shellQuote(safeBase)}`,
+    repoRoot,
+    PR_PREFLIGHT_TIMEOUT_MS,
+  );
+  if (localCheck.ok) {
+    return safeBase;
+  }
+
+  await prRouteCommandRunner.tryRun(
+    `git fetch origin ${shellQuote(safeBase)} --no-tags`,
+    repoRoot,
+    PR_PREFLIGHT_TIMEOUT_MS,
+  );
+
+  const remoteRef = `origin/${safeBase}`;
+  const remoteCheck = await prRouteCommandRunner.tryRun(
+    `git rev-parse --verify ${shellQuote(remoteRef)}`,
+    repoRoot,
+    PR_PREFLIGHT_TIMEOUT_MS,
+  );
+  return remoteCheck.ok ? remoteRef : safeBase;
+}
+
+async function resolveDefaultPrBaseBranch(task: Task, repoRoot: string): Promise<string> {
+  const taskBaseBranch = task.prInfo?.baseBranch?.trim();
+  if (taskBaseBranch) {
+    return taskBaseBranch;
+  }
+
+  try {
+    const stdout = await prRouteCommandRunner.run(
+      "gh repo view --json defaultBranchRef -q .defaultBranchRef.name",
+      repoRoot,
+      PR_OPTIONS_TIMEOUT_MS,
+    );
+    if (stdout) {
+      return stdout;
+    }
+  } catch {
+    // fall through to main
+  }
+
+  return "main";
+}
+
+function parsePreflightCommits(output: string): Array<{ sha: string; subject: string; author: string }> {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [sha = "", subject = "", author = ""] = line.split("\t");
+      return { sha, subject, author };
+    })
+    .filter((entry) => entry.sha && entry.subject)
+    .slice(0, 50);
+}
+
+function parsePreflightChangedFiles(numstatOutput: string, nameStatusOutput: string): Array<{
+  path: string;
+  additions: number;
+  deletions: number;
+  status: "added" | "modified" | "deleted" | "renamed";
+}> {
+  const numstatLines = numstatOutput.split(/\r?\n/).filter(Boolean);
+  const nameStatusLines = nameStatusOutput.split(/\r?\n/).filter(Boolean);
+  const results: Array<{ path: string; additions: number; deletions: number; status: "added" | "modified" | "deleted" | "renamed" }> = [];
+
+  for (let index = 0; index < nameStatusLines.length && results.length < 200; index += 1) {
+    const nameParts = nameStatusLines[index]?.split("\t").filter(Boolean) ?? [];
+    if (nameParts.length === 0) {
+      continue;
+    }
+
+    const statusToken = nameParts[0] ?? "M";
+    const numstatParts = numstatLines[index]?.split("\t") ?? [];
+    const additions = Number.parseInt(numstatParts[0] ?? "0", 10);
+    const deletions = Number.parseInt(numstatParts[1] ?? "0", 10);
+    const fallbackPath = numstatParts[2] ?? "";
+    const path = statusToken.startsWith("R") ? (nameParts[2] ?? fallbackPath) : (nameParts[1] ?? fallbackPath);
+
+    if (!path) {
+      continue;
+    }
+
+    results.push({
+      path,
+      additions: Number.isFinite(additions) ? additions : 0,
+      deletions: Number.isFinite(deletions) ? deletions : 0,
+      status: statusToken === "A"
+        ? "added"
+        : statusToken === "D"
+          ? "deleted"
+          : statusToken.startsWith("R")
+            ? "renamed"
+            : "modified",
+    });
+  }
+
+  return results;
+}
+
+function parseGhJsonLines<T>(output: string): T[] {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .flatMap((line) => {
+      try {
+        return [JSON.parse(line) as T];
+      } catch {
+        return [];
+      }
+    });
+}
 
 export async function isGitRepo(cwd?: string): Promise<boolean> {
   try {
@@ -3361,6 +3537,219 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
       } else {
         throw toPrApiError(err, "Failed to create PR");
       }
+    }
+  });
+
+  /**
+   * POST /api/tasks/:id/pr/generate-metadata
+   * Generate AI PR title/body metadata for the Create PR dialog.
+   * Returns: { title, body, templateUsed }
+   */
+  router.post("/tasks/:id/pr/generate-metadata", async (req, res) => {
+    try {
+      const { store: scopedStore } = await getProjectContext(req);
+      const task = await scopedStore.getTask(req.params.id);
+      const settings = await scopedStore.getSettings();
+      const metadata = await generatePrMetadata({
+        task,
+        repoRoot: scopedStore.getRootDir(),
+        settings,
+      });
+      res.json(metadata);
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        throw err;
+      }
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        throw notFound(`Task ${req.params.id} not found`);
+      }
+      rethrowAsApiError(err, "Failed to generate PR metadata");
+    }
+  });
+
+  /**
+   * GET /api/tasks/:id/pr/preflight
+   * Collect branch, commit, diff, conflict, and auth diagnostics for Create PR.
+   */
+  router.get("/tasks/:id/pr/preflight", async (req, res) => {
+    try {
+      const { store: scopedStore } = await getProjectContext(req);
+      const task = await scopedStore.getTask(req.params.id);
+      const repoRoot = scopedStore.getRootDir();
+      const requestedBase = typeof req.query.base === "string" ? req.query.base.trim() : "";
+      const defaultBaseBranch = requestedBase
+        ? ensureSafeGitRef(requestedBase, "base branch")
+        : await resolveDefaultPrBaseBranch(task, repoRoot);
+      const head = `fusion/${task.id.toLowerCase()}`;
+      const safeHead = ensureSafeGitRef(head, "head branch");
+      const response: {
+        branchOnRemote: boolean;
+        commitsPresent: boolean;
+        conflictsWithBase: boolean;
+        ghAuthOk: boolean;
+        defaultBaseBranch: string;
+        head: string;
+        commits: Array<{ sha: string; subject: string; author: string }>;
+        changedFiles: Array<{ path: string; additions: number; deletions: number; status: "added" | "modified" | "deleted" | "renamed" }>;
+      } = {
+        branchOnRemote: false,
+        commitsPresent: false,
+        conflictsWithBase: false,
+        ghAuthOk: isGhAuthenticated(),
+        defaultBaseBranch,
+        head,
+        commits: [],
+        changedFiles: [],
+      };
+
+      const baseRef = await resolvePrBaseRef(repoRoot, defaultBaseBranch).catch(() => defaultBaseBranch);
+
+      const remoteBranchCheck = await prRouteCommandRunner.tryRun(
+        `git ls-remote --exit-code --heads origin ${shellQuote(safeHead)}`,
+        repoRoot,
+        PR_PREFLIGHT_TIMEOUT_MS,
+      );
+      if (remoteBranchCheck.ok) {
+        response.branchOnRemote = true;
+      } else if (remoteBranchCheck.code !== 2) {
+        response.branchOnRemote = false;
+      }
+
+      const commitCountOutput = await prRouteCommandRunner.run(
+        `git rev-list --count ${shellQuote(baseRef)}..${shellQuote(safeHead)}`,
+        repoRoot,
+        PR_PREFLIGHT_TIMEOUT_MS,
+      ).catch(() => "0");
+      response.commitsPresent = Number.parseInt(commitCountOutput, 10) > 0;
+
+      const mergeTreeOutput = await prRouteCommandRunner.run(
+        `git merge-tree --write-tree --name-only ${shellQuote(baseRef)} ${shellQuote(safeHead)}`,
+        repoRoot,
+        PR_PREFLIGHT_TIMEOUT_MS,
+      ).catch(() => "");
+      response.conflictsWithBase = mergeTreeOutput.trim().length > 0;
+
+      const [commitLogOutput, numstatOutput, nameStatusOutput] = await Promise.all([
+        prRouteCommandRunner.run(
+          `git log --no-merges ${shellQuote(baseRef)}..${shellQuote(safeHead)} --format=%H%x09%s%x09%an`,
+          repoRoot,
+          PR_PREFLIGHT_TIMEOUT_MS,
+        ).catch(() => ""),
+        prRouteCommandRunner.run(
+          `git diff --numstat ${shellQuote(baseRef)}..${shellQuote(safeHead)}`,
+          repoRoot,
+          PR_PREFLIGHT_TIMEOUT_MS,
+        ).catch(() => ""),
+        prRouteCommandRunner.run(
+          `git diff --name-status ${shellQuote(baseRef)}..${shellQuote(safeHead)}`,
+          repoRoot,
+          PR_PREFLIGHT_TIMEOUT_MS,
+        ).catch(() => ""),
+      ]);
+
+      response.commits = parsePreflightCommits(commitLogOutput);
+      response.changedFiles = parsePreflightChangedFiles(numstatOutput, nameStatusOutput);
+
+      res.json(response);
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        throw err;
+      }
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        throw notFound(`Task ${req.params.id} not found`);
+      }
+      rethrowAsApiError(err, "Failed to load PR preflight");
+    }
+  });
+
+  /**
+   * GET /api/tasks/:id/pr/options
+   * Load base branches, reviewers, assignees, and labels for Create PR.
+   */
+  router.get("/tasks/:id/pr/options", async (req, res) => {
+    try {
+      const { store: scopedStore } = await getProjectContext(req);
+      const task = await scopedStore.getTask(req.params.id);
+      const repoRoot = scopedStore.getRootDir();
+      const envRepo = process.env.GITHUB_REPOSITORY;
+      const gitRepo = getCurrentRepo(repoRoot);
+      const [owner, repo] = envRepo?.split("/") ?? [gitRepo?.owner, gitRepo?.repo];
+      if (!owner || !repo) {
+        throw badRequest("Could not determine GitHub repository. Set GITHUB_REPOSITORY env var or configure git remote.");
+      }
+
+      const repoKey = `${owner}/${repo}`;
+      const ghRequestsAllowed = githubRateLimiter.canMakeRequest(repoKey);
+      const defaultBaseBranch = await resolveDefaultPrBaseBranch(task, repoRoot);
+
+      const [ghBranchesResult, gitBranchesResult, collaboratorsResult, labelsResult] = await Promise.allSettled([
+        ghRequestsAllowed
+          ? prRouteCommandRunner.run(
+            `gh api repos/${owner}/${repo}/branches --paginate -q '.[].name'`,
+            repoRoot,
+            PR_OPTIONS_TIMEOUT_MS,
+          )
+          : Promise.reject(new Error("GitHub API rate limited")),
+        prRouteCommandRunner.run(
+          "git for-each-ref refs/remotes/origin --format=%(refname:short)",
+          repoRoot,
+          PR_OPTIONS_TIMEOUT_MS,
+        ),
+        ghRequestsAllowed
+          ? prRouteCommandRunner.run(
+            `gh api repos/${owner}/${repo}/collaborators --paginate -q '.[] | {login, name: (.name // .login)}'`,
+            repoRoot,
+            PR_OPTIONS_TIMEOUT_MS,
+          )
+          : Promise.reject(new Error("GitHub API rate limited")),
+        ghRequestsAllowed
+          ? prRouteCommandRunner.run(
+            `gh api repos/${owner}/${repo}/labels --paginate -q '.[] | {name, color}'`,
+            repoRoot,
+            PR_OPTIONS_TIMEOUT_MS,
+          )
+          : Promise.reject(new Error("GitHub API rate limited")),
+      ]);
+
+      const baseBranchSet = new Set<string>([defaultBaseBranch]);
+      if (ghBranchesResult.status === "fulfilled") {
+        for (const branch of ghBranchesResult.value.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean).slice(0, 100)) {
+          baseBranchSet.add(branch);
+        }
+      }
+      if (gitBranchesResult.status === "fulfilled") {
+        for (const branch of gitBranchesResult.value.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean)) {
+          if (branch === "origin/HEAD") {
+            continue;
+          }
+          baseBranchSet.add(branch.replace(/^origin\//, ""));
+          if (baseBranchSet.size >= 100) {
+            break;
+          }
+        }
+      }
+
+      const reviewers = collaboratorsResult.status === "fulfilled"
+        ? parseGhJsonLines<{ login: string; name?: string }>(collaboratorsResult.value).slice(0, 50)
+        : [];
+      const labels = labelsResult.status === "fulfilled"
+        ? parseGhJsonLines<{ name: string; color: string }>(labelsResult.value).slice(0, 50)
+        : [];
+
+      res.json({
+        baseBranches: Array.from(baseBranchSet),
+        reviewers,
+        assignees: reviewers,
+        labels,
+      });
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        throw err;
+      }
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        throw notFound(`Task ${req.params.id} not found`);
+      }
+      rethrowAsApiError(err, "Failed to load PR options");
     }
   });
 
