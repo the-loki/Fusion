@@ -168,6 +168,7 @@ interface TaskRow {
   checkoutRunId: string | null;
   checkoutLeaseRenewedAt: string | null;
   checkoutLeaseEpoch: number | null;
+  deletedAt: string | null;
 }
 
 /** Database row shape for the task_documents table. */
@@ -1278,6 +1279,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       checkoutRunId: row.checkoutRunId || undefined,
       checkoutLeaseRenewedAt: row.checkoutLeaseRenewedAt || undefined,
       checkoutLeaseEpoch: row.checkoutLeaseEpoch ?? undefined,
+      deletedAt: row.deletedAt ?? undefined,
     };
   }
 
@@ -1519,7 +1521,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       "breakIntoSubtasks", "noCommitsExpected", "enabledWorkflowSteps", "modifiedFiles",
       "missionId", "sliceId", "scopeOverride", "scopeOverrideReason", "assignedAgentId", "pausedByAgentId", "assigneeUserId", "nodeId", "effectiveNodeId", "effectiveNodeSource",
       "sourceType", "sourceAgentId", "sourceRunId", "sourceSessionId", "sourceMessageId", "sourceParentTaskId", "sourceMetadata",
-      "checkedOutBy", "checkedOutAt", "checkoutNodeId", "checkoutRunId", "checkoutLeaseRenewedAt", "checkoutLeaseEpoch",
+      "checkedOutBy", "checkedOutAt", "checkoutNodeId", "checkoutRunId", "checkoutLeaseRenewedAt", "checkoutLeaseEpoch", "deletedAt",
       // `log` is fetched in slim mode so the server can aggregate
       // `timedExecutionMs` from `[timing] … in <N>ms` entries before
       // returning. The log itself is stripped from the response —
@@ -1568,7 +1570,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       "breakIntoSubtasks", "noCommitsExpected", "enabledWorkflowSteps", "modifiedFiles",
       "missionId", "sliceId", "scopeOverride", "scopeOverrideReason", "assignedAgentId", "pausedByAgentId", "assigneeUserId", "nodeId", "effectiveNodeId", "effectiveNodeSource",
       "sourceType", "sourceAgentId", "sourceRunId", "sourceSessionId", "sourceMessageId", "sourceParentTaskId", "sourceMetadata",
-      "checkedOutBy", "checkedOutAt", "checkoutNodeId", "checkoutRunId", "checkoutLeaseRenewedAt", "checkoutLeaseEpoch",
+      "checkedOutBy", "checkedOutAt", "checkoutNodeId", "checkoutRunId", "checkoutLeaseRenewedAt", "checkoutLeaseEpoch", "deletedAt",
     ];
 
     const limitedLog = `
@@ -1703,6 +1705,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       task.checkoutRunId ?? null,
       task.checkoutLeaseRenewedAt ?? null,
       task.checkoutLeaseEpoch ?? 0,
+      task.deletedAt ?? null,
     ];
   }
 
@@ -1725,7 +1728,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         dependencies, steps, log, attachments, steeringComments,
         comments, review, reviewState, workflowStepResults, prInfo, prInfos, issueInfo, githubTracking,
         sourceIssueProvider, sourceIssueRepository, sourceIssueExternalIssueId, sourceIssueNumber, sourceIssueUrl,
-        mergeDetails, breakIntoSubtasks, noCommitsExpected, enabledWorkflowSteps, modifiedFiles, missionId, sliceId, scopeOverride, scopeOverrideReason, assignedAgentId, pausedByAgentId, assigneeUserId, nodeId, effectiveNodeId, effectiveNodeSource, sourceType, sourceAgentId, sourceRunId, sourceSessionId, sourceMessageId, sourceParentTaskId, sourceMetadata, checkedOutBy, checkedOutAt, checkoutNodeId, checkoutRunId, checkoutLeaseRenewedAt, checkoutLeaseEpoch
+        mergeDetails, breakIntoSubtasks, noCommitsExpected, enabledWorkflowSteps, modifiedFiles, missionId, sliceId, scopeOverride, scopeOverrideReason, assignedAgentId, pausedByAgentId, assigneeUserId, nodeId, effectiveNodeId, effectiveNodeSource, sourceType, sourceAgentId, sourceRunId, sourceSessionId, sourceMessageId, sourceParentTaskId, sourceMetadata, checkedOutBy, checkedOutAt, checkoutNodeId, checkoutRunId, checkoutLeaseRenewedAt, checkoutLeaseEpoch, deletedAt
       ) VALUES (${placeholders})
     `).run(...values);
     this.db.bumpLastModified();
@@ -1752,7 +1755,7 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         dependencies, steps, log, attachments, steeringComments,
         comments, review, reviewState, workflowStepResults, prInfo, prInfos, issueInfo, githubTracking,
         sourceIssueProvider, sourceIssueRepository, sourceIssueExternalIssueId, sourceIssueNumber, sourceIssueUrl,
-        mergeDetails, breakIntoSubtasks, noCommitsExpected, enabledWorkflowSteps, modifiedFiles, missionId, sliceId, scopeOverride, scopeOverrideReason, assignedAgentId, pausedByAgentId, assigneeUserId, nodeId, effectiveNodeId, effectiveNodeSource, sourceType, sourceAgentId, sourceRunId, sourceSessionId, sourceMessageId, sourceParentTaskId, sourceMetadata, checkedOutBy, checkedOutAt, checkoutNodeId, checkoutRunId, checkoutLeaseRenewedAt, checkoutLeaseEpoch
+        mergeDetails, breakIntoSubtasks, noCommitsExpected, enabledWorkflowSteps, modifiedFiles, missionId, sliceId, scopeOverride, scopeOverrideReason, assignedAgentId, pausedByAgentId, assigneeUserId, nodeId, effectiveNodeId, effectiveNodeSource, sourceType, sourceAgentId, sourceRunId, sourceSessionId, sourceMessageId, sourceParentTaskId, sourceMetadata, checkedOutBy, checkedOutAt, checkoutNodeId, checkoutRunId, checkoutLeaseRenewedAt, checkoutLeaseEpoch, deletedAt
       ) VALUES (${placeholders})
       ON CONFLICT(id) DO UPDATE SET
         lineageId = excluded.lineageId,
@@ -1861,7 +1864,8 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         checkoutNodeId = excluded.checkoutNodeId,
         checkoutRunId = excluded.checkoutRunId,
         checkoutLeaseRenewedAt = excluded.checkoutLeaseRenewedAt,
-        checkoutLeaseEpoch = excluded.checkoutLeaseEpoch
+        checkoutLeaseEpoch = excluded.checkoutLeaseEpoch,
+        deletedAt = excluded.deletedAt
     `).run(...this.getTaskPersistValues(task));
     this.db.bumpLastModified();
   }

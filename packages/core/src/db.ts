@@ -120,7 +120,7 @@ export function probeFts5(db: DatabaseSync): boolean {
 
 // ── Schema Definition ────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 86;
+const SCHEMA_VERSION = 87;
 
 function normalizeTaskComments(
   steeringComments: SteeringComment[] | undefined,
@@ -283,7 +283,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   checkoutNodeId TEXT,
   checkoutRunId TEXT,
   checkoutLeaseRenewedAt TEXT,
-  checkoutLeaseEpoch INTEGER DEFAULT 0
+  checkoutLeaseEpoch INTEGER DEFAULT 0,
+  deletedAt TEXT
 );
 
 -- Config table (single row with project settings)
@@ -3411,6 +3412,13 @@ export class Database {
     if (version < 86) {
       this.applyMigration(86, () => {
         this.addColumnIfMissing("tasks", "prInfos", "TEXT");
+      });
+    }
+
+    if (version < 87) {
+      this.applyMigration(87, () => {
+        this.addColumnIfMissing("tasks", "deletedAt", "TEXT");
+        this.db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_deletedAt ON tasks(deletedAt)");
       });
     }
 

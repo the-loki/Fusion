@@ -3595,6 +3595,8 @@ export interface ArchivedTaskEntry {
   executionStartedAt?: string;
   /** First-time completion anchor; may be cleared on reopen. */
   executionCompletedAt?: string;
+  /** ISO timestamp set when the task is soft-deleted from active views. */
+  deletedAt?: string;
   /** Timestamp when the task was archived to the log */
   archivedAt: string;
   /** Optional: model preset and override fields for executor and validator */
