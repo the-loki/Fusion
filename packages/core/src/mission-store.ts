@@ -53,6 +53,7 @@ import {
   validateSnapshotEnvelope,
   type MissionHierarchySnapshot,
 } from "./shared-mesh-state.js";
+import { reconcileDeterministicDuplicate, runDeterministicDuplicateGuard } from "./duplicate-guard.js";
 // ── Constants ────────────────────────────────────────────────────────
 
 /**
@@ -3127,26 +3128,52 @@ export class MissionStore extends EventEmitter<MissionStoreEvents> {
     const milestone = slice ? this.getMilestone(slice.milestoneId) : undefined;
     const missionId = milestone?.missionId;
 
-    // Create the task
-    const task = await this.taskStore.createTask({
+    const lockScope = missionId ? `mission:${missionId}` : `mission-store:${this.db.dbPath}`;
+    const guard = await runDeterministicDuplicateGuard(this.taskStore, {
       title: taskTitle || feature.title,
       description,
-      branch: branchOptions?.branch,
-      baseBranch: branchOptions?.baseBranch,
-      ...(missionId
-        ? {
-            branchContext: {
-              groupId: `mission:${missionId}`,
-              source: "mission" as const,
-              assignmentMode: branchOptions?.assignmentMode ?? "shared",
-              inheritedBaseBranch: branchOptions?.baseBranch,
-            },
-          }
-        : {}),
-    });
+    }, { lockScope });
 
-    // Link the feature to the new task (this also updates feature status to "triaged")
-    const updated = this.linkFeatureToTask(featureId, task.id);
+    let linkedTaskId: string;
+    try {
+      if (guard.action === "duplicate" && guard.existing) {
+        linkedTaskId = guard.existing.id;
+      } else {
+        const createdTask = await this.taskStore.createTask({
+          title: taskTitle || feature.title,
+          description,
+          branch: branchOptions?.branch,
+          baseBranch: branchOptions?.baseBranch,
+          ...(missionId
+            ? {
+                branchContext: {
+                  groupId: `mission:${missionId}`,
+                  source: "mission" as const,
+                  assignmentMode: branchOptions?.assignmentMode ?? "shared",
+                  inheritedBaseBranch: branchOptions?.baseBranch,
+                },
+              }
+            : {}),
+        });
+
+        if (guard.fingerprint) {
+          await this.taskStore.updateTask(createdTask.id, {
+            sourceMetadataPatch: { contentFingerprint: guard.fingerprint },
+          });
+        }
+
+        const reconcile = await reconcileDeterministicDuplicate(this.taskStore, {
+          createdTask,
+          fingerprint: guard.fingerprint,
+        });
+        linkedTaskId = reconcile.canonical.id;
+      }
+    } finally {
+      guard.releaseLock();
+    }
+
+    // Link the feature to the task (this also updates feature status to "triaged")
+    const updated = this.linkFeatureToTask(featureId, linkedTaskId);
 
     return updated;
   }

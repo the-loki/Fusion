@@ -1876,7 +1876,7 @@ export class TriageProcessor {
             parentTask = undefined;
           }
 
-          const newTask = await createAgentTask(store, {
+          const { task: newTask, wasDuplicate } = await createAgentTask(store, {
             title: params.title,
             description: params.description,
             dependencies: validDeps,
@@ -1900,7 +1900,7 @@ export class TriageProcessor {
             content: [
               {
                 type: "text" as const,
-                text: `Created child task ${newTask.id}: ${params.title || params.description.slice(0, 60)}`,
+                text: `${wasDuplicate ? "Linked existing child task" : "Created child task"} ${newTask.id}: ${params.title || params.description.slice(0, 60)}`,
               },
             ],
             details: { taskId: newTask.id },

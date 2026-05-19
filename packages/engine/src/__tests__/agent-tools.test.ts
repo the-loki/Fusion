@@ -7,6 +7,7 @@ import {
   buildQmdAgentMemorySearchArgs,
   createMemoryTools,
   createTaskCreateTool,
+  createAgentTask,
   createDelegateTaskTool,
   createTaskLogTool,
   createTaskLogToolWithContext,
@@ -62,6 +63,18 @@ vi.mock("node:child_process", async () => {
     ...actual,
     execFile: execFileMock,
   };
+});
+
+beforeEach(() => {
+  vi.spyOn(core, "runDeterministicDuplicateGuard").mockResolvedValue({
+    action: "proceed",
+    fingerprint: null,
+    releaseLock: vi.fn(),
+  });
+  vi.spyOn(core, "reconcileDeterministicDuplicate").mockImplementation(async (_store, args) => ({
+    outcome: "kept",
+    canonical: args.createdTask,
+  }));
 });
 
 describe("tool availability helpers", () => {
@@ -159,6 +172,27 @@ describe("createTaskCreateTool", () => {
     expect(store.createTask).toHaveBeenCalledWith(expect.objectContaining({
       source: { sourceType: "agent_heartbeat", sourceAgentId: "agent-123", sourceRunId: undefined },
     }), expect.objectContaining({ settings: { autoSummarizeTitles: false } }));
+  });
+
+  it("createAgentTask returns existing task on deterministic duplicate", async () => {
+    const created = { id: "FN-200", description: "duplicate", dependencies: [], column: "triage" };
+    vi.spyOn(core, "runDeterministicDuplicateGuard")
+      .mockResolvedValueOnce({ action: "proceed", fingerprint: "fp", releaseLock: vi.fn() })
+      .mockResolvedValueOnce({ action: "duplicate", fingerprint: "fp", existing: created as any, releaseLock: vi.fn() });
+
+    const store = {
+      getSettings: vi.fn().mockResolvedValue({ autoSummarizeTitles: false }),
+      getRootDir: vi.fn().mockReturnValue("/tmp"),
+      createTask: vi.fn().mockResolvedValue(created),
+    };
+
+    const first = await createAgentTask(store as any, { description: "duplicate" } as any);
+    const second = await createAgentTask(store as any, { description: "duplicate" } as any);
+
+    expect(first.task.id).toBe("FN-200");
+    expect(second.task.id).toBe("FN-200");
+    expect(second.wasDuplicate).toBe(true);
+    expect(store.createTask).toHaveBeenCalledTimes(1);
   });
 });
 
