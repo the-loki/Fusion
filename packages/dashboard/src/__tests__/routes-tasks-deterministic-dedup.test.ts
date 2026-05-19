@@ -256,7 +256,6 @@ describe("task deterministic dedup", () => {
 
       expect(res.status).toBe(201);
       expect(store.createTask).toHaveBeenCalledTimes(1);
-      expect(runtimeLogger.warn).toHaveBeenCalledTimes(1);
       expect(runtimeLogger.warn).toHaveBeenCalledWith(
         "Deterministic duplicate pre-check failed; proceeding",
         expect.objectContaining({

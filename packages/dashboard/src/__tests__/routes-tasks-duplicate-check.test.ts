@@ -259,6 +259,31 @@ describe("task duplicate detection routes", () => {
     expect(body.details.matches[0]).toMatchObject({ id: "FN-32", deterministic: true });
   });
 
+  it("near-duplicate matches are suppressed when candidate is acknowledged", async () => {
+    const { app } = buildApp([
+      createTaskFixture({
+        id: "FN-40",
+        title: "Fix missing Create PR API routes",
+        description: "Missing /pr/options /pr/preflight /pr/generate-metadata in packages/dashboard/src/routes/register-git-github.ts",
+        column: "todo",
+      }),
+    ]);
+
+    const res = await performRequest(
+      app,
+      "POST",
+      "/api/tasks",
+      JSON.stringify({
+        title: "Create PR modal 404s",
+        description: "PrCreateModal hits /api/tasks/:id/pr/options /api/tasks/:id/pr/preflight /api/tasks/:id/pr/generate-metadata",
+        acknowledgedDuplicates: ["FN-40"],
+      }),
+      { "content-type": "application/json" },
+    );
+
+    expect(res.status).toBe(201);
+  });
+
   it("done tasks do not trigger conflict", async () => {
     const { app } = buildApp([
       createTaskFixture({ id: "FN-15", title: "Duplicate warning", description: "Warn before task creation", column: "done" }),
