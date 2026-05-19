@@ -1291,7 +1291,8 @@ export class TriageProcessor {
               `Converted into subtasks: ${childTaskIds}`,
             );
             try {
-              await this.store.deleteTask(task.id);
+              // FN-5129 / FN-5131: split-close must unlink lineage children when deleting the parent.
+              await this.store.deleteTask(task.id, { removeLineageReferences: true });
               planLog.log(`✓ ${task.id} split into subtasks (${childTaskIds}) and closed`);
             } catch (err: unknown) {
               // deleteTask refuses when live tasks still depend on this id.
@@ -1435,7 +1436,8 @@ export class TriageProcessor {
                 task.id,
                 `Converted into subtasks: ${childTaskIds}`,
               );
-              await this.store.deleteTask(task.id);
+              // FN-5129 / FN-5131: split-close must unlink lineage children when deleting the parent.
+              await this.store.deleteTask(task.id, { removeLineageReferences: true });
               planLog.log(`✓ ${task.id} split into subtasks (${childTaskIds}) and closed`);
               return;
             }
@@ -2191,7 +2193,8 @@ export class TriageProcessor {
         task.id,
         `Duplicate of ${dupId} — closed`,
       );
-      await this.store.deleteTask(task.id);
+      // Pass removeLineageReferences so a duplicate-close cannot be blocked by lineage children (FN-5129 / FN-5131).
+      await this.store.deleteTask(task.id, { removeLineageReferences: true });
       return;
     }
 

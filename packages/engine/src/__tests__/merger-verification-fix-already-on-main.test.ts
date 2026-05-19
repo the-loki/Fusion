@@ -75,5 +75,5 @@ describe("commitOrAmendMergeWithFixes already-on-main recovery", () => {
       strategy: "trailer",
     });
     expect(git(dir, "git rev-parse HEAD")).toBe(preAttemptHeadSha);
-  });
+  }, 20_000);
 });

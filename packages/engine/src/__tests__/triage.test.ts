@@ -2216,7 +2216,7 @@ describe("taskCreate tool model inheritance", () => {
         "FN-500",
         expect.stringContaining("Converted into subtasks: FN-501, FN-502"),
       );
-      expect(store.deleteTask).toHaveBeenCalledWith("FN-500");
+      expect(store.deleteTask).toHaveBeenCalledWith("FN-500", { removeLineageReferences: true });
     });
   });
 
