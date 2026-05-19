@@ -34,6 +34,14 @@ interface TrackedTask {
   lastProgressAt: number;
   /** Number of activity heartbeats since the last progress event. */
   activitySinceProgress: number;
+  /** Number of ignored fn_task_update rebuffs since the last progress event. */
+  ignoredStepUpdateCount: number;
+  /**
+   * Set once the executor has already observed a loop in the current execute()
+   * lifecycle. FN-5168 only escalates to no-progress churn after the existing
+   * loop recovery path already had one chance to compact-and-resume.
+   */
+  loopObservedInLifecycle: boolean;
   /**
    * The canonical task ID used for all external callbacks (beforeRequeue,
    * onStuck, onLoopDetected).  In step-session mode the map key is a compound
@@ -48,13 +56,15 @@ export interface StuckTaskEvent {
   /** The task that was detected as stuck. */
   taskId: string;
   /** Why the task is considered stuck. */
-  reason: "inactivity" | "loop";
+  reason: "inactivity" | "loop" | "no-progress-churn";
   /** Milliseconds since the last step progress event. */
   noProgressMs: number;
   /** Milliseconds since the last activity heartbeat. */
   inactivityMs: number;
   /** Number of activity heartbeats since the last progress event. */
   activitySinceProgress: number;
+  /** Number of ignored fn_task_update rebuffs since the last progress event. */
+  ignoredStepUpdateCount: number;
   /** Whether the task should be re-queued (budget not exhausted). */
   shouldRequeue: boolean;
 }
@@ -62,6 +72,13 @@ export interface StuckTaskEvent {
 /** Minimum activity-since-progress count to classify as a loop.
  *  Prevents false positives when a task is genuinely inactive. */
 const LOOP_ACTIVITY_THRESHOLD = 60;
+
+/**
+ * FN-5168 root cause: once compact-and-resume has already fired, repeated
+ * ignored step-update rebuffs are a strong deterministic signal that the agent
+ * is still churning on completed work instead of advancing.
+ */
+const NO_PROGRESS_CHURN_THRESHOLD = 25;
 
 export interface StuckTaskDetectorOptions {
   /** Polling interval in milliseconds. Default: 30000 (30 seconds). */
@@ -73,7 +90,7 @@ export interface StuckTaskDetectorOptions {
   /** Called before re-queuing a killed task. Return false to prevent re-queue
    *  (caller is responsible for marking the task as terminally failed).
    *  Used by SelfHealingManager to enforce stuck kill budgets. */
-  beforeRequeue?: (taskId: string, reason: "inactivity" | "loop") => Promise<boolean>;
+  beforeRequeue?: (taskId: string, reason: "inactivity" | "loop" | "no-progress-churn", event: StuckTaskEvent) => Promise<boolean>;
   /** Pre-kill callback invoked ONLY when reason is "loop".
    *  Called BEFORE session.dispose() / moveTask("todo") so the caller can
    *  attempt in-process recovery (e.g. compact-and-resume) without killing
@@ -93,7 +110,7 @@ export class StuckTaskDetector {
   private interval: ReturnType<typeof setInterval> | null = null;
   private pollIntervalMs: number;
   private onStuck?: (event: StuckTaskEvent) => void;
-  private beforeRequeue?: (taskId: string, reason: "inactivity" | "loop") => Promise<boolean>;
+  private beforeRequeue?: (taskId: string, reason: "inactivity" | "loop" | "no-progress-churn", event: StuckTaskEvent) => Promise<boolean>;
   private onLoopDetected?: (event: StuckTaskEvent) => Promise<boolean>;
   private paused = false;
   private exhaustedTasks = new Set<string>();
@@ -151,9 +168,13 @@ export class StuckTaskDetector {
     if (this.exhaustedTasks.has(canonicalId)) {
       void this.store.getTask(canonicalId)
         .then((task) => {
-          const isExhausted = task.status === "failed" && task.error?.startsWith("STUCK_LOOP_EXHAUSTED:");
+          const isExhausted = task.status === "failed"
+            && (
+              task.error?.startsWith("STUCK_LOOP_EXHAUSTED:")
+              || task.error?.startsWith("STUCK_NO_PROGRESS_CHURN:")
+            );
           if (isExhausted) {
-            stuckLog.log(`Skipping tracking for ${trackingKey} (canonical=${canonicalId}) — task is in STUCK_LOOP_EXHAUSTED terminal state`);
+            stuckLog.log(`Skipping tracking for ${trackingKey} (canonical=${canonicalId}) — task is in terminal stuck state`);
             return;
           }
           this.exhaustedTasks.delete(canonicalId);
@@ -163,6 +184,8 @@ export class StuckTaskDetector {
             lastActivity: now,
             lastProgressAt: now,
             activitySinceProgress: 0,
+            ignoredStepUpdateCount: 0,
+            loopObservedInLifecycle: false,
             canonicalTaskId: canonicalId,
           });
           stuckLog.log(`Tracking task ${trackingKey} (canonical=${canonicalId}, total tracked: ${this.tracked.size})`);
@@ -176,6 +199,8 @@ export class StuckTaskDetector {
             lastActivity: now,
             lastProgressAt: now,
             activitySinceProgress: 0,
+            ignoredStepUpdateCount: 0,
+            loopObservedInLifecycle: false,
             canonicalTaskId: canonicalId,
           });
           stuckLog.log(`Tracking task ${trackingKey} (canonical=${canonicalId}, total tracked: ${this.tracked.size})`);
@@ -189,6 +214,8 @@ export class StuckTaskDetector {
       lastActivity: now,
       lastProgressAt: now,
       activitySinceProgress: 0,
+      ignoredStepUpdateCount: 0,
+      loopObservedInLifecycle: false,
       canonicalTaskId: canonicalId,
     });
     stuckLog.log(`Tracking task ${trackingKey} (canonical=${canonicalId}, total tracked: ${this.tracked.size})`);
@@ -254,6 +281,8 @@ export class StuckTaskDetector {
     if (entry) {
       entry.lastProgressAt = Date.now();
       entry.activitySinceProgress = 0;
+      entry.ignoredStepUpdateCount = 0;
+      entry.loopObservedInLifecycle = false;
       return;
     }
 
@@ -263,6 +292,8 @@ export class StuckTaskDetector {
       if (trackedEntry.canonicalTaskId === taskId) {
         trackedEntry.lastProgressAt = Date.now();
         trackedEntry.activitySinceProgress = 0;
+        trackedEntry.ignoredStepUpdateCount = 0;
+        trackedEntry.loopObservedInLifecycle = false;
         return;
       }
     }
@@ -292,6 +323,32 @@ export class StuckTaskDetector {
     return this.tracked.get(taskId)?.lastProgressAt;
   }
 
+  getIgnoredStepUpdateCount(taskId: string): number | undefined {
+    return this.tracked.get(taskId)?.ignoredStepUpdateCount;
+  }
+
+  recordIgnoredStepUpdate(taskId: string): void {
+    const entry = this.tracked.get(taskId);
+    if (entry) {
+      entry.lastActivity = Date.now();
+      entry.activitySinceProgress++;
+      entry.ignoredStepUpdateCount++;
+      if (entry.ignoredStepUpdateCount <= 3 || entry.ignoredStepUpdateCount % 10 === 0) {
+        stuckLog.log(
+          `Ignored step update recorded for ${taskId} ` +
+          `(ignored=${entry.ignoredStepUpdateCount}, sinceProgress=${entry.activitySinceProgress})`,
+        );
+      }
+    }
+  }
+
+  markLoopObserved(taskId: string): void {
+    const entry = this.tracked.get(taskId);
+    if (entry) {
+      entry.loopObservedInLifecycle = true;
+    }
+  }
+
   /**
    * Check whether a task is stuck (no activity for longer than timeout).
    */
@@ -305,7 +362,7 @@ export class StuckTaskDetector {
    * Classify why a task is stuck.
    * Returns null if the task is not stuck.
    */
-  classifyStuckReason(taskId: string, timeoutMs: number): "inactivity" | "loop" | null {
+  classifyStuckReason(taskId: string, timeoutMs: number): "inactivity" | "loop" | "no-progress-churn" | null {
     const entry = this.tracked.get(taskId);
     if (!entry) return null;
 
@@ -316,6 +373,16 @@ export class StuckTaskDetector {
     // Check inactivity first — if there's been zero activity, it's just inactive
     if (inactivityMs >= timeoutMs) {
       return "inactivity";
+    }
+
+    // FN-5168: only escalate to churn after loop recovery already had one chance
+    // in this execute() lifecycle and the agent kept hammering ignored step updates.
+    if (
+      noProgressMs >= timeoutMs
+      && entry.loopObservedInLifecycle
+      && entry.ignoredStepUpdateCount >= NO_PROGRESS_CHURN_THRESHOLD
+    ) {
+      return "no-progress-churn";
     }
 
     // Check loop — active but not making progress, with enough activity to be a real loop
@@ -347,6 +414,7 @@ export class StuckTaskDetector {
     const inactivityMs = now - entry.lastActivity;
     const noProgressMs = now - entry.lastProgressAt;
     const activitySinceProgress = entry.activitySinceProgress;
+    const ignoredStepUpdateCount = entry.ignoredStepUpdateCount;
 
     // Classify the reason
     const reason = this.classifyStuckReason(taskId, timeoutMs) ?? "inactivity";
@@ -358,7 +426,8 @@ export class StuckTaskDetector {
       `Killing stuck task ${taskId} (canonical=${canonicalId}, reason=${reason}, ` +
       `no progress for ~${noProgressMin}min, ` +
       `no activity for ~${elapsedMin}min, ` +
-      `${activitySinceProgress} events since last progress)`,
+      `${activitySinceProgress} events since last progress, ` +
+      `${ignoredStepUpdateCount} ignored step-update rebuffs)`,
     );
 
     // Log the event to the task log using the canonical task ID so it
@@ -369,25 +438,11 @@ export class StuckTaskDetector {
         `Task terminated due to stuck agent session (reason=${reason}, ` +
         `no progress for ~${noProgressMin}min, ` +
         `no activity for ~${elapsedMin}min, ` +
-        `${activitySinceProgress} events since last progress)`,
+        `${activitySinceProgress} events since last progress, ` +
+        `${ignoredStepUpdateCount} ignored step-update rebuffs)`,
       );
     } catch (err) {
       stuckLog.error(`Failed to log stuck event for ${canonicalId}:`, err);
-    }
-
-    // Check stuck kill budget BEFORE disposing the session so the result
-    // is available to the executor's cleanup path via the event payload.
-    let shouldRequeue = true;
-    if (this.beforeRequeue) {
-      try {
-        shouldRequeue = await this.beforeRequeue(canonicalId, reason);
-        if (!shouldRequeue) {
-          stuckLog.log(`${canonicalId} exceeded stuck kill budget — not re-queuing`);
-        }
-      } catch (err) {
-        stuckLog.error(`beforeRequeue check failed for ${canonicalId}:`, err);
-        // Fall through with shouldRequeue=true — safer than dropping the task
-      }
     }
 
     // Build the event payload using the canonical task ID so executor callbacks
@@ -398,8 +453,29 @@ export class StuckTaskDetector {
       noProgressMs,
       inactivityMs,
       activitySinceProgress,
-      shouldRequeue,
+      ignoredStepUpdateCount,
+      shouldRequeue: true,
     };
+
+    // Check stuck kill budget BEFORE disposing the session so the result
+    // is available to the executor's cleanup path via the event payload.
+    let shouldRequeue = true;
+    if (this.beforeRequeue) {
+      try {
+        shouldRequeue = await this.beforeRequeue(canonicalId, reason, event);
+        if (!shouldRequeue) {
+          stuckLog.log(
+            reason === "no-progress-churn"
+              ? `${canonicalId} hit no-progress churn terminalization — not re-queuing`
+              : `${canonicalId} exceeded stuck kill budget — not re-queuing`,
+          );
+        }
+      } catch (err) {
+        stuckLog.error(`beforeRequeue check failed for ${canonicalId}:`, err);
+        // Fall through with shouldRequeue=true — safer than dropping the task
+      }
+    }
+    event.shouldRequeue = shouldRequeue;
 
     // ── Pre-kill loop interception ──────────────────────────────────
     // When reason is "loop" and an onLoopDetected callback is registered,
@@ -433,7 +509,11 @@ export class StuckTaskDetector {
 
     if (!shouldRequeue) {
       this.exhaustedTasks.add(canonicalId);
-      stuckLog.log(`${canonicalId} untracked due to STUCK_LOOP_EXHAUSTED terminal state (no automatic retries)`);
+      stuckLog.log(
+        reason === "no-progress-churn"
+          ? `${canonicalId} untracked due to STUCK_NO_PROGRESS_CHURN terminal state (no automatic retries)`
+          : `${canonicalId} untracked due to STUCK_LOOP_EXHAUSTED terminal state (no automatic retries)`,
+      );
     }
 
     // Dispose the agent session after listeners have marked the abort.
@@ -472,6 +552,8 @@ export class StuckTaskDetector {
       entry.lastActivity = now;
       entry.lastProgressAt = now;
       entry.activitySinceProgress = 0;
+      entry.ignoredStepUpdateCount = 0;
+      entry.loopObservedInLifecycle = false;
     }
   }
 
@@ -492,6 +574,8 @@ export class StuckTaskDetector {
    *
    * Detection rules:
    * - **inactivity**: `lastActivity` older than `taskStuckTimeoutMs` (no heartbeats at all)
+   * - **no-progress-churn**: after an earlier loop recovery in the same execute() lifecycle,
+   *   `lastProgressAt` still exceeds `taskStuckTimeoutMs` and ignored step-update rebuffs reach 25+
    * - **loop**: `lastProgressAt` older than `taskStuckTimeoutMs` AND `activitySinceProgress >= 60`
    *   (agent is actively doing things but not advancing steps)
    */
