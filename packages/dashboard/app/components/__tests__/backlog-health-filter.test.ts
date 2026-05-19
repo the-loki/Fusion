@@ -10,6 +10,7 @@ describe("isBacklogHealthInsight", () => {
     "Backlog health: foo",
     "Backlog pressure detected 2026-05-18",
     "Stale paused todo surfaced [stale-paused-todo]: …",
+    "Backlog health: dependency-blocked todos 2026-05-18",
   ])("matches backlog-health prefix: %s", (title) => {
     expect(isBacklogHealthInsight({ title })).toBe(true);
   });
