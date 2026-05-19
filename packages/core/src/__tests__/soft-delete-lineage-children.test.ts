@@ -119,7 +119,7 @@ describe("TaskStore lineage child delete/archive guards", () => {
     await expect(store.cleanupArchivedTasks()).resolves.toEqual([]);
   });
 
-  it("idempotent re-delete remains a no-op even if a lineage child is attached later", async () => {
+  it("re-delete of already soft-deleted parent is a no-op even with late lineage child (FN-5127)", async () => {
     const { store, parent } = await createParentAndChild();
     await store.deleteTask(parent.id, { removeLineageReferences: true });
     const before = (store as any).readTaskFromDb(parent.id, { includeDeleted: true });
@@ -129,9 +129,14 @@ describe("TaskStore lineage child delete/archive guards", () => {
       .prepare("UPDATE tasks SET sourceParentTaskId = ?, sourceType = ?, updatedAt = ? WHERE id = ?")
       .run(parent.id, "task_refine", new Date().toISOString(), lateChild.id);
 
-    await expect(store.deleteTask(parent.id)).resolves.toEqual(expect.objectContaining({ id: parent.id }));
+    const listener = vi.fn();
+    store.on("task:deleted", listener);
+    store.on("task:updated", listener);
+
+    await expect(store.deleteTask(parent.id)).resolves.toMatchObject({ id: parent.id, deletedAt: before.deletedAt });
     const after = (store as any).readTaskFromDb(parent.id, { includeDeleted: true });
     expect(after?.deletedAt).toBe(before.deletedAt);
+    expect(listener).not.toHaveBeenCalled();
   });
 
   it.each(["task_refine", "task_duplicate", "recovery"] as const)("preserves sourceType %s when rewriting lineage child", async (sourceType) => {
