@@ -6250,16 +6250,21 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
    * Archive all tasks currently in the "done" column.
    * Returns an array of archived tasks.
    */
-  async archiveAllDone(): Promise<Task[]> {
+  async archiveAllDone(options?: { removeLineageReferences?: boolean }): Promise<Task[]> {
     const doneTasks = await this.listTasks({ slim: true, column: "done" });
-    
+
     if (doneTasks.length === 0) {
       return [];
     }
 
     // Archive all done tasks concurrently
     const archivedTasks = await Promise.all(
-      doneTasks.map((task) => this.archiveTask(task.id))
+      doneTasks.map((task) =>
+        this.archiveTask(task.id, {
+          cleanup: true,
+          removeLineageReferences: options?.removeLineageReferences,
+        })
+      )
     );
 
     return archivedTasks;
@@ -6268,10 +6273,13 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   /**
    * Archive a done task (move from done → archived).
    * Logs the action and emits `task:moved` event.
-   * @param cleanup - When true, also attempts branch cleanup before writing the
-   *                  cold archive entry. Active task storage is always removed.
+   * @param optionsOrCleanup - Boolean cleanup flag for backward compatibility,
+   * or an options object that also allows removeLineageReferences.
    */
-  async archiveTask(id: string, cleanup: boolean = true): Promise<Task> {
+  async archiveTask(
+    id: string,
+    optionsOrCleanup: boolean | { cleanup?: boolean; removeLineageReferences?: boolean } = true,
+  ): Promise<Task> {
     return this.withTaskLock(id, async () => {
       const dir = this.taskDir(id);
       const task = await this.readTaskJson(dir);
@@ -6285,6 +6293,13 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         throw new Error(
           `Cannot archive ${id}: task is in '${task.column}', must be in 'done'`,
         );
+      }
+
+      const cleanup = typeof optionsOrCleanup === "boolean" ? optionsOrCleanup : optionsOrCleanup.cleanup !== false;
+      const removeLineageReferences = typeof optionsOrCleanup === "object" && optionsOrCleanup.removeLineageReferences === true;
+      const lineageChildIds = this.findLiveLineageChildren(id);
+      if (lineageChildIds.length > 0 && !removeLineageReferences) {
+        throw new TaskHasLineageChildrenError(id, lineageChildIds);
       }
 
       task.column = "archived";
@@ -6314,9 +6329,13 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       const entry = await this.taskToArchiveEntry(task, task.columnMovedAt);
       this.archiveDb.upsert(entry);
 
-      this.clearLinkedAgentTaskIds(id, task.updatedAt);
-      this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
-      this.db.bumpLastModified();
+      let rewrittenLineageChildren: Task[] = [];
+      this.db.transaction(() => {
+        rewrittenLineageChildren = this.rewriteLineageChildrenForRemoval(id, lineageChildIds);
+        this.clearLinkedAgentTaskIds(id, task.updatedAt);
+        this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
+        this.db.bumpLastModified();
+      });
 
       const { rm } = await import("node:fs/promises");
       await rm(dir, { recursive: true, force: true });
@@ -6325,6 +6344,9 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
         this.taskCache.delete(id);
       }
 
+      for (const lineageChild of rewrittenLineageChildren) {
+        this.emit("task:updated", lineageChild);
+      }
       this.emit("task:moved", { task, from: "done" as Column, to: "archived" as Column, source: "engine" });
       return this.archiveEntryToTask(entry, false);
     });
@@ -8102,6 +8124,10 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
   /**
    * Cleanup any legacy active archived tasks by writing compact entries to
    * archive.db and removing task directories.
+   *
+   * Note: lineage pointers to archived/deleted parents are tolerated here.
+   * This cleanup runs on already-archived rows, and lineage integrity gates
+   * are enforced earlier on deleteTask/archiveTask for live children only.
    */
   async cleanupArchivedTasks(): Promise<string[]> {
     const archivedTasks = await this.listTasks({ column: "archived" });
