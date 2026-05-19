@@ -6418,15 +6418,9 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
 
       // Clear transient fields that should not persist into "done" column.
       // Matches the clearing done by moveTask() for consistency — archived
-      // tasks may have been archived with stale worktree/status/error/recovery
-      // state that should not reappear after unarchiving.
-      task.status = undefined;
-      task.error = undefined;
-      task.worktree = undefined;
-      task.blockedBy = undefined;
-      task.overlapBlockedBy = undefined;
-      task.recoveryRetryCount = undefined;
-      task.nextRecoveryAt = undefined;
+      // tasks may have been archived with stale state that should not reappear
+      // after unarchiving.
+      this.clearDoneTransientFields(task);
 
       task.log.push({
         timestamp: task.columnMovedAt,
@@ -6478,7 +6472,11 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
       || task.blockedBy !== undefined
       || task.overlapBlockedBy !== undefined
       || task.recoveryRetryCount !== undefined
-      || task.nextRecoveryAt !== undefined;
+      || task.nextRecoveryAt !== undefined
+      || task.paused !== undefined
+      || task.userPaused !== undefined
+      || task.pausedByAgentId !== undefined
+      || task.pausedReason !== undefined;
 
     task.status = undefined;
     task.error = undefined;
@@ -6487,6 +6485,10 @@ export class TaskStore extends EventEmitter<TaskStoreEvents> {
     task.overlapBlockedBy = undefined;
     task.recoveryRetryCount = undefined;
     task.nextRecoveryAt = undefined;
+    task.paused = undefined;
+    task.userPaused = undefined;
+    task.pausedByAgentId = undefined;
+    task.pausedReason = undefined;
 
     return changed;
   }
