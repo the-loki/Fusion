@@ -1871,6 +1871,10 @@ describe("SelfHealingManager", () => {
   });
 
   describe("recoverMissingWorktreeReviewFailures", () => {
+    beforeEach(() => {
+      (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({ autoMerge: true, globalPause: false, enginePaused: false });
+    });
+
     it("does not hard-code unusable-worktree assertion literals in self-healing", async () => {
       const source = await readFile(new URL("../self-healing.ts", import.meta.url), "utf8");
       expect(source).not.toMatch(/Refusing to start coding agent/);
@@ -2225,6 +2229,10 @@ describe("SelfHealingManager", () => {
   });
 
   describe("recoverPartialProgressNoTaskDoneFailures", () => {
+    beforeEach(() => {
+      (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({ autoMerge: true, globalPause: false, enginePaused: false });
+    });
+
     it("requeues partial-progress no-task_done failures with bounded retry count", async () => {
       const managerWithRecovery = new SelfHealingManager(store, {
         rootDir: "/tmp/test-project",
@@ -2364,6 +2372,10 @@ describe("SelfHealingManager", () => {
   });
 
   describe("recoverMergedReviewTasks", () => {
+    beforeEach(() => {
+      (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({ autoMerge: true, globalPause: false, enginePaused: false, taskStuckTimeoutMs: 1_000 });
+    });
+
     it("finalizes stale merging tasks when a task commit already landed", async () => {
       const managerWithRecovery = new SelfHealingManager(store, {
         rootDir: "/tmp/test-project",
@@ -7577,5 +7589,58 @@ describe("SelfHealingManager no-commits-expected audit", () => {
     expect(getSelfHealingLogger().warn).toHaveBeenCalledWith(expect.stringContaining("FN-900"));
     expect(store.updateTask).not.toHaveBeenCalled();
     expect(store.moveTask).not.toHaveBeenCalled();
+  });
+});
+
+describe("autoMerge gating for mutating in-review sweeps (FN-5147)", () => {
+  let store: TaskStore & EventEmitter;
+  let manager: SelfHealingManager;
+
+  beforeEach(() => {
+    store = createMockStore();
+    manager = new SelfHealingManager(store, { rootDir: "/tmp/test-project" });
+    (store.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      autoMerge: false,
+      globalPause: false,
+      enginePaused: false,
+      taskStuckTimeoutMs: 1_000,
+      maxPostReviewFixes: 1,
+    });
+  });
+
+  afterEach(() => {
+    manager.stop();
+  });
+
+  it.each([
+    "recoverReviewTasksWithFailedPreMergeSteps",
+    "recoverStaleIncompleteReviewTasks",
+    "recoverGhostReviewTasks",
+    "recoverInterruptedMergingTasks",
+    "recoverMergedReviewTasks",
+    "recoverStuckMergeDeadlocks",
+    "recoverOrphanOnlyScopeViolations",
+    "recoverAlreadyMergedReviewTasks",
+    "recoverMissingWorktreeReviewFailures",
+    "recoverPartialProgressNoTaskDoneFailures",
+  ] as const)("skips entirely when autoMerge is disabled (respects PR-based review flow): %s", async (methodName) => {
+    if (methodName === "recoverReviewTasksWithFailedPreMergeSteps") {
+      manager = new SelfHealingManager(store, { rootDir: "/tmp/test-project", recoverFailedPreMergeStep: vi.fn() });
+    }
+    const result = await (manager as any)[methodName]();
+    expect(result).toBe(0);
+    expect(store.listTasks).not.toHaveBeenCalled();
+    expect(store.moveTask).not.toHaveBeenCalled();
+    expect(store.updateTask).not.toHaveBeenCalled();
+    expect(store.logEntry).not.toHaveBeenCalled();
+  });
+
+  it("skips entirely when autoMerge is disabled (respects PR-based review flow): recoverCompletionHandoffLimbo", async () => {
+    const result = await manager.recoverCompletionHandoffLimbo();
+    expect(result).toBeUndefined();
+    expect(store.listTasks).not.toHaveBeenCalled();
+    expect(store.moveTask).not.toHaveBeenCalled();
+    expect(store.updateTask).not.toHaveBeenCalled();
+    expect(store.logEntry).not.toHaveBeenCalled();
   });
 });

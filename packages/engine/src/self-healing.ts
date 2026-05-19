@@ -3427,11 +3427,14 @@ export class SelfHealingManager {
     }
   }
 
+  /**
+   * No-op when `settings.autoMerge === false` — PR-based review flow owns lifecycle until human merge.
+   */
   async finalizeNoOpReviewTasks(): Promise<number> {
     try {
       const settings = await this.store.getSettings();
       if (settings.globalPause || settings.enginePaused) return 0;
-      if (!settings.autoMerge) return 0;
+      if (settings.autoMerge === false) return 0;
 
       const tasks = await this.store.listTasks({ column: "in-review", slim: true });
       const candidates = tasks.filter((t) =>
@@ -3685,7 +3688,7 @@ export class SelfHealingManager {
       // "pull-request"`) — see GitHub issue #21.
       const settings = await this.store.getSettings();
       if (settings.globalPause || settings.enginePaused) return 0;
-      if (!settings.autoMerge) return 0;
+      if (settings.autoMerge === false) return 0;
 
       const tasks = await this.store.listTasks({ column: "in-review", slim: true });
 
@@ -3800,7 +3803,7 @@ export class SelfHealingManager {
     try {
       const settings = await this.store.getSettings();
       if (settings.globalPause || settings.enginePaused) return 0;
-      if (!settings.autoMerge) return 0;
+      if (settings.autoMerge === false) return 0;
       const maxFixes = settings.maxPostReviewFixes ?? 1;
       if (!Number.isFinite(maxFixes) || maxFixes <= 0) return 0;
 
@@ -3890,7 +3893,7 @@ export class SelfHealingManager {
     try {
       const settings = await this.store.getSettings();
       if (settings.globalPause || settings.enginePaused) return 0;
-      if (!settings.autoMerge) return 0;
+      if (settings.autoMerge === false) return 0;
       const timeoutMs = settings.taskStuckTimeoutMs;
       if (!timeoutMs || timeoutMs <= 0) return 0;
 
@@ -3966,7 +3969,7 @@ export class SelfHealingManager {
     try {
       const settings = await this.store.getSettings();
       if (settings.globalPause || settings.enginePaused) return 0;
-      if (!settings.autoMerge) return 0;
+      if (settings.autoMerge === false) return 0;
 
       const cycleStartMs = Date.now();
       const timeoutMs = settings.taskStuckTimeoutMs;
@@ -4097,7 +4100,7 @@ export class SelfHealingManager {
     try {
       const settings = await this.store.getSettings();
       if (settings.globalPause || settings.enginePaused) return 0;
-      if (!settings.autoMerge) return 0;
+      if (settings.autoMerge === false) return 0;
 
       const cycleStartMs = Date.now();
       const thresholdMs = settings.inReviewStalledThresholdMs;
@@ -4254,7 +4257,7 @@ export class SelfHealingManager {
       const timeoutMs = settings.taskStuckTimeoutMs;
       if (!timeoutMs || timeoutMs <= 0) return 0;
       if (settings.globalPause || settings.enginePaused) return 0;
-      if (!settings.autoMerge) return 0;
+      if (settings.autoMerge === false) return 0;
 
       const now = Date.now();
       const executingIds = this.options.getExecutingTaskIds?.() ?? new Set<string>();
@@ -4319,7 +4322,7 @@ export class SelfHealingManager {
     try {
       const settings = await this.store.getSettings();
       if (settings.globalPause || settings.enginePaused) return 0;
-      if (!settings.autoMerge) return 0;
+      if (settings.autoMerge === false) return 0;
       const timeoutMs = settings.taskStuckTimeoutMs;
       if (!timeoutMs || timeoutMs <= 0) return 0;
 
@@ -4606,7 +4609,7 @@ export class SelfHealingManager {
     try {
       const settings = await this.store.getSettings();
       if (settings.globalPause || settings.enginePaused) return 0;
-      if (!settings.autoMerge) return 0;
+      if (settings.autoMerge === false) return 0;
 
       const tasks = await this.store.listTasks({ column: "in-review", slim: true });
 
@@ -4705,7 +4708,7 @@ export class SelfHealingManager {
     try {
       const settings = await this.store.getSettings();
       if (settings.globalPause || settings.enginePaused) return 0;
-      if (!settings.autoMerge) return 0;
+      if (settings.autoMerge === false) return 0;
 
       const now = Date.now();
       const inReview = await this.store.listTasks({ column: "in-review", slim: true });
@@ -4861,7 +4864,7 @@ export class SelfHealingManager {
     try {
       const settings = await this.store.getSettings();
       if (settings.globalPause || settings.enginePaused) return 0;
-      if (!settings.autoMerge) return 0;
+      if (settings.autoMerge === false) return 0;
 
       const executingIds = this.options.getExecutingTaskIds?.() ?? new Set<string>();
       const tasks = await this.store.listTasks({ column: "in-review", slim: true });
@@ -5019,7 +5022,7 @@ export class SelfHealingManager {
     try {
       const settings = await this.store.getSettings();
       if (settings.globalPause || settings.enginePaused) return 0;
-      if (!settings.autoMerge) return 0;
+      if (settings.autoMerge === false) return 0;
 
       const executingIds = this.options.getExecutingTaskIds?.() ?? new Set<string>();
       const tasks = await this.store.listTasks({ column: "in-review", slim: true });
@@ -5141,7 +5144,7 @@ export class SelfHealingManager {
   async recoverCompletionHandoffLimbo(): Promise<void> {
     const settings = await this.store.getSettings();
     if (settings.globalPause || settings.enginePaused) return;
-    if (!settings.autoMerge) return;
+    if (settings.autoMerge === false) return;
 
     const tasks = await this.store.listTasks({ column: "in-review", slim: false });
     const now = Date.now();
@@ -6065,7 +6068,7 @@ export class SelfHealingManager {
     try {
       const settings = await this.store.getSettings();
       if (settings.globalPause || settings.enginePaused) return 0;
-      if (!settings.autoMerge) return 0;
+      if (settings.autoMerge === false) return 0;
 
       const tasks = await this.store.listTasks({ column: "in-review", slim: true });
       const candidates = tasks.filter((task) =>
@@ -6135,7 +6138,7 @@ export class SelfHealingManager {
     try {
       const settings = await this.store.getSettings();
       if (settings.globalPause || settings.enginePaused) return 0;
-      if (!settings.autoMerge) return 0;
+      if (settings.autoMerge === false) return 0;
 
       const tasks = await this.store.listTasks({ column: "in-review", slim: true });
 
