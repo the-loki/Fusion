@@ -67,6 +67,7 @@ const BOARD_STALL_NOTIFICATION_COOLDOWN_MS = 60 * 60_000;
 export const STALE_ACTIVE_BRANCH_EXECUTION_GRACE_MS = 10 * 60_000;
 export const COMPLETION_HANDOFF_LIMBO_GRACE_MS = 5 * 60_000;
 export const MAX_COMPLETION_HANDOFF_LIMBO_RECOVERIES = 3;
+const ORPHAN_RESCUE_FRESH_DB_GRACE_MS = 5_000;
 
 export async function archiveAsGhostBug(
   store: TaskStore,
@@ -531,6 +532,7 @@ export class SelfHealingManager {
   private orphanArchivedAcknowledged = new Set<string>();
   private finalizeUnprovenWarned = new Set<string>();
   private maintenanceTickCounter = 0;
+  private readonly processBootStartedAt = Date.now();
   private dependencyBlockedTodoReporter: DependencyBlockedTodoReporter | null = null;
 
   private boardStallWindow: {
@@ -6767,12 +6769,44 @@ export class SelfHealingManager {
    */
   async cleanupOrphanedBranches(): Promise<number> {
     try {
+      const bootstrappedAt = this.store.getBootstrappedAt();
+      const allTasks = await this.store.listTasks({ slim: true, includeArchived: true });
+      const taskCount = allTasks.length;
+      const isFreshDb =
+        bootstrappedAt !== null
+        && bootstrappedAt >= this.processBootStartedAt - ORPHAN_RESCUE_FRESH_DB_GRACE_MS
+        && taskCount === 0;
+      if (isFreshDb) {
+        log.log(
+          `[self-healing] orphan-rescue-skipped-fresh-db bootstrappedAt=${bootstrappedAt} processBootStartedAt=${this.processBootStartedAt} taskCount=${taskCount}`,
+        );
+        try {
+          const auditor = createRunAuditor(this.store, {
+            runId: generateSyntheticRunId("self-heal-orphan-rescue", "fresh-db"),
+            agentId: "self-healing",
+            phase: "orphan-branch-rescue",
+          });
+          await auditor.git({
+            type: "self-healing:orphan-rescue-skipped-fresh-db",
+            target: this.options.rootDir,
+            metadata: {
+              bootstrappedAt,
+              processBootStartedAt: this.processBootStartedAt,
+              taskCount,
+              candidateBranches: 0,
+            },
+          });
+        } catch (auditErr: unknown) {
+          log.warn(`Failed to write self-healing:orphan-rescue-skipped-fresh-db run-audit event: ${auditErr instanceof Error ? auditErr.message : String(auditErr)}`);
+        }
+        return 0;
+      }
+
       const orphaned = await scanOrphanedBranches(this.options.rootDir, this.store);
       if (orphaned.length === 0) return 0;
 
       let cleaned = 0;
       const prunedBranches: string[] = [];
-      const allTasks = await this.store.listTasks({ slim: true, includeArchived: true });
       const taskById = new Map(allTasks.map((task) => [task.id.toUpperCase(), task]));
 
       for (const branch of orphaned) {
