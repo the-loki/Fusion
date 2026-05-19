@@ -69,6 +69,11 @@ function cleanupTmpDirsSync(): void {
   }
 }
 
+// Full-suite worker shutdown can skip Vitest's normal afterAll timing if the worker
+// is already draining, so keep a process-level sync cleanup backstop for kb-db-test-*.
+process.once("beforeExit", cleanupTmpDirsSync);
+process.once("exit", cleanupTmpDirsSync);
+
 afterAll(() => {
   cleanupTmpDirsSync();
 });
