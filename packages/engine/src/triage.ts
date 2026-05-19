@@ -30,6 +30,7 @@ import {
   resolvePlanningSessionModel,
 } from "./agent-session-helpers.js";
 import { reviewStep, type ReviewVerdict } from "./reviewer.js";
+import { detectDanglingTaskDocReferences, formatDanglingDiagnostic } from "./spec-validation/task-document-references.js";
 import { buildSessionSkillContext } from "./session-skill-context.js";
 import { PRIORITY_SPECIFY, type AgentSemaphore } from "./concurrency.js";
 import { AgentLogger } from "./agent-logger.js";
@@ -310,6 +311,8 @@ You MUST call \`fn_review_spec()\` after writing the PROMPT.md. Do not finish wi
 - Bad: generic wording, vague steps ("implement feature"), missing tests, or file scope that cannot realistically satisfy requested behavior.
 - Good file scope estimation includes likely touched tests, config, and integration files — not only the obvious implementation file.
 
+Never reference a \`.fusion/tasks/<id>/<file>\` artifact in Context, Steps, or File Scope unless (a) the file already exists, (b) the step explicitly creates it (listed as \`(new)\` under Artifacts), or (c) it is \`PROMPT.md\` / \`task.json\` / \`attachments/*\` for a sibling task. Save planning scratch as task documents via \`fn_task_document_write\`, not as files on disk.
+
 ## Output
 Write the PROMPT.md directly using the write tool, then call \`fn_review_spec()\` for review.
 
@@ -516,6 +519,8 @@ For audit/forensic/historical reconciliation tasks that target a different task 
 After writing the PROMPT.md, call \`fn_review_spec()\` to confirm the spec.
 
 Fast-mode specs are auto-approved — the review tool will return APPROVE immediately without spawning an independent reviewer. You do NOT need to wait for or iterate on review feedback.
+
+Never reference a \`.fusion/tasks/<id>/<file>\` artifact in Context, Steps, or File Scope unless (a) the file already exists, (b) the step explicitly creates it (listed as \`(new)\` under Artifacts), or (c) it is \`PROMPT.md\` / \`task.json\` / \`attachments/*\` for a sibling task. Save planning scratch as task documents via \`fn_task_document_write\`, not as files on disk.
 
 ## Output
 Write the PROMPT.md directly using the write tool, then call \`fn_review_spec()\` to confirm.`;
@@ -1995,6 +2000,21 @@ export class TriageProcessor {
                   text: "UNAVAILABLE — PROMPT.md file not found or empty. Write the specification first, then call fn_review_spec.",
                 },
               ],
+              details: {},
+            };
+          }
+
+          const danglingRefs = await detectDanglingTaskDocReferences(promptContent, {
+            rootDir,
+            taskId,
+          });
+          if (danglingRefs.length > 0) {
+            const diagnostic = formatDanglingDiagnostic(danglingRefs);
+            specReviewVerdictRef.current = "REVISE";
+            planLog.warn(`${taskId}: ${diagnostic}`);
+            await store.logEntry(taskId, "Spec review: REVISE (dangling task-document references)");
+            return {
+              content: [{ type: "text" as const, text: diagnostic }],
               details: {},
             };
           }
