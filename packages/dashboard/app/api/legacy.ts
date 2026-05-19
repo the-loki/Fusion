@@ -519,8 +519,16 @@ export function mergeTask(id: string, projectId?: string): Promise<MergeResult> 
   return api<MergeResult>(withProjectId(`/tasks/${id}/merge`, projectId), { method: "POST" });
 }
 
+export type RecoverBranchBindingOutcome =
+  | { taskId: string; result: "applied"; branch: string; aheadCount: number; integrationBase: string; previousBranch: string | null }
+  | { taskId: string; result: "skipped"; reason: "binding-intact" | "no-live-branch" | "ambiguous-candidates" | "no-unique-work"; candidates?: Array<{ branch: string; aheadCount: number }> };
+
 export function retryTask(id: string, projectId?: string): Promise<Task> {
   return api<Task>(withProjectId(`/tasks/${id}/retry`, projectId), { method: "POST" });
+}
+
+export function recoverBranchBinding(id: string, projectId?: string): Promise<RecoverBranchBindingOutcome> {
+  return api<RecoverBranchBindingOutcome>(withProjectId(`/tasks/${id}/recover-branch-binding`, projectId), { method: "POST" });
 }
 
 export function resetTask(id: string, projectId?: string): Promise<Task> {

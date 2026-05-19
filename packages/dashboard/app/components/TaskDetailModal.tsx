@@ -19,7 +19,8 @@ import {
   resolveTaskPlanningModel,
   resolveTaskValidatorModel,
 } from "@fusion/core";
-import { uploadAttachment, deleteAttachment, updateTask, pauseTask, unpauseTask, fetchTaskDetail, fetchSettings, fetchGlobalSettings, requestSpecRevision, rebuildTaskSpec, approvePlan, rejectPlan, refineTask, fetchWorkflowResults, assignTask, fetchAgents, fetchAgent } from "../api";
+import { uploadAttachment, deleteAttachment, updateTask, pauseTask, unpauseTask, fetchTaskDetail, fetchSettings, fetchGlobalSettings, requestSpecRevision, rebuildTaskSpec, approvePlan, rejectPlan, refineTask, fetchWorkflowResults, assignTask, fetchAgents, fetchAgent, recoverBranchBinding } from "../api";
+import type { RecoverBranchBindingOutcome } from "../api";
 import type { ToastType } from "../hooks/useToast";
 import { useAgentLogs } from "../hooks/useAgentLogs";
 import { useConfirm } from "../hooks/useConfirm";
@@ -635,6 +636,8 @@ export function TaskDetailContent({
   const [githubTrackingEnabledDraft, setGithubTrackingEnabledDraft] = useState<boolean | null>(null);
   const [githubRepoOverrideError, setGithubRepoOverrideError] = useState<string | null>(null);
   const [isSavingGithubTracking, setIsSavingGithubTracking] = useState(false);
+  const [isRecoveringBranchBinding, setIsRecoveringBranchBinding] = useState(false);
+  const [recoverBranchBindingOutcome, setRecoverBranchBindingOutcome] = useState<RecoverBranchBindingOutcome | null>(null);
   const moveMenuRef = useRef<HTMLDivElement>(null);
   const activityListRef = useRef<HTMLDivElement>(null);
   const moveButtonRef = useRef<HTMLButtonElement>(null);
@@ -687,6 +690,8 @@ export function TaskDetailContent({
     setGithubTrackingEnabledDraft(null);
     setGithubRepoOverrideError(null);
     setIsEditing(false);
+    setRecoverBranchBindingOutcome(null);
+    setIsRecoveringBranchBinding(false);
   }, [task.id, task.title, task.description, task.branch, task.baseBranch, task.sourceIssue, task.executionMode, workingTask.githubTracking]);
 
   useEffect(() => {
@@ -1561,6 +1566,25 @@ export function TaskDetailContent({
   }, [task.id, onDuplicateTask, requestClose, addToast, confirm]);
 
   const isTaskPaused = task.paused || task.userPaused;
+  const showRecoverBranchBindingBanner = task.column === "in-review" && (!task.branch || !task.worktree);
+
+  const handleRecoverBranchBinding = useCallback(async () => {
+    setIsRecoveringBranchBinding(true);
+    try {
+      const outcome = await recoverBranchBinding(task.id, projectId);
+      setRecoverBranchBindingOutcome(outcome);
+      if (outcome.result === "applied") {
+        addToast(`Recovered branch binding for ${task.id} (${outcome.branch})`, "success");
+        onTaskUpdated?.({ ...task, branch: outcome.branch, worktree: null } as Task);
+      } else {
+        addToast(`Branch recovery skipped for ${task.id}: ${outcome.reason}`, "info");
+      }
+    } catch (err) {
+      addToast(getErrorMessage(err), "error");
+    } finally {
+      setIsRecoveringBranchBinding(false);
+    }
+  }, [addToast, onTaskUpdated, projectId, task]);
 
   const handleTogglePause = useCallback(async () => {
     try {
@@ -3374,6 +3398,44 @@ export function TaskDetailContent({
           </>
           )}
         </div>
+        {showRecoverBranchBindingBanner && (
+          <div className="detail-section rebind-banner" role="status">
+            <div className="rebind-banner-header">
+              <GitBranch aria-hidden="true" />
+              <span className="rebind-banner-headline">Branch binding lost</span>
+            </div>
+            <p className="rebind-banner-copy">
+              This in-review task is missing branch or worktree metadata. A live fusion branch may still exist and can be rebound.
+            </p>
+            {recoverBranchBindingOutcome && (
+              <div className="rebind-banner-result">
+                {recoverBranchBindingOutcome.result === "applied"
+                  ? `Recovered ${recoverBranchBindingOutcome.branch} (${recoverBranchBindingOutcome.aheadCount} commits ahead of ${recoverBranchBindingOutcome.integrationBase}).`
+                  : `Recovery skipped: ${recoverBranchBindingOutcome.reason}`}
+                {recoverBranchBindingOutcome.result === "skipped" && recoverBranchBindingOutcome.candidates?.length ? (
+                  <span>
+                    {` Candidates: ${recoverBranchBindingOutcome.candidates.map((entry) => `${entry.branch} (${entry.aheadCount})`).join(", ")}`}
+                  </span>
+                ) : null}
+              </div>
+            )}
+            <div className="rebind-banner-actions">
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => void handleRecoverBranchBinding()}
+                disabled={isRecoveringBranchBinding}
+              >
+                {isRecoveringBranchBinding ? (
+                  <>
+                    <Loader2 size={16} className="spin" aria-hidden="true" />
+                    Recovering…
+                  </>
+                ) : "Recover from branch"}
+              </button>
+            </div>
+          </div>
+        )}
         <div className="modal-actions">
           {isEditing ? (
             <>
