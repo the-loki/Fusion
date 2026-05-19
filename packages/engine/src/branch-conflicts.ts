@@ -592,7 +592,28 @@ export async function classifyForeignOnlyContamination(
   input: ClassifyForeignOnlyContaminationInput,
 ): Promise<ClassifyForeignOnlyContaminationResult> {
   const { repoDir, branchName, baseSha, taskId, mainRef = "main" } = input;
-  const output = await runGit(repoDir, `git log --format=%H%x1f%s%x1f%b ${quoteShellArg(`${baseSha}..${branchName}`)}`)
+  // FN-5090 hotfix: stale baseSha (older than the actual fork point with main) caused
+  // classifyForeignOnlyContamination to see commits that have since been merged into main
+  // as "foreign", returning kind:"ambiguous" and stranding the task. Prefer the live
+  // merge-base when it is a descendant of the persisted baseSha.
+  let effectiveBaseSha = baseSha;
+  try {
+    const mergeBaseRaw = await runGit(repoDir, `git merge-base ${quoteShellArg(branchName)} ${quoteShellArg(mainRef)}`);
+    const liveMergeBase = mergeBaseRaw.trim();
+    if (liveMergeBase && liveMergeBase !== baseSha) {
+      // Use live merge-base if it is a descendant of baseSha (newer)
+      const ancestryCheck = await runGit(
+        repoDir,
+        `git merge-base --is-ancestor ${quoteShellArg(baseSha)} ${quoteShellArg(liveMergeBase)} && echo yes || echo no`,
+      ).catch(() => "no");
+      if (ancestryCheck.trim() === "yes") {
+        effectiveBaseSha = liveMergeBase;
+      }
+    }
+  } catch {
+    // fall back to persisted baseSha on any git failure
+  }
+  const output = await runGit(repoDir, `git log --format=%H%x1f%s%x1f%b ${quoteShellArg(`${effectiveBaseSha}..${branchName}`)}`)
     .catch(() => "");
   const subjectPattern = /^(feat|fix|test|chore|docs|refactor|perf|build)\((FN-\d+)\):/i;
   const trailerPattern = /(?:^|\n)Fusion-Task-Id:\s*(FN-\d+)\s*(?:\n|$)/i;
@@ -610,7 +631,7 @@ export async function classifyForeignOnlyContamination(
   const bootstrap = await classifyBootstrapMisbinding({
     repoDir,
     branchName,
-    baseSha,
+    baseSha: effectiveBaseSha,
     taskId,
     foreignCommits,
   });
