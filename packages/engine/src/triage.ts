@@ -2457,7 +2457,7 @@ export class TriageProcessor {
 }
 
 function parseFileScopeFromPrompt(text: string): string[] {
-  const match = text.match(/^##\s+File Scope\s*\n([\s\S]*?)(?=^##\s+|\Z)/m);
+  const match = text.match(/^##\s+File Scope\s*\n([\s\S]*?)(?=^##\s+|$)/m);
   if (!match) return [];
   const entries: string[] = [];
   for (const rawLine of match[1].split("\n")) {
