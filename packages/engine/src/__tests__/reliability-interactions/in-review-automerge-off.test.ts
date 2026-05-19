@@ -10,9 +10,9 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     description: "d",
     column: "in-review",
     paused: false,
-    status: null,
-    error: null,
-    steps: [{ id: "1", title: "s", status: "done" as const }],
+    status: undefined,
+    error: undefined,
+    steps: [{ name: "s", status: "done" as const }],
     workflowStepResults: [],
     dependencies: [],
     log: [],
@@ -72,7 +72,7 @@ describe("FN-5147 reliability interactions: in-review autoMerge off", () => {
   afterEach(() => vi.useRealTimers());
 
   it("long-quiet in-review remains unchanged across startup + maintenance", async () => {
-    const task = makeTask({ id: "FN-5147-Q1", steps: [{ id: "1", title: "s", status: "done" as const }] });
+    const task = makeTask({ id: "FN-5147-Q1", steps: [{ name: "s", status: "done" as const }] });
     const store = createStore([task], { taskStuckTimeoutMs: 1_000, inReviewStalledThresholdMs: 1_000 });
     const manager = new SelfHealingManager(store, { rootDir: "/tmp/repo" });
 
@@ -82,7 +82,7 @@ describe("FN-5147 reliability interactions: in-review autoMerge off", () => {
 
     expect(task.column).toBe("in-review");
     expect(task.paused).toBe(false);
-    expect(task.status).toBeNull();
+    expect(task.status).toBeUndefined();
     expect(task.taskDoneRetryCount).toBeUndefined();
     expect(task.mergeRetries).toBeUndefined();
     expect((store.moveTask as any).mock.calls.length).toBe(0);
@@ -109,7 +109,7 @@ describe("FN-5147 reliability interactions: in-review autoMerge off", () => {
       status: "failed",
       error: "Agent exited without calling fn_task_done",
       taskDoneRetryCount: 1,
-      steps: [{ id: "1", title: "s1", status: "done" as const }, { id: "2", title: "s2", status: "pending" as any }],
+      steps: [{ name: "s1", status: "done" as const }, { name: "s2", status: "pending" as const }],
     });
     const store = createStore([task]);
     const manager = new SelfHealingManager(store, { rootDir: "/tmp/repo" });
@@ -124,8 +124,8 @@ describe("FN-5147 reliability interactions: in-review autoMerge off", () => {
   it("incomplete in-review task is not moved by stale-incomplete sweep", async () => {
     const task = makeTask({
       id: "FN-5147-Q4",
-      status: null,
-      steps: [{ id: "1", title: "s1", status: "pending" as any }],
+      status: undefined,
+      steps: [{ name: "s1", status: "pending" as const }],
     });
     const store = createStore([task], { taskStuckTimeoutMs: 1_000 });
     const manager = new SelfHealingManager(store, { rootDir: "/tmp/repo" });
@@ -143,7 +143,7 @@ describe("FN-5147 reliability interactions: in-review autoMerge off", () => {
       status: "failed",
       error: "Failed to create worktree after 3 attempts: missing worktree",
       worktree: "/tmp/missing",
-      steps: [{ id: "1", title: "s1", status: "done" as const }, { id: "2", title: "s2", status: "pending" as any }],
+      steps: [{ name: "s1", status: "done" as const }, { name: "s2", status: "pending" as const }],
     });
     const store = createStore([task]);
     const manager = new SelfHealingManager(store, { rootDir: "/tmp/repo" });
