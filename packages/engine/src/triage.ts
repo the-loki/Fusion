@@ -2368,8 +2368,12 @@ export class TriageProcessor {
           const taskCreatedAt = Date.parse(task.createdAt);
           const candidatesById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
           const isStrictlyOlderOrTieCanonical = (candidate: NearDuplicateCandidate): boolean => {
-            if (candidate.createdAt < taskCreatedAt) return true;
-            if (candidate.createdAt > taskCreatedAt) return false;
+            const candidateCreatedAt = candidate.createdAt;
+            if (typeof candidateCreatedAt !== "number" || Number.isNaN(candidateCreatedAt)) {
+              return false;
+            }
+            if (candidateCreatedAt < taskCreatedAt) return true;
+            if (candidateCreatedAt > taskCreatedAt) return false;
             return candidate.id.localeCompare(task.id, undefined, { numeric: true }) < 0;
           };
           const olderMatches = matches.filter((match) => {
