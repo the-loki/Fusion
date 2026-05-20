@@ -986,11 +986,15 @@ describe("DELETE /tasks/:id", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.id).toBe("KB-001");
-    expect(store.deleteTask).toHaveBeenCalledWith("KB-001", {
+    expect(store.deleteTask).toHaveBeenCalledWith("KB-001", expect.objectContaining({
       removeDependencyReferences: false,
       removeLineageReferences: false,
       githubIssueAction: undefined,
-    });
+      auditContext: expect.objectContaining({
+        agentId: "system",
+        runId: expect.stringMatching(/^synthetic-dashboard-delete-KB-001-/),
+      }),
+    }));
   });
 
   it("returns structured 409 conflict when delete is blocked by dependents", async () => {
@@ -1017,11 +1021,15 @@ describe("DELETE /tasks/:id", () => {
     const res = await REQUEST(buildApp(), "DELETE", "/api/tasks/KB-001?removeDependencyReferences=true");
 
     expect(res.status).toBe(200);
-    expect(store.deleteTask).toHaveBeenCalledWith("KB-001", {
+    expect(store.deleteTask).toHaveBeenCalledWith("KB-001", expect.objectContaining({
       removeDependencyReferences: true,
       removeLineageReferences: false,
       githubIssueAction: undefined,
-    });
+      auditContext: expect.objectContaining({
+        agentId: "system",
+        runId: expect.stringMatching(/^synthetic-dashboard-delete-KB-001-/),
+      }),
+    }));
   });
 
   it("passes the removeLineageReferences flag when explicitly requested", async () => {
@@ -1031,11 +1039,15 @@ describe("DELETE /tasks/:id", () => {
     const res = await REQUEST(buildApp(), "DELETE", "/api/tasks/KB-001?removeLineageReferences=true");
 
     expect(res.status).toBe(200);
-    expect(store.deleteTask).toHaveBeenCalledWith("KB-001", {
+    expect(store.deleteTask).toHaveBeenCalledWith("KB-001", expect.objectContaining({
       removeDependencyReferences: false,
       removeLineageReferences: true,
       githubIssueAction: undefined,
-    });
+      auditContext: expect.objectContaining({
+        agentId: "system",
+        runId: expect.stringMatching(/^synthetic-dashboard-delete-KB-001-/),
+      }),
+    }));
   });
 
   it.each(["close", "delete", "leave", "auto"] as const)("forwards githubIssueAction=%s", async (githubIssueAction) => {
@@ -1045,11 +1057,15 @@ describe("DELETE /tasks/:id", () => {
     const res = await REQUEST(buildApp(), "DELETE", `/api/tasks/KB-001?githubIssueAction=${githubIssueAction}`);
 
     expect(res.status).toBe(200);
-    expect(store.deleteTask).toHaveBeenCalledWith("KB-001", {
+    expect(store.deleteTask).toHaveBeenCalledWith("KB-001", expect.objectContaining({
       removeDependencyReferences: false,
       removeLineageReferences: false,
       githubIssueAction,
-    });
+      auditContext: expect.objectContaining({
+        agentId: "system",
+        runId: expect.stringMatching(/^synthetic-dashboard-delete-KB-001-/),
+      }),
+    }));
   });
 
   it("returns structured 409 conflict when delete is blocked by lineage children", async () => {
