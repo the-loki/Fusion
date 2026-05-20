@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync } from "node:fs";
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { InsightStore, createDatabase } from "@fusion/core";
 import {
   ORPHAN_GRACE_MS,
@@ -10,9 +14,15 @@ import {
 describe("insight-run-sweeper", () => {
   let store: InsightStore;
   let controllers: Map<string, AbortController>;
+  let tmpDir: string;
 
   beforeEach(() => {
-    const db = createDatabase(":memory:");
+    // Database constructor rejects relative fusionDir paths (including
+    // ":memory:") unless inMemory is explicitly opted in. Pass a real
+    // tmp path alongside inMemory so the SQLite handle remains in-RAM.
+    tmpDir = mkdtempSync(join(tmpdir(), "kb-insight-sweeper-"));
+    const db = createDatabase(tmpDir, { inMemory: true });
+    db.init();
     store = new InsightStore(db);
     controllers = new Map<string, AbortController>();
   });
@@ -20,6 +30,7 @@ describe("insight-run-sweeper", () => {
   afterEach(() => {
     vi.useRealTimers();
     store.getDatabase().close();
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it("skips runs younger than graceMs", () => {
