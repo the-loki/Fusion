@@ -103,6 +103,7 @@ describe("approval routes", async () => {
           getDatabase: () => ({}),
           getFusionDir: () => "/tmp/fusion",
           getTask: async () => state.task,
+          getSettings: async () => ({ worktrunk: {} }),
           pauseTask: async (_id: string, paused: boolean) => {
             state.task = { ...state.task, paused, pausedByAgentId: paused ? state.task.pausedByAgentId : undefined };
           },
@@ -240,9 +241,9 @@ describe("approval routes", async () => {
     const app = createApp();
     const res = await get(app, "/api/approvals?status=pending");
     expect(res.status).toBe(200);
-    expect(res.body.total).toBe(4);
-    expect(res.body.pendingCount).toBe(4);
-    expect(res.body.requests).toHaveLength(4);
+    expect(res.body.total).toBe(5);
+    expect(res.body.pendingCount).toBe(5);
+    expect(res.body.requests).toHaveLength(5);
     expect(res.body.requests[0]).toMatchObject({
       id: "apr-1",
       actionCategory: "command_execution",
