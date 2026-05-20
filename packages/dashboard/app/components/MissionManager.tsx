@@ -811,7 +811,10 @@ export function MissionManager({ isOpen, isInline = false, onClose, addToast, pr
       if (!hasHydratedRef.current) {
         setLoading(true);
       }
-      const data = await fetchMissions(projectId);
+      const fetched = await fetchMissions(projectId);
+      // Defensive: API helpers can return an envelope or non-array under
+      // failure paths; downstream code (render, filter) assumes an array.
+      const data = Array.isArray(fetched) ? fetched : [];
       setMissions(data);
       writeCache(
         missionsCacheKey,
