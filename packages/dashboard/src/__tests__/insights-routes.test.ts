@@ -242,6 +242,11 @@ describe("Insights routes", () => {
   });
 
   it("runs drive-by sweep on GET /api/insights/runs", async () => {
+    // Create the insights app first so its startup sweep runs against an
+    // empty insight store. Then insert the stale run; only the subsequent
+    // GET request's drive-by sweep should observe it.
+    const insightsApp = createInsightsOnlyApp(storeA);
+
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     storeA.getDatabase().prepare(`
       INSERT INTO project_insight_runs (id, projectId, trigger, status, summary, error, insightsCreated, insightsUpdated, inputMetadata, outputMetadata, createdAt, startedAt, completedAt)
@@ -261,8 +266,6 @@ describe("Insights routes", () => {
       null,
       null,
     );
-
-    const insightsApp = createInsightsOnlyApp(storeA);
     const response = await request(insightsApp, "GET", "/api/insights/runs");
     expect(response.status).toBe(200);
 
