@@ -1405,10 +1405,7 @@ describe("AgentsView", () => {
       expect(container.querySelectorAll(".org-chart-node--has-children").length).toBeGreaterThan(0);
     });
 
-    // Skipped: tokenized connector edge-offsets are a planned feature
-    // (--org-chart-first-child-center-offset / -last-child-center-offset).
-    // Not yet implemented in AgentsView.css.
-    it.skip("uses tokenized connector edge offsets for org chart child bars", () => {
+    it("uses tokenized connector edge offsets for org chart child bars", () => {
       const css = loadAllAppCss();
       expect(css).toContain("--org-chart-first-child-center-offset");
       expect(css).toContain("--org-chart-last-child-center-offset");

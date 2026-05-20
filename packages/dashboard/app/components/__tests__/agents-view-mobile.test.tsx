@@ -290,9 +290,7 @@ describe("agents-view mobile CSS", () => {
     expect(block).toContain("flex-wrap: wrap");
   });
 
-  // Skipped: this test asserts on tokenized connector edge-offset CSS vars
-  // and overflow:auto on the org-chart viewport — both planned features.
-  it.skip("defines mobile org chart sizing and pan/zoom controls rules", () => {
+  it("defines mobile org chart sizing and pan/zoom controls rules", () => {
     expect(extractRuleBlock(mobileMediaBlock, ".agent-org-chart-controls")).toContain("display: flex");
     expect(extractRuleBlock(mobileMediaBlock, ".agent-org-chart-controls")).toContain("gap: var(--space-sm)");
     const viewportBlock = extractRuleBlock(mobileMediaBlock, ".agent-org-chart-viewport");

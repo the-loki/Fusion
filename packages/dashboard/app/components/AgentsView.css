@@ -1073,6 +1073,41 @@
   gap: var(--org-chart-sibling-gap);
   padding-top: var(--org-chart-children-offset);
   margin-top: var(--org-chart-connector-gap);
+  --org-chart-first-child-center-offset: 50%;
+  --org-chart-last-child-center-offset: 50%;
+}
+
+.org-chart-children::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  height: var(--org-chart-children-offset, var(--space-md));
+  left: var(--org-chart-first-child-center-offset);
+  right: var(--org-chart-last-child-center-offset);
+  border-top: 1px solid var(--border-color, currentColor);
+  pointer-events: none;
+}
+
+.org-chart-children > .org-chart-node::before {
+  content: "";
+  position: absolute;
+  top: calc(-1 * var(--org-chart-children-offset));
+  left: 50%;
+  width: 1px;
+  height: var(--org-chart-children-offset);
+  border-left: 1px solid var(--border-color, currentColor);
+  pointer-events: none;
+}
+
+.agent-org-chart--vertical .org-chart-children::before {
+  top: 0;
+  left: var(--space-sm);
+  right: auto;
+  bottom: 0;
+  width: 1px;
+  height: auto;
+  border-top: none;
+  border-left: 1px solid var(--border-color, currentColor);
 }
 
 .agent-org-chart--vertical {
@@ -1230,7 +1265,7 @@
     min-height: calc(var(--space-2xl) * 4);
     flex: 1;
     min-width: 0;
-    overflow: hidden;
+    overflow: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
   }
