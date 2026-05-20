@@ -990,7 +990,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         && Array.isArray((err as { childIds?: unknown }).childIds);
 
       if (isTaskHasLineageChildrenError) {
-        const childIds = (err as { childIds: string[] }).childIds;
+        const childIds = (err as unknown as { childIds: string[] }).childIds;
         throw new ApiError(409, err instanceof Error ? err.message : "Task has lineage children", {
           code: "TASK_HAS_LINEAGE_CHILDREN",
           taskId: req.params.id,
@@ -2804,7 +2804,7 @@ export function registerTaskWorkflowRoutes(ctx: ApiRoutesContext, deps: TaskWork
         && Array.isArray((err as { childIds?: unknown }).childIds);
 
       if (isTaskHasLineageChildrenError) {
-        const childIds = (err as { childIds: string[] }).childIds;
+        const childIds = (err as unknown as { childIds: string[] }).childIds;
         throw new ApiError(409, err instanceof Error ? err.message : "Task has lineage children", {
           code: "TASK_HAS_LINEAGE_CHILDREN",
           taskId: req.params.id,
