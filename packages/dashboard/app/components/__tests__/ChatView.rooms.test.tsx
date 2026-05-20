@@ -5,11 +5,17 @@ import { ChatView } from "../ChatView";
 import * as useChatModule from "../../hooks/useChat";
 import * as useChatRoomsModule from "../../hooks/useChatRooms";
 import type { UseChatReturn, ChatSessionInfo } from "../../hooks/useChat";
-import type { UseChatRoomsResult } from "../../hooks/useChatRooms";
+import { RoomMessageDeliveredButReplyFailedError, type UseChatRoomsResult } from "../../hooks/useChatRooms";
 import { _resetInitialViewportHeight } from "../../hooks/useMobileKeyboard";
 
 vi.mock("../../hooks/useChat");
-vi.mock("../../hooks/useChatRooms");
+vi.mock("../../hooks/useChatRooms", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../hooks/useChatRooms")>();
+  return {
+    ...actual,
+    useChatRooms: vi.fn(),
+  };
+});
 vi.mock("../../hooks/useNavigationHistory", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../hooks/useNavigationHistory")>();
   return {
@@ -343,13 +349,11 @@ describe("ChatView — rooms (FN-3805..FN-3811 contract)", () => {
     expect(addToast).not.toHaveBeenCalledWith(expect.stringMatching(/attach/i), "warning");
   });
 
-  it("keeps room composer text and toasts once when room send fails", async () => {
+  it("FN-5360 keeps room composer cleared when delivery succeeded but reply generation failed", async () => {
     const addToast = vi.fn();
-    let rejectSend: (error?: unknown) => void;
-    const sendPromise = new Promise<undefined>((_, reject) => {
-      rejectSend = reject;
-    });
-    const sendRoomMessage = vi.fn().mockReturnValue(sendPromise);
+    const sendRoomMessage = vi
+      .fn()
+      .mockRejectedValueOnce(new RoomMessageDeliveredButReplyFailedError("No active room responders available", "room-a"));
     setup({}, { sendRoomMessage, activeRoom: roomA });
 
     render(<ChatView projectId="proj-123" addToast={addToast} experimentalFeatures={{ chatRooms: true }} />);
@@ -360,15 +364,46 @@ describe("ChatView — rooms (FN-3805..FN-3811 contract)", () => {
     await waitFor(() => {
       expect(sendRoomMessage).toHaveBeenCalledWith("Will retry", { files: [] });
     });
-    expect(textarea.value).toBe("");
+    await waitFor(() => {
+      expect(textarea.value).toBe("");
+    });
+    expect(addToast).toHaveBeenCalledWith("Message sent, but assistant reply failed: No active room responders available", "error");
+  });
 
-    rejectSend!(new Error("Room backend failed"));
+  it("FN-5360 restores room composer when delivery fails", async () => {
+    const addToast = vi.fn();
+    const sendRoomMessage = vi.fn().mockRejectedValueOnce(new Error("POST failed"));
+    setup({}, { sendRoomMessage, activeRoom: roomA });
 
+    render(<ChatView projectId="proj-123" addToast={addToast} experimentalFeatures={{ chatRooms: true }} />);
+
+    const textarea = screen.getByTestId("chat-input") as HTMLTextAreaElement;
+    await userEvent.type(textarea, "Will retry{enter}");
+
+    await waitFor(() => {
+      expect(sendRoomMessage).toHaveBeenCalledWith("Will retry", { files: [] });
+    });
     await waitFor(() => {
       expect(textarea.value).toBe("Will retry");
     });
-    expect(addToast).toHaveBeenCalledTimes(1);
-    expect(addToast).toHaveBeenCalledWith("Room backend failed", "error");
+    expect(addToast).toHaveBeenCalledWith("POST failed", "error");
+  });
+
+  it("clears room composer on Enter when room send succeeds", async () => {
+    const sendRoomMessage = vi.fn().mockResolvedValue(undefined);
+    setup({}, { sendRoomMessage, activeRoom: roomA });
+
+    render(<ChatView projectId="proj-123" addToast={vi.fn()} experimentalFeatures={{ chatRooms: true }} />);
+
+    const textarea = screen.getByTestId("chat-input") as HTMLTextAreaElement;
+    await userEvent.type(textarea, "Delivered{enter}");
+
+    await waitFor(() => {
+      expect(sendRoomMessage).toHaveBeenCalledWith("Delivered", { files: [] });
+    });
+    await waitFor(() => {
+      expect(textarea.value).toBe("");
+    });
   });
 
   it("clears room composer optimistically before send resolves", async () => {

@@ -25,7 +25,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { useChat, type ChatMessageInfo, type FailureInfo, type ToolCallInfo } from "../hooks/useChat";
-import { useChatRooms } from "../hooks/useChatRooms";
+import { RoomMessageDeliveredButReplyFailedError, useChatRooms } from "../hooks/useChatRooms";
 import { useChatUnread } from "../hooks/useChatUnread";
 import { useViewportMode } from "./Header";
 import { updateGlobalSettings, type DiscoveredSkill } from "../api";
@@ -1677,6 +1677,14 @@ export function ChatView({ projectId, addToast, experimentalFeatures }: ChatView
       try {
         await rooms.sendRoomMessage(trimmed, { files: pendingAttachments.map((attachment) => attachment.file) });
       } catch (error) {
+        if (error instanceof RoomMessageDeliveredButReplyFailedError) {
+          const message = error.message.trim()
+            ? error.message
+            : "Message sent, but assistant reply failed";
+          addToast(`Message sent, but assistant reply failed: ${message}`, "error");
+          return;
+        }
+
         setMessageInput(previousInput);
         const message = error instanceof Error && error.message.trim()
           ? error.message

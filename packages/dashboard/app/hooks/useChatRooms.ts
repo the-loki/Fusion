@@ -16,6 +16,16 @@ import { readCache, SWR_CACHE_KEYS, SWR_DEFAULT_MAX_AGE_MS, SWR_LONG_MAX_AGE_MS,
 
 const ACTIVE_ROOM_STORAGE_KEY = "fusion:chat-active-room";
 
+export class RoomMessageDeliveredButReplyFailedError extends Error {
+  roomId: string;
+
+  constructor(message: string, roomId: string) {
+    super(message);
+    this.name = "RoomMessageDeliveredButReplyFailedError";
+    this.roomId = roomId;
+  }
+}
+
 export interface UseChatRoomsResult {
   rooms: ChatRoom[];
   roomsLoading: boolean;
@@ -205,6 +215,13 @@ export function useChatRooms(
     }
   }, [activeRoomCacheKey, projectId]);
 
+  /**
+   * Sends a room message with optimistic UI.
+   *
+   * Error contract:
+   * - Throws the original error when delivery did not happen (before `postChatRoomMessage` resolves); callers may restore composer text.
+   * - Throws `RoomMessageDeliveredButReplyFailedError` when delivery succeeded but a post-send step failed; callers must keep composer cleared.
+   */
   const sendRoomMessage = useCallback(async (content: string, opts?: { attachments?: ChatAttachment[]; files?: File[] }) => {
     const activeRoomSnapshot = activeRoomRef.current;
     const roomId = activeRoomSnapshot?.id;
@@ -226,6 +243,8 @@ export function useChatRooms(
       setMessages((previous) => [...previous, optimisticMessage]);
     }
 
+    let userMessageDelivered = false;
+
     try {
       const uploadedAttachments: ChatAttachment[] = [];
       if (opts?.files?.length) {
@@ -245,6 +264,7 @@ export function useChatRooms(
         content,
         ...(mergedAttachments.length ? { attachments: mergedAttachments } : {}),
       }, projectId);
+      userMessageDelivered = true;
 
       if (postResult.message?.createdAt && activeRoomSnapshot) {
         setRooms((previous) => upsertRoom(previous, { ...activeRoomSnapshot, updatedAt: postResult.message.createdAt }));
@@ -271,6 +291,14 @@ export function useChatRooms(
           setMessages((previous) => previous.filter((message) => message.id !== optimisticMessage.id));
         }
       }
+
+      if (userMessageDelivered) {
+        const message = error instanceof Error && error.message.trim()
+          ? error.message
+          : "Message delivered, but failed to refresh room replies";
+        throw new RoomMessageDeliveredButReplyFailedError(message, roomId);
+      }
+
       throw error;
     }
   }, [projectId]);

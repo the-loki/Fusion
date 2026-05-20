@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatRoom, ChatRoomMember, ChatRoomMessage } from "@fusion/core";
-import { useChatRooms } from "../useChatRooms";
+import { RoomMessageDeliveredButReplyFailedError, useChatRooms } from "../useChatRooms";
 import * as apiModule from "../../api";
 import * as sseBusModule from "../../sse-bus";
 import { SWR_CACHE_KEYS } from "../../utils/swrCache";
@@ -335,14 +335,23 @@ describe("useChatRooms", () => {
     mockUploadChatRoomAttachment.mockRejectedValueOnce(new Error("Upload failed"));
     mockFetchChatRoomMessages.mockResolvedValueOnce({ messages: [] });
 
+    let uploadError: unknown;
     await act(async () => {
-      await expect(result.current.sendRoomMessage("hello", { files: [file] })).rejects.toThrow("Failed to upload attachment: bad.txt");
+      try {
+        await result.current.sendRoomMessage("hello", { files: [file] });
+      } catch (error) {
+        uploadError = error;
+      }
     });
+
+    expect(uploadError).toBeInstanceOf(Error);
+    expect((uploadError as Error).message).toBe("Failed to upload attachment: bad.txt");
+    expect(uploadError).not.toBeInstanceOf(RoomMessageDeliveredButReplyFailedError);
 
     expect(mockPostChatRoomMessage).not.toHaveBeenCalledWith("room-1", expect.objectContaining({ content: "hello" }), "proj-1");
   });
 
-  it("rolls back optimistic temp message when post fails and transcript refresh fails", async () => {
+  it("rejects with original error when post fails before delivery", async () => {
     const active = room("room-1", "one", "2026-05-09T01:00:00.000Z");
     mockFetchChatRooms.mockResolvedValueOnce({ rooms: [active] });
     const { result } = renderHook(() => useChatRooms("proj-1"));
@@ -356,9 +365,18 @@ describe("useChatRooms", () => {
     mockPostChatRoomMessage.mockRejectedValueOnce(new Error("POST failed"));
     mockFetchChatRoomMessages.mockRejectedValueOnce(new Error("refresh failed"));
 
+    let postError: unknown;
     await act(async () => {
-      await expect(result.current.sendRoomMessage("hello")).rejects.toThrow("POST failed");
+      try {
+        await result.current.sendRoomMessage("hello");
+      } catch (error) {
+        postError = error;
+      }
     });
+
+    expect(postError).toBeInstanceOf(Error);
+    expect((postError as Error).message).toBe("POST failed");
+    expect(postError).not.toBeInstanceOf(RoomMessageDeliveredButReplyFailedError);
 
     expect(result.current.messages).toEqual([]);
   });
@@ -382,6 +400,41 @@ describe("useChatRooms", () => {
     });
 
     expect(mockFetchChatRoomMessages).toHaveBeenLastCalledWith("room-1", { limit: 100, order: "desc" }, "proj-1");
+  });
+
+  it("wraps post-delivery refresh failures with RoomMessageDeliveredButReplyFailedError", async () => {
+    const active = room("room-1", "one", "2026-05-09T01:00:00.000Z");
+    mockFetchChatRooms.mockResolvedValueOnce({ rooms: [active] });
+    const { result } = renderHook(() => useChatRooms("proj-1"));
+    await waitFor(() => expect(result.current.rooms.length).toBe(1));
+
+    mockFetchChatRoomMembers.mockResolvedValueOnce({ members: [] });
+    mockFetchChatRoomMessages.mockResolvedValueOnce({ messages: [] });
+    act(() => result.current.selectRoom("room-1"));
+    await waitFor(() => expect(result.current.activeRoom?.id).toBe("room-1"));
+
+    mockPostChatRoomMessage.mockResolvedValueOnce({ message: roomMessage("msg-user", "room-1", "hello") });
+    mockFetchChatRoomMessages
+      .mockRejectedValueOnce(new Error("refresh failed"))
+      .mockResolvedValueOnce({ messages: [roomMessage("msg-user", "room-1", "hello")] });
+
+    let deliveryError: unknown;
+    await act(async () => {
+      try {
+        await result.current.sendRoomMessage("hello");
+      } catch (error) {
+        deliveryError = error;
+      }
+    });
+
+    expect(deliveryError).toBeInstanceOf(RoomMessageDeliveredButReplyFailedError);
+    expect(deliveryError).toEqual(
+      expect.objectContaining({
+        name: "RoomMessageDeliveredButReplyFailedError",
+        roomId: "room-1",
+        message: "refresh failed",
+      }),
+    );
   });
 
   it("refreshes persisted room messages even when room reply generation fails", async () => {    const active = room("room-1", "one", "2026-05-09T01:00:00.000Z");
