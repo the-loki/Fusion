@@ -52,3 +52,11 @@ The process supervisor logs when it registers a supervised child, starts teardow
 - Self-healing diagnostic: `<taskId> no-progress churn detected (ignoredStepUpdates=N, stuckKillStreak=M) — marking failed`.
 - Audit event: `task:stuck-no-progress-churn-terminalized` with `{ taskId, ignoredStepUpdateCount, stuckKillStreak, lastReason: "no-progress-churn" }`.
 - Outcome: task is marked `status: "failed"`, moved to `in-review`, and not requeued; operators should decompose/rescope the task instead of waiting for more automatic stuck-kill retries.
+
+## Broad-scope triage intake (`[triage]`)
+
+- Trigger shape: `TriageProcessor.finalizeApprovedTask()` scores the prompt/description against `packages/engine/src/triage-broad-scope-heuristics.ts` and flags advisory decomposition risk when the score reaches `>= 3`.
+- Diagnostic: `[triage] <taskId>: broad-scope flag at triage — score=<n>, reasons=<csv>`.
+- Fail-soft diagnostic: `[triage] <taskId>: broad-scope heuristic failed open: <message>` when the helper throws; the task still proceeds to `todo`.
+- Audit event: `task:broad-scope-flagged-at-triage` with `{ score, reasons, signals, thresholds, version }`.
+- Task log side effect: `Broad-scope triage flag` advising operators to decompose via `fn_task_create` or set `breakIntoSubtasks=true` before execution.
