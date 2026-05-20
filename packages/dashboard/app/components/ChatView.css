@@ -1395,7 +1395,11 @@
 }
 
 .chat-input-textarea {
-  flex: 1;
+  /* FN-5322: this textarea sits directly inside `.chat-input-wrapper`, which
+     is a column flex container (via AgentMentionPopup.css). Keep it out of
+     vertical flex sizing so the inline autosize height from ChatView.tsx is
+     honored instead of collapsing back toward the one-line minimum. */
+  flex: 0 0 auto;
   resize: none;
   border: 1px solid var(--border);
   border-radius: 12px;
