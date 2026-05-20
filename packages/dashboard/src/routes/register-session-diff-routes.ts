@@ -529,6 +529,11 @@ async function restrictRebaseRangeFiles(
       taskId: task.id,
       runGit: deps.runGit,
     });
+    if (attribution.files.length === 0) {
+      // Read-only done-task diff display should still surface the rebase range
+      // when commit attribution cannot prove ownership from subjects/trailers.
+      return rebaseRangeFiles;
+    }
     const ownSet = new Set(attribution.files);
     return rebaseRangeFiles.filter((file) => ownSet.has(file.path));
   } catch (err) {
