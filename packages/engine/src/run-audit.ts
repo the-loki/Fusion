@@ -189,6 +189,10 @@ export type DatabaseMutationType =
   | "task:auto-merge-skipped-already-done"
   /** Metadata: { taskId, commitSha, failedCommand, exitCode, errorTail } */
   | "task:post-finalize-verification-no-op"
+  /** Metadata: { kind, parentTaskId, existingTaskId, signature, rateLimited } */
+  | "verification:followup-deduped"
+  /** Metadata: { kind, parentTaskId, newTaskId, signature, supersedesTaskId } */
+  | "verification:followup-created"
   | "task:auto-recover-branch-misbound"
   | "task:auto-recover-misrouted-foreign-commit"
   | "task:auto-recover-foreign-only-contamination"

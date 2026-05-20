@@ -1578,9 +1578,16 @@ The GitHub tracking state listener now attaches to every registered project stor
 - Existing task-scoped surfacing remains: merger warnings still log to `mergerLog.warn` and `store.logEntry` for the active merge task.
 - New global surfacing adds `merger:autostashOrphans` TaskStore events, engine helpers (`listAutostashOrphans`, `getAutostashDiff`, `applyAutostashBySha`, `dropAutostashBySha`), and dashboard API endpoints under `/api/stash-recovery/*`.
 - `merger:autostashOrphans` records now include provenance fields (`sourcePhase`, `detectedByTaskId`, `detectedAt`) so operators can attribute leftovers to the merge phase and surfacing task/session.
-- `ProjectEngine` consumes the orphan event stream and auto-creates deduplicated `sourceType: "recovery"` follow-up tasks keyed by `sourceParentTaskId` for live leftovers, so repeated detections do not spam the board.
+- `ProjectEngine` consumes the orphan event stream and auto-creates deduplicated `sourceType: "recovery"` follow-up tasks for live leftovers, so repeated detections do not spam the board.
 - Dashboard operators can inspect orphan counts, review diffs, apply stashes, and explicitly drop entries with confirmation.
 - Decision: recovery stays user-gated. Auto-apply was rejected because clean-tree checks are racy, stash placement is ambiguous after source task merge, and apply conflicts can produce hard-to-untangle state. `sweepAutostashOrphans` continues to auto-drop only subsumed entries while preserving live developer work.
+
+#### Automated follow-up dedup (FN-5232)
+- Engine-side automated follow-up creation now routes through `packages/engine/src/verification-followup-dedup.ts` instead of calling `TaskStore.createTask()` directly from recovery/eval/PR-comment paths.
+- Verification-style follow-ups stamp `sourceMetadata.verificationFailureSignature`, a deterministic SHA-256 digest over `{ lane, sorted failing test basenames }` (or `lane|no-files` when no files can be parsed). Open matches reuse the existing task and append at most one `[verification recurrence]` log entry per hour; closed/done/archived matches within 24 hours create a fresh task with `sourceMetadata.supersedesTaskId` pointing at the prior task.
+- Non-verification automated follow-ups can supply `extraMatchKeys` (for example eval `suggestionId` or PR `prNumber`) so dedup stays deterministic even when no test-file signature exists.
+- This layer composes with FN-4892 same-agent intake dedup in `@fusion/core`: engine dedup prevents repeated automated recovery spam up front, while store-side same-agent dedup still archives newly-created near-duplicates when `sourceAgentId` is present.
+- Run-audit emits `verification:followup-created` and `verification:followup-deduped` database events with hashed signature metadata only; no raw stdout/stderr or secret material is persisted in the audit payload.
 
 ### Conflict handling
 `merger.ts` includes conflict classification and auto-resolution helpers:
