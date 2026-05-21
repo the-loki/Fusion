@@ -27,7 +27,7 @@ import { exec, execSync } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { IN_REVIEW_STALL_DEADLOCK_LOG_PREFIX, IN_REVIEW_STALL_LOG_PREFIX, countRecentIdenticalStallEntries, detectSelfDefeatingDependency, getInReviewStalledSignal, getInReviewStallReason, getPrimaryPrInfo, getStalePausedReviewSignal, getStalePausedTodoSignal, getTaskHardMergeBlocker, getTaskMergeBlocker, isEphemeralAgent, parseExplicitDuplicateMarker, type AgentStore, type ChatStore, type MessageStore, type TaskStore, type Settings, type Task, type MergeDetails, type TaskPriority, type MergeResult } from "@fusion/core";
+import { IN_REVIEW_STALL_DEADLOCK_LOG_PREFIX, IN_REVIEW_STALL_LOG_PREFIX, countRecentIdenticalStallEntries, detectDependencyCycle, detectSelfDefeatingDependency, getInReviewStalledSignal, getInReviewStallReason, getPrimaryPrInfo, getStalePausedReviewSignal, getStalePausedTodoSignal, getTaskHardMergeBlocker, getTaskMergeBlocker, isEphemeralAgent, parseExplicitDuplicateMarker, type AgentStore, type ChatStore, type MessageStore, type TaskStore, type Settings, type Task, type MergeDetails, type TaskPriority, type MergeResult } from "@fusion/core";
 import type { MeshLeaseManager } from "./mesh-lease-manager.js";
 import { createLogger, schedulerLog } from "./logger.js";
 import { RemovalReason, getRegisteredWorktreeBranchMap, getRegisteredWorktreePaths, isUsableTaskWorktree, removeWorktree, resolveWorktreeBackend, scanIdleWorktrees, scanOrphanedBranches } from "./worktree-pool.js";
@@ -661,6 +661,7 @@ export class SelfHealingManager {
       { name: "recover-drifted-agent-task-links", fn: () => this.recoverDriftedAgentTaskLinks().then(() => undefined) },
       { name: "clear-stale-blocked-by", fn: () => this.clearStaleBlockedBy().then(() => undefined) },
       { name: "reconcile-self-defeating-deps", fn: () => this.reconcileSelfDefeatingDependencies().then(() => undefined) },
+      { name: "reconcile-dependency-cycles", fn: () => this.reconcileDependencyCycles().then(() => undefined) },
       { name: "reclaim-pr-conflicts", fn: () => this.reclaimPrConflicts().then(() => undefined) },
       { name: "reclaim-self-owned-branch-conflicts", fn: () => this.reclaimSelfOwnedBranchConflicts().then(() => undefined) },
       // FN-4962 ordering invariant: metadata reconcile must run before stale-active reclaim.
@@ -1299,6 +1300,7 @@ export class SelfHealingManager {
           { name: "auto-archive-meta-stalled", fn: () => this.autoArchiveStalledMetaTasks() },
           { name: "board-stall-auto-recovery", fn: () => this.runBoardStallAutoRecoverySweep() },
           { name: "reconcile-self-defeating-deps", fn: () => this.reconcileSelfDefeatingDependencies() },
+          { name: "reconcile-dependency-cycles", fn: () => this.reconcileDependencyCycles().then(() => undefined) },
           { name: "reclaim-pr-conflicts", fn: () => this.reclaimPrConflicts() },
           { name: "reclaim-self-owned-branch-conflicts", fn: () => this.reclaimSelfOwnedBranchConflicts() },
           // FN-4962 ordering invariant: metadata reconcile must run before stale-active reclaim.
@@ -3539,6 +3541,125 @@ export class SelfHealingManager {
           const errorMessage = err instanceof Error ? err.message : String(err);
           log.warn(`reconcileSelfDefeatingDependencies: failed for ${task.id}: ${errorMessage}`);
         }
+      }
+    }
+
+    return recovered;
+  }
+
+  async reconcileDependencyCycles(): Promise<number> {
+    const umbrellaPrefix = /^(umbrella|epic|parent|coordinate|coordination|track(?:er)?|meta)\b/i;
+    let recovered = 0;
+    let tasks: Task[] = [];
+
+    try {
+      tasks = await this.store.listTasks({ includeArchived: false, slim: true });
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log.warn(`reconcileDependencyCycles: failed to list tasks: ${errorMessage}`);
+      return recovered;
+    }
+
+    const taskLookup = new Map(tasks.map((task) => [task.id, task] as const));
+    const dependencyLookup = new Map(tasks.map((task) => [task.id, task.dependencies] as const));
+    const seenCycleSignatures = new Set<string>();
+
+    for (const task of tasks) {
+      if (!task.dependencies.length) continue;
+
+      try {
+        const cyclePath = detectDependencyCycle(task.id, task.dependencies, (id) => dependencyLookup.get(id));
+        if (!cyclePath) continue;
+
+        const cycleMembers = Array.from(new Set(cyclePath));
+        const cycleSignature = [...cycleMembers].sort((a, b) => a.localeCompare(b)).join(">");
+        if (seenCycleSignatures.has(cycleSignature)) continue;
+        seenCycleSignatures.add(cycleSignature);
+
+        const targetTaskId = [...cycleMembers].sort((a, b) => a.localeCompare(b))[0] ?? task.id;
+        const targetTask = taskLookup.get(targetTaskId) ?? task;
+        const auditor = createRunAuditor(this.store, {
+          runId: generateSyntheticRunId("self-heal-dependency-cycle", targetTaskId),
+          agentId: "system:self-healing",
+          taskId: targetTaskId,
+          phase: "reconcile-dependency-cycles",
+        });
+
+        await auditor.database({
+          type: "task:dependency-cycle-detected",
+          target: targetTaskId,
+          metadata: {
+            taskId: targetTaskId,
+            cyclePath,
+            dependencies: targetTask.dependencies,
+          },
+        });
+
+        const isTwoNodeCycle = cyclePath.length === 3 && cyclePath[0] === cyclePath[2];
+        const otherNodeId = isTwoNodeCycle
+          ? cyclePath.find((id) => id.toUpperCase() !== targetTaskId.toUpperCase())
+          : undefined;
+        const otherNodeTask = otherNodeId ? taskLookup.get(otherNodeId) : undefined;
+        const targetIsUmbrella = Boolean(targetTask.title && umbrellaPrefix.test(targetTask.title));
+        const otherIsUmbrella = Boolean(otherNodeTask?.title && umbrellaPrefix.test(otherNodeTask.title));
+
+        let foundationChildId: string | undefined;
+        let umbrellaTaskId: string | undefined;
+        if (isTwoNodeCycle && otherNodeId) {
+          if (targetIsUmbrella && !otherIsUmbrella) {
+            umbrellaTaskId = targetTaskId;
+            foundationChildId = otherNodeId;
+          } else if (!targetIsUmbrella && otherIsUmbrella) {
+            umbrellaTaskId = otherNodeId;
+            foundationChildId = targetTaskId;
+          }
+        }
+
+        const foundationTask = foundationChildId ? taskLookup.get(foundationChildId) : undefined;
+        const umbrellaTask = umbrellaTaskId ? taskLookup.get(umbrellaTaskId) : undefined;
+        const umbrellaDependsOnFoundation = Boolean(
+          umbrellaTask && foundationChildId
+            && umbrellaTask.dependencies.some((dep) => dep.toUpperCase() === foundationChildId.toUpperCase()),
+        );
+        const foundationDependsOnUmbrella = Boolean(
+          foundationTask && umbrellaTaskId
+            && foundationTask.dependencies.some((dep) => dep.toUpperCase() === umbrellaTaskId.toUpperCase()),
+        );
+
+        if (isTwoNodeCycle && foundationTask && foundationChildId && umbrellaTaskId && umbrellaDependsOnFoundation && foundationDependsOnUmbrella) {
+          const nextDependencies = foundationTask.dependencies.filter((dep) => dep.toUpperCase() !== umbrellaTaskId.toUpperCase());
+          if (nextDependencies.length !== foundationTask.dependencies.length) {
+            await this.store.updateTask(foundationChildId, { dependencies: nextDependencies });
+            await this.store.logEntry(
+              foundationChildId,
+              `Auto-cleared umbrella back-edge: removed ${umbrellaTaskId} from dependencies (cycle: ${cyclePath.join(" → ")})`,
+            );
+            await auditor.database({
+              type: "task:auto-reconciled-dependency-cycle",
+              target: foundationChildId,
+              metadata: {
+                removedDependency: umbrellaTaskId,
+                cyclePath,
+                reason: "umbrella-back-edge",
+              },
+            });
+            recovered++;
+            continue;
+          }
+        }
+
+        await auditor.database({
+          type: "task:dependency-cycle-unrepaired",
+          target: targetTaskId,
+          metadata: {
+            cyclePath,
+            reason: "ambiguous-cycle",
+          },
+        });
+        log.warn(`Dependency cycle detected for ${targetTaskId}: ${cyclePath.join(" → ")} — left unchanged (ambiguous)`);
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        log.warn(`reconcileDependencyCycles: failed for ${task.id}: ${errorMessage}`);
       }
     }
 

@@ -216,6 +216,10 @@ export type DatabaseMutationType =
   | "task:auto-archived-duplicate"
   | "task:broad-scope-flagged-at-triage"
   | "task:auto-reconciled-self-defeating-dep"
+  | "task:dependency-cycle-rejected"
+  | "task:dependency-cycle-detected"
+  | "task:auto-reconciled-dependency-cycle"
+  | "task:dependency-cycle-unrepaired"
   /**
    * Metadata shape for node:handoff:* and node:lease:* events:
    * ```ts

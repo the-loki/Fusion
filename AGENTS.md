@@ -91,6 +91,19 @@ esbuild leaves the dynamic import in the output, the package isn't installed at 
 
 Hybrid: structured metadata in SQLite (`.fusion/fusion.db`, WAL mode), large blobs (PROMPT.md, attachments) on disk under `.fusion/tasks/{ID}/`. See [docs/storage.md](./docs/storage.md).
 
+## Dependency Graph Invariant
+
+Task dependency graphs must remain acyclic. Umbrella / coordination tasks
+may depend on their foundational children, but foundational children must
+never depend back on the umbrella parent. Cycle-forming `createTask` /
+`updateTask` / `createTaskWithReservedId` / `applyReplicatedTaskCreate`
+calls are rejected at the write boundary with `DependencyCycleError` and
+emit a `task:dependency-cycle-rejected` run-audit event. Persisted cycles
+from pre-guard data are surfaced by `reconcileDependencyCycles` in
+self-healing batch 2, which auto-repairs only the narrow umbrella-back-edge
+case (`task:auto-reconciled-dependency-cycle`) and leaves ambiguous cycles
+for operator inspection (`task:dependency-cycle-unrepaired`).
+
 ## Multi-Project Support
 
 Central registry at `~/.fusion/fusion-central.db`; per-project DB at `.fusion/fusion.db`. See [docs/multi-project.md](./docs/multi-project.md) for CentralCore API, isolation modes, and global concurrency.
@@ -561,6 +574,7 @@ Reliability-layer changes are in scope. Interaction regression backstops live in
 - FN-5168 backstop: `packages/engine/src/__tests__/reliability-interactions/non-progress-churn.test.ts` covers loop→compact recovery followed by ignored-step-update churn escalation, terminal `beforeRequeue(false)` behavior, audit/log payloads, and FN-5147 autoMerge-off composition.
 - FN-5219 backstop: `packages/engine/src/__tests__/reliability-interactions/in-progress-limbo-recovery.test.ts` covers `recoverInProgressLimbo` composition with `recoverOrphanedExecutions` (no double-recovery), `reconcile-task-worktree-metadata` (live rebindable worktree wins), `recoverMissingWorktreeReviewFailures` (in-review vs in-progress disjoint), and executor task-id claim skip, plus an explicit FN-5149 reproduction case.
 - FN-5337 backstop: `packages/engine/src/__tests__/reliability-interactions/orphan-detected-no-requeue.test.ts` locks observation-only orphan detection across FN-5279 repro metadata desync, worktree-present and worktree-missing candidates, FN-5219 ordering, FN-5147 in-review isolation, FN-5083 branch-cleared composition, lease-manager non-invocation, and per-sweep idempotent audit emission.
+- FN-5256 backstop: `packages/engine/src/__tests__/reliability-interactions/dependency-cycle-reconcile.test.ts` covers persisted dependency-cycle detection via `reconcileDependencyCycles`, bounded umbrella-back-edge auto-repair, ambiguous-cycle observe-only behavior, composition ordering with `reconcileSelfDefeatingDependencies`, and the post-sweep write-time guard invariant. Core write-boundary regressions (FN-5240/5241/5242 signature, indirect cycle, umbrella back-edge rejection) live in `packages/core/src/__tests__/store-dependency-cycle.test.ts`.
 - FN-5325 backstop: `packages/engine/src/__tests__/reliability-interactions/scheduler-overlap-priority-inversion.test.ts` covers queued-overlap priority/age deferral, equal-priority age ordering, FN-4969 fanout composition, and one-shot per-pass `scheduler:overlap-priority-inversion` audit surfacing against running lower-priority blockers.
 - FN-5223 backstop: `packages/engine/src/__tests__/reliability-interactions/engine-active-since-floor.test.ts` covers engine-activation floor + grace composition across startup, pause/unpause, global-pause gating, and StuckTaskDetector lifecycle interactions.
 
