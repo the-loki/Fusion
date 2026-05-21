@@ -1329,7 +1329,7 @@ export function createServer(store: TaskStore, options?: ServerOptions): ReturnT
 
   app.post("/api/health/refresh", (_req, res) => {
     const report = store.refreshTaskIdIntegrityReport();
-    const database = store.getDatabaseHealth();
+    const database = store.refreshDatabaseHealth();
     res.json({
       status: !database.healthy || database.corruptionDetected || report.status === "anomaly" ? "degraded" : "ok",
       version: cliPackageVersion,

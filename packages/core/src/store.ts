@@ -9465,6 +9465,18 @@ ${stepsSection}`;
     };
   }
 
+  /**
+   * Force-run an integrity check synchronously and return the refreshed health
+   * snapshot. Used by `POST /api/health/refresh` so users can clear a stale
+   * corruption banner after they've repaired the database in place
+   * (e.g. via `REINDEX` or `fn db --vacuum`) without having to restart the
+   * engine to re-arm the once-at-boot background check.
+   */
+  refreshDatabaseHealth(): ReturnType<TaskStore["getDatabaseHealth"]> {
+    this.db.refreshIntegrityCheck();
+    return this.getDatabaseHealth();
+  }
+
   getDistributedTaskIdAllocator(): DistributedTaskIdAllocator {
     if (!this.distributedTaskIdAllocator) {
       this.distributedTaskIdAllocator = createDistributedTaskIdAllocator(this.db);

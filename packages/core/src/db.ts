@@ -1455,6 +1455,25 @@ export class Database {
     return { ok: true };
   }
 
+  /**
+   * Synchronously re-run `integrityCheck()` and update the cached corruption
+   * state (`corruptionDetected`, `integrityCheckErrors`, `integrityCheckLastRunAt`).
+   *
+   * The background scheduler in `scheduleBackgroundIntegrityCheck()` runs the
+   * check exactly once at boot; without this on-demand path the
+   * `corruptionDetected` flag is sticky for the life of the process, which
+   * leaves the "Refresh health" UI a no-op after the user repairs the DB
+   * (e.g. via `REINDEX`).
+   */
+  refreshIntegrityCheck(): { ok: true } | { ok: false; errors: string[] } {
+    const integrity = this.integrityCheck();
+    this.integrityCheckPending = false;
+    this.integrityCheckLastRunAt = new Date().toISOString();
+    this.corruptionDetected = !integrity.ok;
+    this.integrityCheckErrors = integrity.ok ? [] : [...integrity.errors];
+    return integrity;
+  }
+
   recoverDatabase(outputPath: string): boolean {
     if (this.inMemory) {
       return false;
