@@ -2,7 +2,6 @@ import { cp, mkdir, readdir, stat, unlink } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { CronExpressionParser } from "cron-parser";
-import { DatabaseSync } from "./sqlite-adapter.js";
 import { getDefaultCentralDbPath } from "./central-db.js";
 import type { ProjectSettings } from "./types.js";
 
@@ -88,8 +87,7 @@ export class BackupManager {
     const filename = generateBackupFilename(timestamp, counter);
     const targetPath = join(backupDirPath, filename);
 
-    checkpointWalBestEffort(sourcePath);
-    await cp(sourcePath, targetPath, { preserveTimestamps: true });
+    await copyLiveDatabase(sourcePath, targetPath);
 
     const stats = await stat(targetPath);
     const backup: BackupInfo = {
@@ -113,8 +111,7 @@ export class BackupManager {
     const centralTargetPath = join(backupDirPath, centralFilename);
 
     try {
-      checkpointWalBestEffort(this.centralDbPath);
-      await cp(this.centralDbPath, centralTargetPath, { preserveTimestamps: true });
+      await copyLiveDatabase(this.centralDbPath, centralTargetPath);
 
       const centralStats = await stat(centralTargetPath);
       backup.centralBackup = {
@@ -334,17 +331,24 @@ function formatTimestamp(date: Date): string {
   return `${year}-${month}-${day}-${hours}${minutes}${seconds}`;
 }
 
-function checkpointWalBestEffort(dbPath: string): void {
-  if (!existsSync(dbPath)) return;
-  try {
-    const db = new DatabaseSync(dbPath);
-    try {
-      db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-    } finally {
-      db.close();
-    }
-  } catch {
-    // Best effort only; plain file copy fallback remains valid.
+// Copy a live WAL-mode SQLite DB by snapshotting the main file plus any
+// sibling -wal/-shm. SQLite replays the WAL on open, so the backup captures
+// uncheckpointed pages without us opening a second connection. Previously this
+// ran PRAGMA wal_checkpoint(TRUNCATE) through a fresh node:sqlite connection
+// against the live DB, which actively rewrites the main file's pages — a
+// node:sqlite SIGSEGV mid-checkpoint (see db.ts pager_write note) could leave
+// the main file extended-but-zeroed. Plain cp avoids that blast radius.
+async function copyLiveDatabase(sourcePath: string, targetPath: string): Promise<void> {
+  await cp(sourcePath, targetPath, { preserveTimestamps: true });
+
+  const walSource = `${sourcePath}-wal`;
+  if (existsSync(walSource)) {
+    await cp(walSource, `${targetPath}-wal`, { preserveTimestamps: true });
+  }
+
+  const shmSource = `${sourcePath}-shm`;
+  if (existsSync(shmSource)) {
+    await cp(shmSource, `${targetPath}-shm`, { preserveTimestamps: true });
   }
 }
 
