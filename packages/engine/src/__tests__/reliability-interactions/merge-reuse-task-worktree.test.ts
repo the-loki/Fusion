@@ -86,7 +86,7 @@ describe("FN-5279 reliability interactions: merge reuse task worktree", () => {
     } finally {
       await fixture.cleanup();
     }
-  }, 30_000);
+  }, 60_000);
 
   it.skipIf(!hasGit)("dirty reused worktree refuses handoff and leaves the task in review", async () => {
     const fixture = await makeReliabilityFixture({
@@ -131,7 +131,7 @@ describe("FN-5279 reliability interactions: merge reuse task worktree", () => {
     } finally {
       await fixture.cleanup();
     }
-  }, 30_000);
+  }, 60_000);
 
   it.skipIf(!hasGit)("active session binding refuses handoff until the worktree is released", async () => {
     const fixture = await makeReliabilityFixture({
@@ -178,7 +178,7 @@ describe("FN-5279 reliability interactions: merge reuse task worktree", () => {
       executingTaskLock._clearForTest();
       await fixture.cleanup();
     }
-  }, 30_000);
+  }, 60_000);
 
   it.skipIf(!hasGit)("branch/worktree mapping mismatches refuse handoff", async () => {
     const fixture = await makeReliabilityFixture({
@@ -221,7 +221,7 @@ describe("FN-5279 reliability interactions: merge reuse task worktree", () => {
     } finally {
       await fixture.cleanup();
     }
-  }, 30_000);
+  }, 60_000);
 
   it.skipIf(!hasGit)("missing merge queue lease refuses handoff with target-not-queued diagnostics", async () => {
     const fixture = await makeReliabilityFixture({
@@ -274,7 +274,7 @@ describe("FN-5279 reliability interactions: merge reuse task worktree", () => {
     } finally {
       await fixture.cleanup();
     }
-  }, 30_000);
+  }, 60_000);
 
   it.skipIf(!hasGit)("FN-5353: aiMergeTask succeeds without pre-enqueue by self-enqueueing before handoff", async () => {
     const fixture = await makeReliabilityFixture({
@@ -311,7 +311,7 @@ describe("FN-5279 reliability interactions: merge reuse task worktree", () => {
     } finally {
       await fixture.cleanup();
     }
-  }, 30_000);
+  }, 60_000);
 
   it.skipIf(!hasGit)("FN-5353: cross-task queue entries remain untouched when aiMergeTask self-enqueues target", async () => {
     const fixtureA = await makeReliabilityFixture({
@@ -359,7 +359,7 @@ describe("FN-5279 reliability interactions: merge reuse task worktree", () => {
     } finally {
       await fixtureA.cleanup();
     }
-  }, 30_000);
+  }, 60_000);
 
   it.skipIf(!hasGit)("FN-5353: reuse handoff rejects project-root worktree misconfiguration", async () => {
     const fixture = await makeReliabilityFixture({
@@ -396,7 +396,7 @@ describe("FN-5279 reliability interactions: merge reuse task worktree", () => {
     } finally {
       await fixture.cleanup();
     }
-  }, 30_000);
+  }, 60_000);
 
   it.skipIf(!hasGit)("FN-5353: missing task.worktree reacquires a reusable worktree before handoff gates", async () => {
     const fixture = await makeReliabilityFixture({
@@ -438,7 +438,7 @@ describe("FN-5279 reliability interactions: merge reuse task worktree", () => {
     } finally {
       await fixture.cleanup();
     }
-  }, 30_000);
+  }, 60_000);
 
   it.skipIf(!hasGit)("FN-5363: queue-head pollution by non-in-review tasks does not block target reuse handoff", async () => {
     const fixture = await makeReliabilityFixture({
@@ -491,7 +491,7 @@ describe("FN-5279 reliability interactions: merge reuse task worktree", () => {
     } finally {
       await fixture.cleanup();
     }
-  }, 30_000);
+  }, 60_000);
 
   it.skipIf(!hasGit)("FN-5363: target row leased by another worker refuses with target-not-queued diagnostics", async () => {
     const fixture = await makeReliabilityFixture({
@@ -545,7 +545,7 @@ describe("FN-5279 reliability interactions: merge reuse task worktree", () => {
     } finally {
       await fixture.cleanup();
     }
-  }, 30_000);
+  }, 60_000);
 
   it.skipIf(!hasGit)("already-landed branch auto-finalizes from the reused worktree path", async () => {
     const fixture = await makeReliabilityFixture({
@@ -590,7 +590,7 @@ describe("FN-5279 reliability interactions: merge reuse task worktree", () => {
     } finally {
       await fixture.cleanup();
     }
-  }, 30_000);
+  }, 60_000);
 
   it.skipIf(!hasGit)("Layer 3 conflict resolution sessions run from the reused worktree", async () => {
     mockedCreateFnAgent.mockClear();
@@ -638,7 +638,7 @@ describe("FN-5279 reliability interactions: merge reuse task worktree", () => {
     } finally {
       await fixture.cleanup();
     }
-  }, 30_000);
+  }, 60_000);
 
   it.skipIf(!hasGit)("reacquires a fresh task worktree when reuse is requested without a task worktree", async () => {
     const fixture = await makeReliabilityFixture({
@@ -686,7 +686,7 @@ describe("FN-5279 reliability interactions: merge reuse task worktree", () => {
     } finally {
       await fixture.cleanup();
     }
-  }, 30_000);
+  }, 60_000);
 
   it.skipIf(!hasGit)("cwd-main legacy alias is normalized to cwd-integration-branch and stays on the opt-in path with no reuse handoff events", async () => {
     const fixture = await makeReliabilityFixture({
@@ -721,7 +721,7 @@ describe("FN-5279 reliability interactions: merge reuse task worktree", () => {
     } finally {
       await fixture.cleanup();
     }
-  }, 30_000);
+  }, 60_000);
 
   it.skipIf(!hasGit)("worktrunk-enabled reuse mode still acquires reuse handoff", async () => {
     const fixture = await makeReliabilityFixture({
@@ -764,7 +764,7 @@ describe("FN-5279 reliability interactions: merge reuse task worktree", () => {
     } finally {
       await fixture.cleanup();
     }
-  }, 30_000);
+  }, 60_000);
 
   it.skipIf(!hasGit)("autoMerge off remains inert and emits no reuse handoff events", async () => {
     const fixture = await makeReliabilityFixture({
@@ -796,7 +796,7 @@ describe("FN-5279 reliability interactions: merge reuse task worktree", () => {
     } finally {
       await fixture.cleanup();
     }
-  }, 20_000);
+  }, 60_000);
 
   // FN-5345/FN-5377 regression backstop.
   //

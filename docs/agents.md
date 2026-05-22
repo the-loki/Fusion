@@ -1479,3 +1479,50 @@ Precedence:
 3. Built-in fallback preset (`unrestricted` / allow-all)
 
 Per-agent rows can inherit project defaults category-by-category.
+
+## Pi extension scope (`packages/cli/src/extension.ts`)
+
+The pi extension ships as part of `@runfusion/fusion` and provides tools + a `/fn` command for chat agents.
+
+**Update when:**
+- CLI commands change (behavior, flags, output)
+- Task store / Agent store API changes
+- New user-facing features chat agents should be able to use
+
+**Don't add tools for engine-internal operations** (move, step updates, logging, merge) — those are owned by the engine's own agents.
+
+The extension has no skills — tool descriptions give the LLM everything it needs.
+
+### `fn_web_fetch`
+
+Lightweight URL read from agent/chat sessions. HTTP GET, follows redirects, extracts readable text (HTML→text and JSON pretty-print), bounded.
+
+Universal baseline: available by default across executor, step-session, reviewer, merger, triage, and heartbeat (including engineer/custom direct-report paths). Gated under the `network_api` action-gate category (FN-4603).
+
+- Defaults: `timeoutMs=30000`, `maxBytes=512000` (500 KB)
+- Blocks private/loopback/link-local hosts (including DNS-resolved) unless explicitly overridden in internal/test contexts
+- Read-only (no JS rendering, no auth flows, no POST/cookie workflows)
+- Use the `agent-browser` skill when JS rendering or interactive navigation is required
+
+## Agent coordination tools summary
+
+Seven coordination tools support spawning, provisioning, discovery, delegation, and direct-report config.
+
+- `spawn_agent` — Parent-task-scoped ephemeral child in its own worktree. Limits via `maxSpawnedAgentsPerParent` (default 5) and `maxSpawnedAgentsGlobal` (default 20). Auto-terminated with parent. Gated under generic `task_agent_mutation` (FN-3973 explicitly excludes it from durable `agentProvisioning` policy).
+- `agent_create` / `agent_delete` — Non-ephemeral provisioning of direct reports. Policy-gated via `projectSettings.agentProvisioning` (`approvalMode`, `trustedRoles`, `trustedAgentIds`, `alwaysApproveDelete`). Tool responses use `details.outcome`: `created` / `deleted` / `pending_approval` / `denied`. Pending requests resolve via `POST /api/approvals/:id/decision`. Audit events: `agent:{create,delete}:{requested,approved,denied}`.
+- `list_agents` — Discovery with `role`/`state`/`includeEphemeral` filters.
+- `delegate_task` — Create + assign task to a specific agent. Implementation tasks require executor-role target unless `override: true`. Cannot target ephemeral agents (use `spawn_agent`).
+- `get_agent_config` / `update_agent_config` — Read/write soul, instructions, heartbeat interval/timeout, max concurrent runs, message response mode. **Authorization**: caller can only act on agents where `target.reportsTo === caller.id`. Cannot operate on ephemeral agents.
+
+## Checkout leasing
+
+- 409 Conflict = ownership contention. Response: `{ error, currentHolder, taskId }`. **Never auto-retry 409.**
+- `HeartbeatMonitor.executeHeartbeat()` validates checkout before work begins; mismatched `checkedOutBy` exits with `reason: "checkout_conflict"`. Heartbeat does not auto-checkout — callers obtain the lease.
+- With `CentralClaimStore` wired, the authoritative owner is the central `taskClaims` row; per-project lease fields mirror it. `MeshLeaseManager.recoverAbandonedLease()` releases central first then local. `reconcileLeaseRow(taskId)` converges divergent state on the next tick (emits `task:auto-recover-lease-*`). Without a claim store, behavior remains single-node per-project.
+
+## Agent runtime config
+
+Per-agent overrides via `runtimeConfig`:
+- **Heartbeat**: `heartbeatIntervalMs`, `heartbeatTimeoutMs`, `maxConcurrentRuns`. Triggered by timer, task assignment, or on-demand (`POST /api/agents/:id/runs`).
+- **Budgets**: per-agent token budget tracking; `HeartbeatMonitor.executeHeartbeat()` skips when `isOverBudget` or `isOverThreshold` (timer triggers). Hard caps pause the agent.
+- **Performance ratings**: 1–5 scale with trend analysis, injected into system prompts.

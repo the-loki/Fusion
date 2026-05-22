@@ -891,3 +891,104 @@ The `POST /api/agents/import` endpoint returns skill import results:
 ```
 
 The `skills` object contains detailed import outcomes for each skill from the package.
+
+## Styling Guide
+
+The dashboard's CSS is split into a global stylesheet (`packages/dashboard/app/styles.css`) and per-component files (`packages/dashboard/app/components/ComponentName.css`). Each `ComponentName.tsx` imports its stylesheet at the top.
+
+**Rule:** New CSS for a component goes in `app/components/ComponentName.css`, NOT `styles.css`. Only design tokens, primitives (`.btn`, `.card`, `.modal`, `.form-input`), and cross-component `@media` overrides belong in the global file.
+
+The `index.html` shell is templated server-side: the server injects a per-user `<link rel="modulepreload">` for the last-used `taskView` chunk, sourced from Vite's `dist/client/.vite/manifest.json` and `kb:<projectId>:kb-dashboard-task-view` in localStorage.
+
+### Design tokens
+
+`styles.css` is the source of truth for tokens (`--space-*`, `--radius-*`, `--shadow-*`, `--transition-*`, `--font-*`, `--header-height`, `--mobile-nav-height`, `--standalone-bottom-gap`, `--overlay-padding-top`) and color variables (`--bg`, `--surface`, `--card`, `--text`, `--text-muted`, status colors `--triage`/`--todo`/`--in-progress`/`--in-review`/`--done`, semantic `--color-success`/`--color-error`/`--color-warning`/`--color-info`, status backgrounds `--status-*-bg`).
+
+**Always reference tokens. Never hardcode pixels, hex, or `rgba()` in component CSS** — the only exception is inside `:root`/theme blocks where tokens are *defined*. For translucent backgrounds use `color-mix(in srgb, var(--color) X%, transparent)`, not `rgba()`.
+
+### Theme system
+
+Dark/light modes via `data-theme`; 54 color themes via `data-color-theme` (lazy-loaded from `app/public/theme-data.css`).
+
+- **Base tokens** (`--bg`, `--surface`, etc.) — redefine in `:root`, `[data-theme="light"]`, and every theme block.
+- **Semantic tokens** (`--autopilot-pulse`, `--event-error-text`, `--badge-mission-*`, `--fab-*`) — `:root` + `[data-theme="light"]` only; no per-color-theme overrides.
+- **Status tokens** (`--triage`, `--todo`, etc.) — redefine per theme block.
+
+`status-colors-theme.test.ts` iterates all theme blocks to catch regressions.
+
+### Component classes
+
+Reuse existing primitives from `styles.css`:
+- **Buttons**: `.btn`, `.btn-primary`, `.btn-danger`, `.btn-warning`, `.btn-sm`, `.btn-icon`, `.btn-icon--active`, `.btn-badge`. All inherit `:focus-visible` via `--focus-ring-strong` and `:active` via `transform: scale(0.97)`.
+- **Modals**: `.modal-overlay[.open]`, `.modal`, `.modal-lg`, `.modal-header`, `.modal-close`, `.modal-actions`, `.modal-actions-left/right`. Overlay pads top with `--overlay-padding-top`.
+- **Forms**: `.form-group`, `.input`, `.select`, `.checkbox-label`, `.form-error`. Inputs in `.form-group` get focus styles automatically.
+- **Cards**: `.card`, `.card-header`, `.card-id`, `.card-title`, `.card-meta`, `.card-status-badge--{triage,todo,in-progress,in-review,done,archived}`.
+- **Utility**: `.touch-target` (44px min), `.visually-hidden`.
+
+Don't create parallel button/form variants — add states (`:hover`, `:focus-visible`, `:active`) to the existing primitives.
+
+### Mobile responsive
+
+Breakpoints: 768px (primary mobile), 1024px (tablet `min-width: 769px and max-width: 1024px`), 640px (compact), 480px (xs). Mobile overrides go in `@media (max-width: 768px)` blocks at the bottom of `styles.css` after base styles.
+
+**Bottom spacing:** `--mobile-nav-height` (44px) + `env(safe-area-inset-bottom, 0px)` + `--standalone-bottom-gap` (0/8px PWA). All bottom-positioned mobile elements compose those.
+
+**Touch targets:** Standing button-freeze directive supersedes per-button touch-target guidance. For non-button elements, primary controls (nav bar, FAB, tab action rows, modal CTAs, list-row tap targets, form controls) must be ≥36px on mobile. Secondary controls inside a card/list-row where the row itself is the tap target stay compact (24–28px or small chips).
+
+**Safe area:** `max(var(--space-md), env(safe-area-inset-left, 0px))` for notch-aware horizontal padding.
+
+### Lazy-Loaded Heavy Views
+
+These 19 views are lazy-loaded via `React.lazy()` with `<Suspense fallback={null}>`. `prefetchLazyViews()` warms chunks once on mount via `requestIdleCallback`. **Do not make these eager.**
+
+- `AgentsView`
+- `NodesView`
+- `ChatView`
+- `MemoryView`
+- `DevServerView`
+- `SecretsView`
+- `InsightsView`
+- `DocumentsView`
+- `SkillsView`
+- `ResearchView`
+- `ReliabilityView`
+- `EvalsView`
+- `TodoView`
+- `GoalsView`
+- `StashRecoveryView`
+- `SetupWizardModal`
+- `PluginManager`
+- `PiExtensionsManager`
+- `AgentDetailView`
+
+When adding or removing entries, update `packages/dashboard/app/__tests__/lazy-loaded-views-docs.test.ts` (expected set + count).
+
+### CSS testing
+
+Use `packages/dashboard/app/test/cssFixture.ts`:
+
+```ts
+import { loadAllAppCss, loadAllAppCssBaseOnly } from "../test/cssFixture";
+const allCss = await loadAllAppCss();          // styles.css + all component .css
+const baseOnly = await loadAllAppCssBaseOnly(); // strips @media/@supports
+```
+
+**Never** directly `readFileSync('../styles.css')` — an ESLint rule (`no-restricted-syntax` in `eslint.config.mjs`) bans this and points at `cssFixture.ts`. `vitest.config.ts` has `test.css: { include: [/.+/] }` so component CSS imports inject into jsdom for `getComputedStyle` assertions.
+
+### File browser editor & autosize textarea
+
+- `FileEditor.tsx` is CodeMirror 6-only (no `<textarea>` fallback). Language resolution: `packages/dashboard/app/utils/codemirror-language.ts`.
+- For chat-style composer fields use `packages/dashboard/app/hooks/useAutosizeTextarea.ts`. Pattern: `height = "auto"` then clamp `scrollHeight` to min/max in `useLayoutEffect`. Pair with `resize: none` and `overflow-y: auto`.
+
+### File-path links
+
+Reuse `packages/dashboard/app/utils/filePathLinkify.tsx` and `FileBrowserContext`. Wrap plain text with `linkifyFilePaths(...)`, mixed JSX with `linkifyReactChildren(...)`. Mount under `FileBrowserProvider` and route clicks through its `openFile(path, { workspace?, line?, col? })`.
+
+### Common pitfalls
+
+- **`--surface-hover` undefined** — reference with a fallback (`var(--surface-hover, rgba(0,0,0,0.03))`) or define explicitly.
+- **BEM specificity** — when a container state class and an element modifier target the same node, the container can win. Use `:not(.modifier)` to scope.
+- **CSS `@media` detection** — track brace depth to confirm a rule is mobile-scoped; don't scan backwards for the nearest `@media`. Many components are global even if visually mobile-only.
+- **Mobile board scroll-snap (FN-001)** — `scroll-snap-type: x mandatory` on mobile `.board` causes iOS Safari to compress the viewport when switching from ListView. Use `x proximity` + `overflow-anchor: none`.
+- **`lucide-react` icon adds** — update `vi.mock("lucide-react")` test mocks immediately; missing exports cascade.
+- **`.spin` is global** — don't redefine the generic spin keyframes in component CSS.
