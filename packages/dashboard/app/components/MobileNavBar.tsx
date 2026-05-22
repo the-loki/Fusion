@@ -245,9 +245,18 @@ export function MobileNavBar({
     };
   }, []);
 
-  if (mode !== "mobile" || modalOpen || keyboardOpen) {
+  // We previously hid the bar when keyboardOpen was true to avoid sitting
+  // over the iOS soft keyboard. On Android Chrome, useMobileKeyboard can
+  // get stuck at keyboardOpen=true after a focus-triggered visualViewport
+  // resize whose matching dismiss event never fires — leaving the nav bar
+  // permanently invisible (FN-Android-tablet repro). Render unconditionally
+  // when in mobile mode; on Android the keyboard pushes content up so the
+  // bar isn't covered, and on iOS the worst case (bar overlapping keyboard)
+  // is far less broken than the bar vanishing.
+  if (mode !== "mobile" || modalOpen) {
     return null;
   }
+  void keyboardOpen;
 
   const planningHandler = activePlanningSessionCount > 0 && onResumePlanning ? onResumePlanning : onOpenPlanning;
 
