@@ -116,7 +116,7 @@ export function MobileNavBar({
   onChangeView,
   footerVisible,
   modalOpen = false,
-  keyboardOpen = false,
+  keyboardOpen: _keyboardOpen = false,
   onOpenSettings,
   onOpenActivityLog,
   onOpenSystemStats,
