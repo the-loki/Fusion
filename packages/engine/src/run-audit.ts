@@ -228,6 +228,8 @@ export type GitMutationType =
   // reserved; refusal currently thrown pre-audit
   | "project:bootstrap-refused-linked-worktree"
   | "branch:reanchor"
+  | "branch:attribution-anomaly"
+  | "branch:auto-reattach-authoritative"
   /**
    * Metadata shape:
    * ```ts

@@ -275,6 +275,75 @@ async function summarizeTaskAttributedCommits(repoDir: string, range: string, ta
   return { ownCount, foreignCount };
 }
 
+export interface BranchAttributionReport {
+  /** Commits whose subject matches `<type>(<taskId>):` AND carry the trailer. */
+  ownTrailed: number;
+  /** Commits attributed to taskId via subject but missing the Fusion-Task-Id trailer
+   *  (signals: hook didn't fire — worktree was used without identity guards). */
+  ownUntrailed: { sha: string; subject: string }[];
+  /** Commits attributed to a different FN-id via subject or trailer (contamination). */
+  foreign: { sha: string; subject: string; foreignTaskId: string }[];
+  /** Commits with neither a conventional subject nor any trailer (orphaned writes). */
+  unattributed: { sha: string; subject: string }[];
+}
+
+/**
+ * Post-session audit of every commit in `base..branch`. Used by the executor
+ * immediately after a step-session completes to detect three classes of
+ * contamination early — long before merge time:
+ *
+ *   1. ownUntrailed: agent committed legitimately but the commit-msg hook
+ *      didn't fire (missing fusion-task-id, --no-verify, plumbing commit).
+ *   2. foreign: another task's work landed on this branch (FN-5233 pattern).
+ *   3. unattributed: commit lacks both subject prefix and trailer (often a
+ *      hand-merged commit or plumbing-driven update).
+ *
+ * Returns counts/details rather than throwing so callers can decide whether
+ * to refuse, warn, or just audit.
+ */
+export async function reportBranchAttribution(
+  repoDir: string,
+  branch: string,
+  baseSha: string,
+  taskId: string,
+): Promise<BranchAttributionReport> {
+  const report: BranchAttributionReport = { ownTrailed: 0, ownUntrailed: [], foreign: [], unattributed: [] };
+  const output = await runGit(repoDir, `git log --format=%H%x1f%s%x1f%b%x1e ${quoteShellArg(`${baseSha}..${branch}`)}`)
+    .catch(() => "");
+  if (!output) return report;
+  const escapedTaskId = taskId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const ownSubjectPattern = new RegExp(`^(feat|fix|test|chore|docs|refactor|perf|build)\\(${escapedTaskId}\\):`, "i");
+  const ownTrailerPattern = new RegExp(`(?:^|\\n)${FUSION_TASK_ID_TRAILER_KEY}: ${escapedTaskId}\\s*(?:\\n|$)`, "i");
+  const genericSubjectPattern = /^(feat|fix|test|chore|docs|refactor|perf|build)\((FN-\d+)\):/i;
+  const genericTrailerPattern = new RegExp(`(?:^|\\n)${FUSION_TASK_ID_TRAILER_KEY}:\\s*(FN-\\d+)\\s*(?:\\n|$)`, "i");
+  const normalizedTaskId = taskId.toUpperCase();
+  for (const record of output.split("").map((entry) => entry.trim()).filter(Boolean)) {
+    const [sha = "", subject = "", body = ""] = record.split("");
+    const subjectMatch = subject.match(genericSubjectPattern);
+    const trailerMatch = body.match(genericTrailerPattern);
+    const attributedTaskId = (trailerMatch?.[1] ?? subjectMatch?.[2] ?? "").toUpperCase();
+    if (attributedTaskId && attributedTaskId !== normalizedTaskId) {
+      report.foreign.push({ sha, subject, foreignTaskId: attributedTaskId });
+      continue;
+    }
+    if (!attributedTaskId) {
+      report.unattributed.push({ sha, subject });
+      continue;
+    }
+    const trailerPresent = ownTrailerPattern.test(body);
+    const subjectPresent = ownSubjectPattern.test(subject);
+    if (subjectPresent && trailerPresent) {
+      report.ownTrailed += 1;
+    } else if (subjectPresent && !trailerPresent) {
+      report.ownUntrailed.push({ sha, subject });
+    } else {
+      // trailer present, subject not — counts as trailed-own.
+      report.ownTrailed += 1;
+    }
+  }
+  return report;
+}
+
 /**
  * True iff `branch`'s tip commit carries a `Fusion-Task-Id: <taskId>` trailer.
  * Used as the cheap "is this branch ref authoritative for this task" probe

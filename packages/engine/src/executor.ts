@@ -70,6 +70,7 @@ import {
   isBranchConflictError,
   reanchorBranchToBase,
   inspectBranchConflict,
+  reportBranchAttribution,
 } from "./branch-conflicts.js";
 import { BranchAttributionError, filterFilesToOwnTaskCommits } from "./branch-attribution.js";
 import { resolveIntegrationBranch } from "./integration-branch.js";
@@ -3384,6 +3385,40 @@ export class TaskExecutor {
               executorLog.log(`${task.id}: captured ${modifiedFiles.length} modified files`);
               // Audit trail: record filesystem mutation (FN-1404)
               await audit.filesystem({ type: "file:capture-modified", target: task.id, metadata: { files: modifiedFiles } });
+            }
+
+            // Post-session branch attribution audit: walk base..branch and surface
+            // any commit that's foreign (different FN-id), unattributed (no subject
+            // tag AND no Fusion-Task-Id trailer), or own-but-untrailed (signals the
+            // commit-msg hook didn't fire — typically a worktree without identity
+            // guards or a plumbing-driven commit). Logged loudly so contamination
+            // gets caught within minutes of happening rather than days later at
+            // merge time (FN-5233 was this pattern).
+            try {
+              const attributionBase = await this.resolveContaminationBaseRef(worktreePath);
+              if (attributionBase && updatedTask.branch) {
+                const attribution = await reportBranchAttribution(this.rootDir, updatedTask.branch, attributionBase, task.id);
+                const hasAnomaly = attribution.foreign.length > 0 || attribution.unattributed.length > 0 || attribution.ownUntrailed.length > 0;
+                if (hasAnomaly) {
+                  const summary = `branch-attribution anomalies on ${updatedTask.branch}: foreign=${attribution.foreign.length}, unattributed=${attribution.unattributed.length}, ownUntrailed=${attribution.ownUntrailed.length}, ownTrailed=${attribution.ownTrailed}`;
+                  executorLog.warn(`${task.id}: ${summary}`);
+                  await this.store.logEntry(task.id, `[branch-attribution] ${summary}`, undefined, this.getRunContextFor(task.id));
+                  await audit.git({
+                    type: "branch:attribution-anomaly",
+                    target: updatedTask.branch,
+                    metadata: {
+                      taskId: task.id,
+                      baseSha: attributionBase,
+                      ownTrailed: attribution.ownTrailed,
+                      foreign: attribution.foreign,
+                      unattributed: attribution.unattributed,
+                      ownUntrailed: attribution.ownUntrailed,
+                    },
+                  });
+                }
+              }
+            } catch (attributionErr: unknown) {
+              executorLog.warn(`${task.id}: post-session branch-attribution audit failed: ${attributionErr instanceof Error ? attributionErr.message : String(attributionErr)}`);
             }
 
             this.scheduleCompletedTaskWatchdog(task.id, "step-session completion");

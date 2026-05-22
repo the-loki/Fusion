@@ -48,6 +48,7 @@ import {
   assertCleanBranchAtBase,
   inspectBranchConflict,
   listUniqueBranchCommits,
+  reportBranchAttribution,
 } from "../branch-conflicts.js";
 
 const mockedExecSync = vi.mocked(execSync);
@@ -465,5 +466,65 @@ describe("branch-conflicts", () => {
     await expect(assertion).resolves.toBeUndefined();
   });
 
+  describe("reportBranchAttribution", () => {
+    const RS = "\x1e";
+    const FS = "\x1f";
+
+    function setupLog(records: { sha: string; subject: string; body: string }[]) {
+      const log = records.map((r) => `${r.sha}${FS}${r.subject}${FS}${r.body}${RS}`).join("");
+      mockedExecSync.mockImplementation((cmd: string | string[]) => {
+        const command = typeof cmd === "string" ? cmd : cmd[0];
+        if (command.includes("git log --format=%H%x1f%s%x1f%b%x1e")) {
+          return Buffer.from(log);
+        }
+        throw new Error(`Unexpected command: ${command}`);
+      });
+    }
+
+    it("counts own-trailed commits as healthy", async () => {
+      setupLog([
+        { sha: "aaa", subject: "feat(FN-1): add x", body: "Fusion-Task-Id: FN-1\n" },
+        { sha: "bbb", subject: "fix(FN-1): tweak", body: "Fusion-Task-Id: FN-1\n" },
+      ]);
+      const r = await reportBranchAttribution("/tmp/repo", "fusion/fn-1", "main", "FN-1");
+      expect(r.ownTrailed).toBe(2);
+      expect(r.ownUntrailed).toEqual([]);
+      expect(r.foreign).toEqual([]);
+      expect(r.unattributed).toEqual([]);
+    });
+
+    it("flags FN-5233-class foreign commits", async () => {
+      setupLog([
+        { sha: "fff", subject: "feat(FN-5353): wire something", body: "" },
+        { sha: "ggg", subject: "feat(FN-1): legit", body: "Fusion-Task-Id: FN-1\n" },
+      ]);
+      const r = await reportBranchAttribution("/tmp/repo", "fusion/fn-1", "main", "FN-1");
+      expect(r.foreign).toEqual([{ sha: "fff", subject: "feat(FN-5353): wire something", foreignTaskId: "FN-5353" }]);
+      expect(r.ownTrailed).toBe(1);
+    });
+
+    it("flags own-but-untrailed commits (hook didn't fire)", async () => {
+      setupLog([
+        { sha: "ccc", subject: "feat(FN-1): no trailer", body: "" },
+      ]);
+      const r = await reportBranchAttribution("/tmp/repo", "fusion/fn-1", "main", "FN-1");
+      expect(r.ownUntrailed).toEqual([{ sha: "ccc", subject: "feat(FN-1): no trailer" }]);
+      expect(r.ownTrailed).toBe(0);
+    });
+
+    it("flags unattributed commits (no subject pattern, no trailer)", async () => {
+      setupLog([
+        { sha: "ddd", subject: "hand-merge", body: "" },
+      ]);
+      const r = await reportBranchAttribution("/tmp/repo", "fusion/fn-1", "main", "FN-1");
+      expect(r.unattributed).toEqual([{ sha: "ddd", subject: "hand-merge" }]);
+    });
+
+    it("returns empty report when range is empty", async () => {
+      setupLog([]);
+      const r = await reportBranchAttribution("/tmp/repo", "fusion/fn-1", "main", "FN-1");
+      expect(r).toEqual({ ownTrailed: 0, ownUntrailed: [], foreign: [], unattributed: [] });
+    });
+  });
 
 });
