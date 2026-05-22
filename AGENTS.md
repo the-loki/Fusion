@@ -12,6 +12,11 @@ If you find yourself opening `SettingsModal.css`, `TaskCard.css`, `ChatView.css`
 
 Exception: explicit named user request in chat that overrides this directive.
 
+### Mobile bottom spacing token contract
+
+- `--mobile-nav-height` keeps a `44px` CSS fallback, then gets republished at runtime by `MobileNavBar.tsx` (`ResizeObserver`) to match live nav content height.
+- Bottom offsets should compose as: `var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px) + var(--standalone-bottom-gap)`.
+
 ### Spec Generation Hygiene
 
 - Do not cite `.fusion/tasks/<id>/<file>` paths in Context/Steps/File Scope unless the file already exists, is explicitly created as a `(new)` Artifact, or is sibling `PROMPT.md`/`task.json`/`attachments/*`.

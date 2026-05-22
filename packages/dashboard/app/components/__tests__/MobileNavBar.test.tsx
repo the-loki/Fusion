@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MobileNavBar } from "../MobileNavBar";
 
@@ -759,6 +759,85 @@ describe("MobileNavBar", () => {
       await waitFor(() => {
         expect(screen.queryByTestId("mobile-more-scripts-loading")).toBeNull();
       });
+    });
+  });
+
+  describe("ResizeObserver height measurement", () => {
+    const originalResizeObserver = globalThis.ResizeObserver;
+
+    let resizeObserverCallback: ResizeObserverCallback | null = null;
+    let offsetHeightValue = 52;
+
+    class ResizeObserverMock {
+      constructor(callback: ResizeObserverCallback) {
+        resizeObserverCallback = callback;
+      }
+
+      observe() {}
+
+      unobserve() {}
+
+      disconnect() {}
+    }
+
+    afterEach(() => {
+      globalThis.ResizeObserver = originalResizeObserver;
+      resizeObserverCallback = null;
+      offsetHeightValue = 52;
+      document.documentElement.style.removeProperty("--mobile-nav-height");
+      vi.restoreAllMocks();
+    });
+
+    it("publishes measured height on mount and clears inline token on unmount", () => {
+      globalThis.ResizeObserver = ResizeObserverMock as typeof ResizeObserver;
+      vi.spyOn(window, "getComputedStyle").mockReturnValue({ paddingBottom: "0px" } as CSSStyleDeclaration);
+
+      const { container, unmount } = render(<MobileNavBar {...createDefaultProps()} />);
+      const navEl = container.querySelector(".mobile-nav-bar") as HTMLElement;
+      Object.defineProperty(navEl, "offsetHeight", {
+        configurable: true,
+        get: () => offsetHeightValue,
+      });
+
+      if (resizeObserverCallback) {
+        resizeObserverCallback([], {} as ResizeObserver);
+      }
+
+      expect(document.documentElement.style.getPropertyValue("--mobile-nav-height")).toBe("52px");
+      unmount();
+      expect(document.documentElement.style.getPropertyValue("--mobile-nav-height")).toBe("");
+    });
+
+    it("updates measured token when ResizeObserver callback fires", () => {
+      globalThis.ResizeObserver = ResizeObserverMock as typeof ResizeObserver;
+      vi.spyOn(window, "getComputedStyle").mockReturnValue({ paddingBottom: "0px" } as CSSStyleDeclaration);
+
+      const { container } = render(<MobileNavBar {...createDefaultProps()} />);
+      const navEl = container.querySelector(".mobile-nav-bar") as HTMLElement;
+      Object.defineProperty(navEl, "offsetHeight", {
+        configurable: true,
+        get: () => offsetHeightValue,
+      });
+
+      if (resizeObserverCallback) {
+        resizeObserverCallback([], {} as ResizeObserver);
+      }
+      expect(document.documentElement.style.getPropertyValue("--mobile-nav-height")).toBe("52px");
+
+      offsetHeightValue = 58;
+      if (resizeObserverCallback) {
+        resizeObserverCallback([{ target: navEl } as ResizeObserverEntry], {} as ResizeObserver);
+      }
+      expect(document.documentElement.style.getPropertyValue("--mobile-nav-height")).toBe("58px");
+    });
+
+    it("still performs initial measurement when ResizeObserver is unavailable", () => {
+      // @ts-expect-error test intentionally clears ResizeObserver
+      delete globalThis.ResizeObserver;
+      vi.spyOn(window, "getComputedStyle").mockReturnValue({ paddingBottom: "0px" } as CSSStyleDeclaration);
+
+      render(<MobileNavBar {...createDefaultProps()} />);
+      expect(document.documentElement.style.getPropertyValue("--mobile-nav-height")).toBe("44px");
     });
   });
 });
