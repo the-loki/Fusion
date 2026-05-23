@@ -30,6 +30,8 @@ export interface AgentRuntimeContext {
   toolMode?: "coding" | "readonly";
   customToolNames?: string[];
   requestedSkillNames?: string[];
+  workflowStepId?: string;
+  workflowStepTemplateId?: string;
 }
 
 export interface AgentRuntimeOptions {

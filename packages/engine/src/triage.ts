@@ -79,6 +79,11 @@ import {
   isResearchToolSurfaceEnabled,
 } from "./tool-availability.js";
 import { runGhostBugPreflight } from "./triage-preflight.js";
+import {
+  BROAD_SCOPE_FLAG_VERSION,
+  decideBroadScopeFlag,
+  extractBroadScopeSignals,
+} from "./triage-broad-scope-heuristics.js";
 import { archiveAsGhostBug } from "./self-healing.js";
 import { createRunAuditor, generateSyntheticRunId } from "./run-audit.js";
 
@@ -2418,6 +2423,54 @@ export class TriageProcessor {
     } catch {
       // Fail open on persisted PROMPT.md parsing and keep using the in-memory parse.
     }
+    type BroadScopeFlagRecord = {
+      score: number;
+      reasons: string[];
+      signals: {
+        size: "S" | "M" | "L" | null;
+        stepCount: number;
+        fileScopeCount: number;
+        failingFileMentions: number;
+      };
+      thresholds: {
+        stepsHigh: number;
+        fileScopeHigh: number;
+        failingFileMentionsHigh: number;
+        sizeLStepsThreshold: number;
+      };
+      version: number;
+      flaggedAt: string;
+    };
+    let broadScopeFlagRecord: BroadScopeFlagRecord | null = null;
+    try {
+      const broadScopeSignals = extractBroadScopeSignals({
+        size: taskUpdates.size ?? task.size ?? null,
+        stepCount: parsedSteps.length,
+        fileScopeCount: parsedFileScope.length,
+        descriptionText: task.description ?? "",
+      });
+      const broadScopeDecision = decideBroadScopeFlag(broadScopeSignals);
+      if (broadScopeDecision.flagged) {
+        broadScopeFlagRecord = {
+          score: broadScopeDecision.score,
+          reasons: broadScopeDecision.reasons,
+          signals: broadScopeDecision.signals,
+          thresholds: broadScopeDecision.thresholds,
+          version: BROAD_SCOPE_FLAG_VERSION,
+          flaggedAt: new Date().toISOString(),
+        };
+        taskUpdates.sourceMetadataPatch = {
+          ...(taskUpdates.sourceMetadataPatch ?? {}),
+          broadScopeFlag: broadScopeFlagRecord,
+        };
+        planLog.warn(
+          `${task.id}: broad-scope flag at triage — score=${broadScopeDecision.score}, reasons=${broadScopeDecision.reasons.join(",")}`,
+        );
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      planLog.warn(`${task.id}: broad-scope heuristic failed open: ${message}`);
+    }
     let taskIntentSignature: ReturnType<typeof extractIntentSignature> = {
       routePaths: [],
       filePaths: [],
@@ -2453,6 +2506,37 @@ export class TriageProcessor {
     const shouldApplyPromptDeclaredTitle = shouldReplaceTaskTitleFromPrompt(task, promptDeclaredTitle);
 
     await this.store.updateTask(task.id, taskUpdates);
+
+    if (broadScopeFlagRecord) {
+      try {
+        await this.store.logEntry(
+          task.id,
+          "Broad-scope triage flag",
+          `Heuristics suggest this task may benefit from decomposition (score=${broadScopeFlagRecord.score}; signals: ${broadScopeFlagRecord.reasons.join(", ")}). Consider creating child tasks via fn_task_create or marking breakIntoSubtasks=true before execution.`,
+        );
+        const auditor = createRunAuditor(this.store, {
+          taskId: task.id,
+          agentId: task.assignedAgentId ?? "triage",
+          runId: generateSyntheticRunId("triage", task.id),
+          phase: "triage",
+          source: "triage",
+        });
+        await auditor.database({
+          type: "task:broad-scope-flagged-at-triage",
+          target: task.id,
+          metadata: {
+            score: broadScopeFlagRecord.score,
+            reasons: broadScopeFlagRecord.reasons,
+            signals: broadScopeFlagRecord.signals,
+            thresholds: broadScopeFlagRecord.thresholds,
+            version: broadScopeFlagRecord.version,
+          },
+        });
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        planLog.warn(`${task.id}: broad-scope heuristic failed open: ${message}`);
+      }
+    }
 
     try {
       const preflightDecision = await Promise.race([

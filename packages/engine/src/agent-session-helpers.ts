@@ -280,6 +280,8 @@ export async function createResolvedAgentSession(
       runtimeContext: {
         ...runtimeOptions.runtimeContext,
         sessionPurpose,
+        workflowStepId: runtimeOptions.runtimeContext?.workflowStepId,
+        workflowStepTemplateId: runtimeOptions.runtimeContext?.workflowStepTemplateId,
       },
     }
     : runtimeOptions;

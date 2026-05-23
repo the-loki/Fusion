@@ -45,6 +45,8 @@ export interface MockScriptContext {
   tools: ToolDefinition[];
   taskId?: string;
   taskTitle?: string;
+  workflowStepId?: string;
+  workflowStepTemplateId?: string;
   invokeTool(name: string, args: Record<string, unknown>): Promise<unknown>;
 }
 
@@ -55,10 +57,11 @@ export interface MockScript {
 interface MockScriptKey {
   sessionPurpose: MockSessionPurpose;
   taskId?: string;
+  workflowStepTemplateId?: string;
 }
 
-function registryKey({ sessionPurpose, taskId }: MockScriptKey): string {
-  return `${sessionPurpose}:${taskId ?? "*"}`;
+function registryKey({ sessionPurpose, taskId, workflowStepTemplateId }: MockScriptKey): string {
+  return `${sessionPurpose}:${taskId ?? "*"}:${workflowStepTemplateId ?? "*"}`;
 }
 
 const overrides = new Map<string, MockScript>();
@@ -75,6 +78,8 @@ export const mockScriptRegistry = {
   },
   resolveMockScript(key: MockScriptKey): MockScript {
     return overrides.get(registryKey(key))
+      ?? overrides.get(registryKey({ sessionPurpose: key.sessionPurpose, taskId: key.taskId }))
+      ?? overrides.get(registryKey({ sessionPurpose: key.sessionPurpose, workflowStepTemplateId: key.workflowStepTemplateId }))
       ?? overrides.get(registryKey({ sessionPurpose: key.sessionPurpose }))
       ?? DEFAULT_SCRIPTS[key.sessionPurpose];
   },
@@ -90,6 +95,8 @@ let toolCallCounter = 0;
 interface MockAgentSessionState {
   sessionPurpose: MockSessionPurpose;
   options: AgentRuntimeOptions;
+  workflowStepId?: string;
+  workflowStepTemplateId?: string;
 }
 
 interface MockToolCallResult {
@@ -100,8 +107,13 @@ export class MockAgentSession {
   readonly __mock: MockAgentSessionState;
   readonly state: { errorMessage?: string; error?: string } = {};
 
-  constructor(options: AgentRuntimeOptions, sessionPurpose: MockSessionPurpose) {
-    this.__mock = { options, sessionPurpose };
+  constructor(
+    options: AgentRuntimeOptions,
+    sessionPurpose: MockSessionPurpose,
+    workflowStepId?: string,
+    workflowStepTemplateId?: string,
+  ) {
+    this.__mock = { options, sessionPurpose, workflowStepId, workflowStepTemplateId };
   }
 
   dispose(): void {}
@@ -235,6 +247,11 @@ const DEFAULT_SCRIPTS: Record<MockSessionPurpose, MockScript> = {
       ctx.options.onText?.("Verdict: APPROVE\n\nSummary: Mock validation passed.\n");
     },
   },
+  "workflow-step": {
+    async run(ctx) {
+      ctx.options.onText?.("Mock workflow-step approved scripted run.\n{\"verdict\":\"APPROVE\",\"notes\":\"\"}\n");
+    },
+  },
 };
 
 export class MockAgentRuntime implements AgentRuntime {
@@ -243,20 +260,30 @@ export class MockAgentRuntime implements AgentRuntime {
 
   async createSession(options: AgentRuntimeOptions): Promise<AgentSessionResult> {
     await options.beforeSpawnSession?.();
-    const sessionPurpose = (options.runtimeContext?.sessionPurpose as SessionPurpose | undefined) ?? "executor";
+    const runtimeContext = options.runtimeContext as
+      | { sessionPurpose?: SessionPurpose; workflowStepId?: string; workflowStepTemplateId?: string }
+      | undefined;
+    const workflowStepId = runtimeContext?.workflowStepId;
+    const workflowStepTemplateId = runtimeContext?.workflowStepTemplateId;
+    let sessionPurpose: MockSessionPurpose = (runtimeContext?.sessionPurpose as SessionPurpose | undefined) ?? "executor";
+    // FN-5205: workflow-step template routing overrides lane purpose for mock script dispatch.
+    if (workflowStepTemplateId) {
+      sessionPurpose = "workflow-step";
+    }
     return {
-      session: new MockAgentSession(options, sessionPurpose) as unknown as AgentSession,
+      session: new MockAgentSession(options, sessionPurpose, workflowStepId, workflowStepTemplateId) as unknown as AgentSession,
       sessionFile: undefined,
     };
   }
 
   async promptWithFallback(session: AgentSession, prompt: string, _promptOptions?: unknown): Promise<void> {
     const mockSession = session as unknown as MockAgentSession;
-    const { options, sessionPurpose } = mockSession.__mock;
+    const { options, sessionPurpose, workflowStepId, workflowStepTemplateId } = mockSession.__mock;
     const tools = options.customTools ?? [];
     const script = mockScriptRegistry.resolveMockScript({
       sessionPurpose,
       taskId: options.taskId,
+      workflowStepTemplateId,
     });
     await script.run({
       sessionPurpose,
@@ -265,6 +292,8 @@ export class MockAgentRuntime implements AgentRuntime {
       tools,
       taskId: options.taskId,
       taskTitle: options.taskTitle,
+      workflowStepId,
+      workflowStepTemplateId,
       invokeTool: (name, args) => executeTool(tools, options, name, args),
     });
   }

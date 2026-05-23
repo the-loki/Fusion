@@ -88,6 +88,7 @@ import { describeModel, promptWithFallback } from "./pi.js";
 import { accumulateSessionTokenUsage } from "./session-token-usage.js";
 import { createResolvedAgentSession, extractRuntimeHint, resolveMergerSessionModel } from "./agent-session-helpers.js";
 import { createFallbackModelObserver } from "./fallback-model-observer.js";
+import { isMockProviderId } from "./runtime-resolution.js";
 import { buildSessionSkillContext } from "./session-skill-context.js";
 import { classifyTaskWorktree, RemovalReason, removeWorktree, type WorktreePool } from "./worktree-pool.js";
 import { activeSessionRegistry } from "./active-session-registry.js";
@@ -11460,9 +11461,20 @@ If issues are found that need attention, describe them clearly and include concr
       ? await agentStoreWithGetAgent.getAgent(assignedAgentId).catch(() => null)
       : null;
     const mergerSessionModel = resolveMergerSessionModel(settings, assignedAgent?.runtimeConfig);
-    const stepProvider = workflowStep.modelProvider || mergerSessionModel.provider;
-    const stepModelId = workflowStep.modelId || mergerSessionModel.modelId;
-    const useOverride = !!(workflowStep.modelProvider && workflowStep.modelId);
+    let stepProvider = workflowStep.modelProvider || mergerSessionModel.provider;
+    let stepModelId = workflowStep.modelId || mergerSessionModel.modelId;
+    let useOverride = !!(workflowStep.modelProvider && workflowStep.modelId);
+    const testMode = (settings as { testMode?: boolean }).testMode === true
+      || isMockProviderId(stepProvider)
+      || isMockProviderId(settings.defaultProvider);
+
+    if (testMode) {
+      stepProvider = "mock";
+      stepModelId = "scripted";
+      useOverride = false;
+      mergerLog.log(`${taskId}: [post-merge] workflow step '${workflowStep.name}' using model: mock/scripted (test mode)`);
+      await store.logEntry(taskId, `[post-merge] Workflow step '${workflowStep.name}' using model: mock/scripted (test mode)`);
+    }
 
     // Post-merge step agents inherit merger instructions
     let postMergeInstructions = "";
@@ -11491,6 +11503,10 @@ If issues are found that need attention, describe them clearly and include concr
         `[readonly-violation] Post-merge workflow step '${workflowStep.name}' dropped denied custom tools: ${readonlyCustomTools.denied.join(", ")}`,
       );
     }
+    const workflowRuntimeContext = {
+      workflowStepId: workflowStep.id,
+      workflowStepTemplateId: workflowStep.templateId ?? workflowStep.id,
+    };
     const { session } = await createResolvedAgentSession({
       sessionPurpose: "merger",
       runtimeHint: mergerRuntimeHint,
@@ -11500,13 +11516,15 @@ If issues are found that need attention, describe them clearly and include concr
       tools: toolMode,
       defaultProvider: stepProvider,
       defaultModelId: stepModelId,
-      fallbackProvider: settings.fallbackProvider,
-      fallbackModelId: settings.fallbackModelId,
+      fallbackProvider: testMode ? undefined : settings.fallbackProvider,
+      fallbackModelId: testMode ? undefined : settings.fallbackModelId,
       defaultThinkingLevel: settings.defaultThinkingLevel,
       // Skill selection: use assigned agent skills if available, otherwise role fallback
       ...(postMergeSkillContext?.skillSelectionContext ? { skillSelection: postMergeSkillContext.skillSelectionContext } : {}),
       ...(readonlyCustomTools.allowed.length > 0 ? { customTools: readonlyCustomTools.allowed } : {}),
       taskId,
+      // Test-mode routing (FN-5205): mock dispatcher keys on workflowStepTemplateId; real providers ignore.
+      runtimeContext: workflowRuntimeContext,
       onFallbackModelUsed: createFallbackModelObserver({
         agent: "merger",
         label: `post-merge workflow step '${workflowStep.name}'`,

@@ -118,3 +118,11 @@ FN-5416 extends resume-correlation coverage to stream-focused hooks and their pr
 - Route shells
   - `DevServerView`: `remount` / `route-active` / `route-inactive`
   - `ResearchView`: `remount` / `route-active` / `route-inactive`
+
+## Broad-scope triage intake (`[triage]`)
+
+- Trigger shape: `TriageProcessor.finalizeApprovedTask()` scores the prompt/description against `packages/engine/src/triage-broad-scope-heuristics.ts` and flags advisory decomposition risk when the score reaches `>= 3`.
+- Diagnostic: `[triage] <taskId>: broad-scope flag at triage — score=<n>, reasons=<csv>`.
+- Fail-soft diagnostic: `[triage] <taskId>: broad-scope heuristic failed open: <message>` when the helper throws; the task still proceeds to `todo`.
+- Audit event: `task:broad-scope-flagged-at-triage` with `{ score, reasons, signals, thresholds, version }`.
+- Task log side effect: `Broad-scope triage flag` advising operators to decompose via `fn_task_create` or set `breakIntoSubtasks=true` before execution.
