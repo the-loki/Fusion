@@ -1203,7 +1203,6 @@ export async function runDashboard(port: number, opts: { paused?: boolean; dev?:
         taskId,
         githubClient,
         getTaskMergeBlocker,
-        worktreePool,
       );
       const task = await store.getTask(taskId);
       return {
