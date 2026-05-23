@@ -23,9 +23,9 @@ interface MergeAdvanceEventsResponse {
 }
 
 type SmartPullResponse =
-  | { kind: "clean-pull"; toSha: string }
-  | { kind: "stash-pull-pop"; toSha: string }
-  | { kind: "stash-pop-conflict"; toSha: string; stashSha: string; stashLabel: string; conflictedFiles: string[] };
+  | { kind: "pull-clean"; toSha: string }
+  | { kind: "pull-restored"; toSha: string }
+  | { kind: "stash-conflict"; toSha: string; stashSha: string; stashLabel: string; conflictedFiles: string[]; autostashOutcome: "conflict-needs-manual" | "failed" };
 
 type PushDisabledReason = "no-remote" | "no-upstream" | "not-ahead" | "merge-locked" | "not-a-git-repo";
 
@@ -109,7 +109,7 @@ export function useMergeAdvanceNotice({ projectId, apiBase = "/api" }: { project
   const [events, setEvents] = useState<MergeAdvanceEvent[]>([]);
   const [dismissedShas, setDismissedShas] = useState<string[]>(() => readDismissedShas(projectId));
   const [pullState, setPullState] = useState<"idle" | "pending" | "stashing" | { error: string }>("idle");
-  const [conflictState, setConflictState] = useState<{ stashSha: string; stashLabel: string; conflictedFiles: string[] } | null>(null);
+  const [conflictState, setConflictState] = useState<{ stashSha: string; stashLabel: string; conflictedFiles: string[]; autostashOutcome: "conflict-needs-manual" | "failed" } | null>(null);
   const [pushStatus, setPushStatus] = useState<PushOriginStatus | null>(null);
   const [pushState, setPushState] = useState<PushState>("idle");
   const [forceWithLease, setForceWithLeaseState] = useState<boolean>(() => readForceWithLease(projectId));
@@ -183,12 +183,17 @@ export function useMergeAdvanceNotice({ projectId, apiBase = "/api" }: { project
     setPullState(notice.userCheckout.dirty || notice.userCheckout.untrackedCount > 0 ? "stashing" : "pending");
     try {
       const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
-      const response = await api<SmartPullResponse>(`/git/smart-pull${query}`, {
+      const response = await api<SmartPullResponse>(`/git/pull${query}`, {
         method: "POST",
         body: JSON.stringify({ worktreePath: notice.userCheckout.worktreePath, integrationBranch: notice.integrationBranch, taskId: notice.taskId }),
       });
-      if (response.kind === "stash-pop-conflict") {
-        setConflictState({ stashSha: response.stashSha, stashLabel: response.stashLabel, conflictedFiles: response.conflictedFiles });
+      if (response.kind === "stash-conflict") {
+        setConflictState({
+          stashSha: response.stashSha,
+          stashLabel: response.stashLabel,
+          conflictedFiles: response.conflictedFiles,
+          autostashOutcome: response.autostashOutcome,
+        });
       } else {
         dismiss();
       }

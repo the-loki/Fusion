@@ -10,11 +10,22 @@ import type {
   IssueInfo,
   PrInfo,
   RunAuditEventInput,
+  Settings,
   StructuredGhError,
   Task,
   TaskStore,
 } from "@fusion/core";
 import { classifyGhError, getCurrentRepo, isGhAuthenticated } from "@fusion/core";
+import {
+  dropAutostashHandle,
+  generateSyntheticRunId,
+  getConflictedFiles,
+  resolveIntegrationRemote,
+  restoreUnrelatedRootDirChanges,
+  stashUnrelatedRootDirChanges,
+  tryFastForwardFromOrigin,
+  type MergerOptions,
+} from "@fusion/engine";
 import {
   ApiError,
   badRequest,
@@ -754,8 +765,14 @@ async function assertWorktreePathSafe(
     throw badRequest("worktreePath is required");
   }
 
+  if (!isAbsolute(worktreePath)) {
+    throw badRequest("worktreePath must be an absolute path");
+  }
   const rootDir = resolve(scopedStore.getRootDir());
   const resolved = resolve(worktreePath);
+  if (resolved !== worktreePath) {
+    throw badRequest("worktreePath must be normalized");
+  }
   if (isPathWithin(rootDir, resolved)) {
     return resolved;
   }
@@ -774,14 +791,6 @@ async function assertWorktreePathSafe(
 }
 
 type DashboardGitMutationType = "stash:push" | "stash:pop" | "pull:fast-forward" | "stash:pop-conflict";
-
-async function listConflictedFiles(cwd?: string): Promise<string[]> {
-  const output = await runGitCommand(["diff", "--name-only", "--diff-filter=U"], cwd, 10_000);
-  return output
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
 
 function assertRelativeFileSafe(worktreePath: string, file: string): string {
   if (typeof file !== "string" || file.trim().length === 0) {
@@ -855,7 +864,174 @@ async function reapplyPullAutostash(
   return { applied: true, conflict: false };
 }
 
-export async function pullGitBranch(cwd?: string, options?: { rebase?: boolean }): Promise<GitPullResult> {
+export interface PullGitBranchOptions {
+  rebase?: boolean;
+  integration?: {
+    worktreePath: string;
+    integrationBranch: string;
+    taskId?: string;
+    integrationRemote?: string;
+    store: TaskStore;
+    settings: Settings;
+    runId: string;
+  };
+}
+
+export type IntegrationPullResult =
+  | { kind: "pull-clean"; message: string; fromSha: string; toSha: string }
+  | { kind: "pull-restored"; message: string; fromSha: string; toSha: string; autostash: { status: "restored" | "ai-resolved" } }
+  | { kind: "stash-conflict"; message: string; fromSha: string; toSha: string; stashSha: string; stashLabel: string; conflictedFiles: string[]; autostashOutcome: "conflict-needs-manual" | "failed" };
+
+function emitDashboardGitAuditEvent(
+  store: TaskStore,
+  input: {
+    taskId?: string;
+    runId: string;
+    mutationType: DashboardGitMutationType;
+    target: string;
+    metadata?: Record<string, unknown>;
+  },
+): void {
+  Promise.resolve(store.recordRunAuditEvent?.({
+    taskId: input.taskId,
+    agentId: "dashboard-api",
+    runId: input.runId,
+    domain: "git",
+    mutationType: input.mutationType,
+    target: input.target,
+    metadata: input.metadata,
+  })).catch(() => undefined);
+}
+
+export async function pullGitBranch(cwd?: string, options?: PullGitBranchOptions): Promise<GitPullResult | IntegrationPullResult> {
+  const integration = options?.integration;
+  if (integration) {
+    const taskId = integration.taskId ?? "dashboard-pull";
+    const rootDir = integration.worktreePath;
+    if (!(await isGitRepo(rootDir))) {
+      throw badRequest("Not a git repository");
+    }
+
+    const currentBranch = (await runGitCommand(["rev-parse", "--abbrev-ref", "HEAD"], rootDir, 5_000)).trim();
+    if (currentBranch !== integration.integrationBranch) {
+      throw new ApiError(409, "Worktree is not on integration branch", { reason: "branch-mismatch", currentBranch });
+    }
+
+    const fromSha = (await runGitCommand(["rev-parse", "HEAD"], rootDir, 5_000)).trim();
+    const stashHandle = await stashUnrelatedRootDirChanges(rootDir, taskId);
+    if (stashHandle) {
+      emitDashboardGitAuditEvent(integration.store, {
+        taskId: integration.taskId,
+        runId: integration.runId,
+        mutationType: "stash:push",
+        target: rootDir,
+        metadata: {
+          taskId: integration.taskId,
+          worktreePath: rootDir,
+          stashSha: stashHandle.sha,
+          stashLabel: stashHandle.label,
+          untrackedIncluded: true,
+        },
+      });
+    }
+
+    const pullStart = performance.now();
+    await tryFastForwardFromOrigin(rootDir, taskId, integration.integrationBranch, integration.integrationRemote ?? "origin");
+    const durationMs = Math.round(performance.now() - pullStart);
+    const toSha = (await runGitCommand(["rev-parse", "HEAD"], rootDir, 5_000)).trim();
+
+    emitDashboardGitAuditEvent(integration.store, {
+      taskId: integration.taskId,
+      runId: integration.runId,
+      mutationType: "pull:fast-forward",
+      target: rootDir,
+      metadata: {
+        taskId: integration.taskId,
+        worktreePath: rootDir,
+        integrationBranch: integration.integrationBranch,
+        remote: integration.integrationRemote ?? "origin",
+        fromSha,
+        toSha,
+        durationMs,
+        succeeded: true,
+        ...(toSha === fromSha ? { behind: 0 } : {}),
+      },
+    });
+
+    if (!stashHandle) {
+      console.info(`[integration-pull] taskId=${taskId} worktree=${rootDir.split("/").pop() ?? rootDir} kind=pull-clean from=${fromSha.slice(0, 7)} to=${toSha.slice(0, 7)}`);
+      return { kind: "pull-clean", message: "Pull completed", fromSha, toSha };
+    }
+
+    const mergerOptions = {
+      taskId,
+      rootDir,
+      branch: integration.integrationBranch,
+      integrationBranch: integration.integrationBranch,
+      mergeMode: "squash",
+    } as MergerOptions;
+    const outcome = await restoreUnrelatedRootDirChanges(rootDir, taskId, stashHandle, {
+      store: integration.store,
+      options: mergerOptions,
+      settings: integration.settings,
+    });
+
+    if (outcome.status === "restored" || outcome.status === "ai-resolved") {
+      emitDashboardGitAuditEvent(integration.store, {
+        taskId: integration.taskId,
+        runId: integration.runId,
+        mutationType: "stash:pop",
+        target: rootDir,
+        metadata: {
+          taskId: integration.taskId,
+          worktreePath: rootDir,
+          stashSha: stashHandle.sha,
+          stashLabel: stashHandle.label,
+          autostashOutcome: outcome.status,
+        },
+      });
+      console.info(`[integration-pull] taskId=${taskId} worktree=${rootDir.split("/").pop() ?? rootDir} kind=pull-restored from=${fromSha.slice(0, 7)} to=${toSha.slice(0, 7)}`);
+      return { kind: "pull-restored", message: "Pulled latest changes and restored local edits.", fromSha, toSha, autostash: { status: outcome.status } };
+    }
+
+    if (outcome.status === "conflict-needs-manual" || outcome.status === "failed") {
+      const conflictedFiles = await getConflictedFiles(rootDir);
+      emitDashboardGitAuditEvent(integration.store, {
+        taskId: integration.taskId,
+        runId: integration.runId,
+        mutationType: "stash:pop-conflict",
+        target: rootDir,
+        metadata: {
+          taskId: integration.taskId,
+          worktreePath: rootDir,
+          stashSha: stashHandle.sha,
+          stashLabel: stashHandle.label,
+          conflictedFiles,
+          autostashOutcome: outcome.status,
+        },
+      });
+      console.info(`[integration-pull] taskId=${taskId} worktree=${rootDir.split("/").pop() ?? rootDir} kind=stash-conflict from=${fromSha.slice(0, 7)} to=${toSha.slice(0, 7)}`);
+      return {
+        kind: "stash-conflict",
+        message: "Pulled latest changes, but restoring local edits needs manual resolution.",
+        fromSha,
+        toSha,
+        stashSha: stashHandle.sha,
+        stashLabel: stashHandle.label,
+        conflictedFiles,
+        autostashOutcome: outcome.status,
+      };
+    }
+
+    await dropAutostashHandle(rootDir, taskId, stashHandle, {
+      keepIfLive: false,
+      store: integration.store,
+      context: "integration-pull",
+    }).catch(() => undefined);
+    console.info(`[integration-pull] taskId=${taskId} worktree=${rootDir.split("/").pop() ?? rootDir} kind=pull-clean from=${fromSha.slice(0, 7)} to=${toSha.slice(0, 7)}`);
+    return { kind: "pull-clean", message: "Pull completed", fromSha, toSha };
+  }
+
   const rebase = options?.rebase === true;
   const autostash = await createPullAutostash(cwd);
   try {
@@ -2362,7 +2538,7 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
 
   /**
    * POST /api/git/pull
-   * Pull the current branch.
+   * Pull current branch, or integration worktree when provided.
    */
   router.post("/git/pull", async (req, res) => {
     try {
@@ -2371,12 +2547,48 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
       if (!(await isGitRepo(rootDir))) {
         throw badRequest("Not a git repository");
       }
-      const { rebase } = req.body ?? {};
+      const requestCache = new Map<string, string[]>();
+      const { rebase, worktreePath, integrationBranch, taskId } = req.body ?? {};
       if (rebase !== undefined && typeof rebase !== "boolean") {
         throw badRequest("rebase must be a boolean");
       }
+      if (taskId !== undefined && typeof taskId !== "string") {
+        throw badRequest("taskId must be a string");
+      }
+
+      if (worktreePath !== undefined) {
+        if (rebase === true) {
+          throw badRequest("rebase not supported with worktreePath");
+        }
+        const safeWorktreePath = await assertWorktreePathSafe(scopedStore, worktreePath, requestCache);
+        if (typeof integrationBranch !== "string" || integrationBranch.trim().length === 0) {
+          throw badRequest("integrationBranch required when worktreePath set");
+        }
+        const settings = await scopedStore.getSettings();
+        const integrationRemote = await resolveIntegrationRemote({
+          settings,
+          rootDir: safeWorktreePath,
+          integrationBranch,
+        }).catch(() => "origin");
+        const runId = generateSyntheticRunId("dashboard-pull", taskId ?? "dashboard-pull");
+        const result = await pullGitBranch(safeWorktreePath, {
+          rebase: false,
+          integration: {
+            worktreePath: safeWorktreePath,
+            integrationBranch,
+            taskId,
+            integrationRemote,
+            store: scopedStore,
+            settings,
+            runId,
+          },
+        });
+        res.json(result);
+        return;
+      }
+
       const result = await pullGitBranch(rootDir, { rebase: rebase === true });
-      if (result.conflict) {
+      if ("conflict" in result && result.conflict) {
         throw new ApiError(409, result.message ?? "Merge conflict detected. Resolve manually.", {
           ...result,
         });
@@ -2390,230 +2602,10 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
     }
   });
 
-  /**
-   * POST /api/git/smart-pull
-   * Pull integration branch with optional auto-stash lifecycle.
-   */
-  router.post("/git/smart-pull", async (req, res) => {
-    try {
-      const { store: scopedStore } = await getProjectContext(req);
-      const { worktreePath, taskId, integrationBranch } = req.body ?? {};
-      if (typeof integrationBranch !== "string" || integrationBranch.trim().length === 0) {
-        throw badRequest("integrationBranch is required");
-      }
-      if (taskId !== undefined && typeof taskId !== "string") {
-        throw badRequest("taskId must be a string");
-      }
-
-      const requestCache = new Map<string, string[]>();
-      const safeWorktreePath = await assertWorktreePathSafe(scopedStore, worktreePath, requestCache);
-      if (!(await isGitRepo(safeWorktreePath))) {
-        throw badRequest("Not a git repository");
-      }
-
-      const currentBranch = (await runGitCommand(["rev-parse", "--abbrev-ref", "HEAD"], safeWorktreePath, 5_000)).trim();
-      if (currentBranch !== integrationBranch) {
-        throw new ApiError(409, "Worktree is not on integration branch", { reason: "branch-mismatch", currentBranch });
-      }
-
-      const fromSha = (await runGitCommand(["rev-parse", "HEAD"], safeWorktreePath, 5_000)).trim();
-      const dirty = await hasLocalChangesForPull(safeWorktreePath);
-
-      const emitGitAudit = (mutationType: DashboardGitMutationType, metadata: Record<string, unknown>) => {
-        if (typeof scopedStore.recordRunAuditEvent !== "function") return;
-        scopedStore.recordRunAuditEvent(buildDashboardGitAuditEvent({
-          taskId,
-          mutationType,
-          target: safeWorktreePath,
-          metadata,
-        }));
-      };
-
-      if (!dirty) {
-        const pullStart = performance.now();
-        const result = await pullGitBranch(safeWorktreePath, { rebase: false });
-        const pullDurationMs = Math.round(performance.now() - pullStart);
-        if (result.conflict) {
-          throw new ApiError(409, result.message || "Pull failed", { ...result });
-        }
-        const toSha = (await runGitCommand(["rev-parse", "HEAD"], safeWorktreePath, 5_000)).trim();
-        emitGitAudit("pull:fast-forward", {
-          taskId,
-          worktreePath: safeWorktreePath,
-          integrationBranch,
-          fromSha,
-          toSha,
-          durationMs: pullDurationMs,
-          succeeded: true,
-        });
-        console.info(`[smart-pull] taskId=${taskId ?? "unknown"} kind=clean-pull stashSha=none`);
-        res.json({ kind: "clean-pull", message: result.message, fromSha, toSha });
-        return;
-      }
-
-      const stashLabel = `fusion-auto-stash-${taskId ?? Date.now()}`;
-      const stashStart = performance.now();
-      const stashOutput = await runGitCommand(["stash", "push", "--include-untracked", "-m", stashLabel], safeWorktreePath, 15_000);
-      if (stashOutput.includes("No local changes to save")) {
-        const pullStart = performance.now();
-        const result = await pullGitBranch(safeWorktreePath, { rebase: false });
-        const pullDurationMs = Math.round(performance.now() - pullStart);
-        if (result.conflict) {
-          throw new ApiError(409, result.message || "Pull failed", { ...result });
-        }
-        const toSha = (await runGitCommand(["rev-parse", "HEAD"], safeWorktreePath, 5_000)).trim();
-        emitGitAudit("pull:fast-forward", {
-          taskId,
-          worktreePath: safeWorktreePath,
-          integrationBranch,
-          fromSha,
-          toSha,
-          durationMs: pullDurationMs,
-          succeeded: true,
-        });
-        console.info(`[smart-pull] taskId=${taskId ?? "unknown"} kind=clean-pull stashSha=none`);
-        res.json({ kind: "clean-pull", message: result.message, fromSha, toSha });
-        return;
-      }
-
-      const stashDurationMs = Math.round(performance.now() - stashStart);
-      const stashSha = (await runGitCommand(["rev-parse", "stash@{0}"], safeWorktreePath, 5_000)).trim();
-      emitGitAudit("stash:push", {
-        taskId,
-        worktreePath: safeWorktreePath,
-        stashSha,
-        stashLabel,
-        untrackedIncluded: true,
-        durationMs: stashDurationMs,
-      });
-
-      const pullStart = performance.now();
-      try {
-        await runGitCommand(["pull", "--ff-only"], safeWorktreePath, 30_000);
-      } catch (err: unknown) {
-        const message = getCommandErrorMessage(err);
-        const durationMs = Math.round(performance.now() - pullStart);
-        emitGitAudit("pull:fast-forward", {
-          taskId,
-          worktreePath: safeWorktreePath,
-          integrationBranch,
-          fromSha,
-          toSha: fromSha,
-          durationMs,
-          succeeded: false,
-          error: message,
-        });
-
-        try {
-          await runGitCommand(["stash", "pop"], safeWorktreePath, 20_000);
-        } catch (popErr: unknown) {
-          const popMessage = getCommandErrorMessage(popErr);
-          const conflictedFiles = await listConflictedFiles(safeWorktreePath);
-          const stashRef = await findStashRefBySha(stashSha, safeWorktreePath);
-          if (isGitConflictMessage(popMessage) || stashRef) {
-            emitGitAudit("stash:pop-conflict", {
-              taskId,
-              worktreePath: safeWorktreePath,
-              stashSha,
-              stashLabel,
-              conflictedFiles,
-              advice: "Resolve conflicts, then drop stash when complete.",
-            });
-            console.warn(`[smart-pull] taskId=${taskId ?? "unknown"} kind=stash-pop-conflict stashSha=${stashSha.slice(0, 7)}`);
-            const toSha = (await runGitCommand(["rev-parse", "HEAD"], safeWorktreePath, 5_000)).trim();
-            res.json({
-              kind: "stash-pop-conflict",
-              message: "Pull failed and stash restore conflicted. Resolve conflicts before continuing.",
-              fromSha,
-              toSha,
-              stashSha,
-              stashLabel,
-              conflictedFiles,
-            });
-            return;
-          }
-          throw new ApiError(409, "Pull failed and automatic stash restore failed", { stashSha, stashLabel, error: popMessage });
-        }
-
-        throw new ApiError(409, "Pull failed — local changes restored from stash", { stashSha, stashLabel, error: message });
-      }
-
-      const pullDurationMs = Math.round(performance.now() - pullStart);
-      const toSha = (await runGitCommand(["rev-parse", "HEAD"], safeWorktreePath, 5_000)).trim();
-      emitGitAudit("pull:fast-forward", {
-        taskId,
-        worktreePath: safeWorktreePath,
-        integrationBranch,
-        fromSha,
-        toSha,
-        durationMs: pullDurationMs,
-        succeeded: true,
-      });
-
-      const popStart = performance.now();
-      try {
-        await runGitCommand(["stash", "pop"], safeWorktreePath, 20_000);
-        emitGitAudit("stash:pop", {
-          taskId,
-          worktreePath: safeWorktreePath,
-          stashSha,
-          stashLabel,
-          durationMs: Math.round(performance.now() - popStart),
-        });
-        console.info(`[smart-pull] taskId=${taskId ?? "unknown"} kind=stash-pull-pop stashSha=${stashSha.slice(0, 7)}`);
-        res.json({
-          kind: "stash-pull-pop",
-          message: "Pulled latest changes and restored local edits from stash.",
-          fromSha,
-          toSha,
-          stashSha,
-          stashLabel,
-          stashApplied: true,
-          stashDropped: true,
-        });
-        return;
-      } catch (popErr: unknown) {
-        const popMessage = getCommandErrorMessage(popErr);
-        const stashRef = await findStashRefBySha(stashSha, safeWorktreePath);
-        if (!isGitConflictMessage(popMessage) && !stashRef) {
-          throw popErr;
-        }
-
-        const conflictedFiles = await listConflictedFiles(safeWorktreePath);
-        emitGitAudit("stash:pop-conflict", {
-          taskId,
-          worktreePath: safeWorktreePath,
-          stashSha,
-          stashLabel,
-          conflictedFiles,
-          advice: "Resolve conflicts, then drop stash when complete.",
-        });
-        console.warn(`[smart-pull] taskId=${taskId ?? "unknown"} kind=stash-pop-conflict stashSha=${stashSha.slice(0, 7)}`);
-        res.json({
-          kind: "stash-pop-conflict",
-          message: "Pulled latest changes, but stash restore conflicted.",
-          fromSha,
-          toSha,
-          stashSha,
-          stashLabel,
-          conflictedFiles,
-        });
-      }
-    } catch (err: unknown) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-      rethrowAsApiError(err);
-    }
-  });
-
   router.post("/git/stash-resolve", async (req, res) => {
     try {
       const { store: scopedStore } = await getProjectContext(req);
-      const { worktreePath, stashSha, file, choice } = req.body ?? {};
-      if (typeof stashSha !== "string" || stashSha.trim().length === 0) {
-        throw badRequest("stashSha is required");
-      }
+      const { worktreePath, file, choice } = req.body ?? {};
       if (choice !== "ours" && choice !== "theirs") {
         throw badRequest("choice must be ours or theirs");
       }
@@ -2621,14 +2613,14 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
       const requestCache = new Map<string, string[]>();
       const safeWorktreePath = await assertWorktreePathSafe(scopedStore, worktreePath, requestCache);
       const safeFile = assertRelativeFileSafe(safeWorktreePath, file);
-      const conflictedFiles = await listConflictedFiles(safeWorktreePath);
+      const conflictedFiles = await getConflictedFiles(safeWorktreePath);
       if (!conflictedFiles.includes(safeFile)) {
         throw badRequest("file is not conflicted");
       }
 
       await runGitCommand(["checkout", choice === "ours" ? "--ours" : "--theirs", "--", safeFile], safeWorktreePath, 10_000);
       await runGitCommand(["add", "--", safeFile], safeWorktreePath, 10_000);
-      const remainingConflicts = await listConflictedFiles(safeWorktreePath);
+      const remainingConflicts = await getConflictedFiles(safeWorktreePath);
       res.json({ resolvedFile: safeFile, choice, remainingConflicts });
     } catch (err: unknown) {
       if (err instanceof ApiError) {
@@ -2651,7 +2643,7 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
 
       const requestCache = new Map<string, string[]>();
       const safeWorktreePath = await assertWorktreePathSafe(scopedStore, worktreePath, requestCache);
-      const remainingConflicts = await listConflictedFiles(safeWorktreePath);
+      const remainingConflicts = await getConflictedFiles(safeWorktreePath);
       if (remainingConflicts.length > 0) {
         throw new ApiError(409, "Resolve conflicts before dropping stash", { remainingConflicts });
       }
@@ -2663,21 +2655,17 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
       }
 
       await runGitCommand(["stash", "drop", ref], safeWorktreePath, 10_000);
-      const stashLabel = ref;
-      if (typeof scopedStore.recordRunAuditEvent === "function") {
-        scopedStore.recordRunAuditEvent(buildDashboardGitAuditEvent({
+      Promise.resolve(scopedStore.recordRunAuditEvent?.(buildDashboardGitAuditEvent({
+        taskId,
+        mutationType: "stash:pop",
+        target: safeWorktreePath,
+        metadata: {
           taskId,
-          mutationType: "stash:pop",
-          target: safeWorktreePath,
-          metadata: {
-            taskId,
-            worktreePath: safeWorktreePath,
-            stashSha,
-            stashLabel,
-            manualResolution: true,
-          },
-        }));
-      }
+          worktreePath: safeWorktreePath,
+          stashSha,
+          manualResolution: true,
+        },
+      }))).catch(() => undefined);
 
       res.json({ dropped: true });
     } catch (err: unknown) {
@@ -2688,7 +2676,7 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
     }
   });
 
-  router.post("/git/stash-restore", async (req, res) => {
+  router.post("/git/stash-apply", async (req, res) => {
     try {
       const { store: scopedStore } = await getProjectContext(req);
       const { worktreePath, stashSha, taskId } = req.body ?? {};
@@ -2712,23 +2700,21 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
         res.json({ applied: true, conflict: false, conflictedFiles: [] });
       } catch (err: unknown) {
         const message = getCommandErrorMessage(err);
-        const conflictedFiles = await listConflictedFiles(safeWorktreePath);
+        const conflictedFiles = await getConflictedFiles(safeWorktreePath);
         if (isGitConflictMessage(message)) {
-          if (typeof scopedStore.recordRunAuditEvent === "function") {
-            scopedStore.recordRunAuditEvent(buildDashboardGitAuditEvent({
+          Promise.resolve(scopedStore.recordRunAuditEvent?.(buildDashboardGitAuditEvent({
+            taskId,
+            mutationType: "stash:pop-conflict",
+            target: safeWorktreePath,
+            metadata: {
               taskId,
-              mutationType: "stash:pop-conflict",
-              target: safeWorktreePath,
-              metadata: {
-                taskId,
-                worktreePath: safeWorktreePath,
-                stashSha,
-                stashLabel: ref,
-                conflictedFiles,
-                advice: "Resolve conflicts, then drop stash when complete.",
-              },
-            }));
-          }
+              worktreePath: safeWorktreePath,
+              stashSha,
+              stashLabel: ref,
+              conflictedFiles,
+              autostashOutcome: "conflict-needs-manual",
+            },
+          }))).catch(() => undefined);
           res.json({ applied: true, conflict: true, conflictedFiles });
           return;
         }

@@ -33,6 +33,12 @@ export {
   SquashAuditError,
   type MergerOptions,
   type AutostashOrphanRecord,
+  stashUnrelatedRootDirChanges,
+  dropAutostashHandle,
+  restoreUnrelatedRootDirChanges,
+  tryFastForwardFromOrigin,
+  getConflictedFiles,
+  type AutostashHandle,
 } from "./merger.js";
 export {
   resolveIntegrationBranch,
@@ -48,6 +54,9 @@ export {
   type HandoffResult,
   type MergeIntegrationRootResolution,
 } from "./merger-integration-worktree.js";
+export {
+  generateSyntheticRunId,
+} from "./run-audit.js";
 export {
   auditSquashMerge,
   formatSquashAuditReport,

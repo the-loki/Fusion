@@ -10,10 +10,11 @@ const mocked = vi.hoisted(() => ({
   clearPushError: vi.fn(),
   setForceWithLease: vi.fn(),
   setConflictState: vi.fn(),
+  stashModal: vi.fn(() => null),
 }));
 
 vi.mock("../../hooks/useMergeAdvanceNotice", () => ({ useMergeAdvanceNotice: mocked.useMergeAdvanceNotice }));
-vi.mock("../StashConflictModal", () => ({ default: () => null }));
+vi.mock("../StashConflictModal", () => ({ default: mocked.stashModal }));
 
 function baseHookState(overrides: Record<string, unknown> = {}) {
   return {
@@ -48,6 +49,7 @@ describe("MergeAdvanceNotice push affordance", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    mocked.stashModal.mockImplementation(() => null);
   });
 
   it("renders push section only when aheadCount > 0", () => {
@@ -121,5 +123,41 @@ describe("MergeAdvanceNotice push affordance", () => {
     mocked.useMergeAdvanceNotice.mockReturnValue(baseHookState({ pullState: "idle", pushState: { error: "locked", outcome: "merge-locked" } }));
     render(<MergeAdvanceNotice projectId="p1" />);
     expect(screen.getByRole("button", { name: "Pull" })).toBeEnabled();
+  });
+
+  it("shows pull and dirty stash copy when checkout is dirty", () => {
+    mocked.useMergeAdvanceNotice.mockReturnValue(baseHookState({ notice: { ...baseHookState().notice, userCheckout: { worktreePath: "/repo", dirty: true, untrackedCount: 2 } } }));
+    render(<MergeAdvanceNotice projectId="p1" />);
+    expect(screen.getByRole("button", { name: "Pull" })).toBeInTheDocument();
+    expect(screen.getByText(/local changes will be auto-stashed and restored/)).toBeInTheDocument();
+  });
+
+  it("hides pull button while stash conflict modal is open", () => {
+    mocked.stashModal.mockImplementation(() => null);
+    mocked.useMergeAdvanceNotice.mockReturnValue(baseHookState({
+      conflictState: {
+        stashSha: "abc1234",
+        stashLabel: "fusion-auto",
+        conflictedFiles: ["src/a.ts"],
+        autostashOutcome: "conflict-needs-manual",
+      },
+    }));
+    render(<MergeAdvanceNotice projectId="p1" />);
+    expect(screen.queryByRole("button", { name: "Pull" })).toBeNull();
+  });
+
+  it("does not dismiss notice when modal closes without dropping stash", () => {
+    mocked.useMergeAdvanceNotice.mockReturnValue(baseHookState({
+      conflictState: {
+        stashSha: "abc1234",
+        stashLabel: "fusion-auto",
+        conflictedFiles: ["src/a.ts"],
+        autostashOutcome: "conflict-needs-manual",
+      },
+    }));
+    render(<MergeAdvanceNotice projectId="p1" />);
+    const modalProps = mocked.stashModal.mock.calls.at(-1)?.[0] as { onClose: (stashDropped?: boolean) => void };
+    modalProps.onClose(false);
+    expect(mocked.dismiss).not.toHaveBeenCalled();
   });
 });

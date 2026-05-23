@@ -88,16 +88,51 @@ describe("run-audit provisioning mutation types", () => {
     ]);
   });
 
-  it("accepts smart-pull git mutation types", async () => {
+  it("accepts pull:fast-forward metadata shape", async () => {
     const store = new AuditStoreStub();
-    const auditor = createRunAuditor(store as unknown as TaskStore, { runId: "r1", agentId: "a1", taskId: "FN-5358" });
+    const auditor = createRunAuditor(store as unknown as TaskStore, { runId: "r1", agentId: "a1", taskId: "FN-5419" });
 
-    const types: GitMutationType[] = ["pull:fast-forward", "stash:pop-conflict", "push:origin"];
-    for (const type of types) {
-      await auditor.git({ type, target: "feature/worktree", metadata: { taskId: "FN-5358" } });
-    }
+    const type: GitMutationType = "pull:fast-forward";
+    await auditor.git({
+      type,
+      target: "/repo/.worktrees/integration",
+      metadata: {
+        taskId: "FN-5419",
+        worktreePath: "/repo/.worktrees/integration",
+        integrationBranch: "main",
+        remote: "origin",
+        fromSha: "1111111",
+        toSha: "2222222",
+        durationMs: 12,
+        succeeded: true,
+        behind: 0,
+        ahead: 0,
+      },
+    });
 
-    expect(store.events.map((event) => event.mutationType)).toEqual(types);
+    expect(store.events[0]?.mutationType).toBe(type);
+  });
+
+  it("accepts stash:pop-conflict metadata shape", async () => {
+    const store = new AuditStoreStub();
+    const auditor = createRunAuditor(store as unknown as TaskStore, { runId: "r1", agentId: "a1", taskId: "FN-5419" });
+
+    const type: GitMutationType = "stash:pop-conflict";
+    await auditor.git({
+      type,
+      target: "/repo/.worktrees/integration",
+      metadata: {
+        taskId: "FN-5419",
+        worktreePath: "/repo/.worktrees/integration",
+        stashSha: "abc123",
+        stashLabel: "fusion-autostash-FN-5419",
+        conflictedFiles: ["README.md"],
+        autostashOutcome: "conflict-needs-manual",
+        advice: "Resolve conflicts and drop stash when complete",
+      },
+    });
+
+    expect(store.events[0]?.mutationType).toBe(type);
   });
 
   it("records merge:scope:auto-widen git events", async () => {

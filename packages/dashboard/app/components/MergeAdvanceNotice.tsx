@@ -140,15 +140,18 @@ export default function MergeAdvanceNotice({ projectId, apiBase = "/api" }: Merg
       </div>
       <StashConflictModal
         open={conflictState !== null}
-        onClose={() => {
+        onClose={(stashDropped) => {
           setConflictState(null);
-          dismissWithFocusGuard();
+          if (stashDropped) {
+            dismissWithFocusGuard();
+          }
         }}
         worktreePath={checkout.worktreePath}
         integrationBranch={notice.integrationBranch}
         stashSha={conflictState?.stashSha ?? ""}
         stashLabel={conflictState?.stashLabel ?? ""}
         conflictedFiles={conflictState?.conflictedFiles ?? []}
+        autostashOutcome={conflictState?.autostashOutcome ?? "conflict-needs-manual"}
         taskId={notice.taskId}
       />
     </>

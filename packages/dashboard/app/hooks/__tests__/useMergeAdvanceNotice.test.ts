@@ -123,4 +123,51 @@ describe("useMergeAdvanceNotice", () => {
     act(() => vi.advanceTimersByTime(60_000));
     expect(mocked.api.mock.calls.length).toBe(initialCalls);
   });
+
+  it("pull posts to /git/pull and dismisses on clean outcome", async () => {
+    const pullEventPayload = { events: [{ ...eventPayload.events[0], toSha: "clean12345" }] };
+    mocked.api.mockImplementation(async (path: string) => {
+      if (String(path).includes("merge-advance-events")) return pullEventPayload;
+      if (String(path).includes("push-status")) return pushStatus;
+      if (String(path).includes("/git/pull")) return { kind: "pull-clean", toSha: "clean12345" };
+      return { ok: true, outcome: "ok", localSha: "localsha", remoteSha: "localsha" };
+    });
+    const { result } = renderHook(() => useMergeAdvanceNotice({ projectId: "p1-pull-clean" }));
+    await waitFor(() => expect(result.current.notice).not.toBeNull());
+    await act(async () => { await result.current.pull(); });
+    expect(mocked.api.mock.calls.some((call) => String(call[0]).startsWith("/git/pull?projectId=p1-pull-clean"))).toBe(true);
+    expect(result.current.conflictState).toBeNull();
+  });
+
+  it("pull stash-conflict opens conflict state and preserves error visibility", async () => {
+    const conflictEventPayload = { events: [{ ...eventPayload.events[0], toSha: "conflict12345" }] };
+    let callIndex = 0;
+    mocked.api.mockImplementation(async () => {
+      const current = callIndex;
+      callIndex += 1;
+      if (current === 0) return conflictEventPayload;
+      if (current === 1) return pushStatus;
+      if (current === 2) {
+        return {
+          kind: "stash-conflict",
+          toSha: "conflict12345",
+          stashSha: "stashsha",
+          stashLabel: "fusion-auto",
+          conflictedFiles: ["src/a.ts"],
+          autostashOutcome: "failed",
+        };
+      }
+      return pushStatus;
+    });
+    const { result } = renderHook(() => useMergeAdvanceNotice({ projectId: "p1-pull-conflict" }));
+    await waitFor(() => expect(result.current.notice).not.toBeNull());
+    await act(async () => { await result.current.pull(); });
+    await waitFor(() => expect(result.current.conflictState).not.toBeNull());
+    expect(result.current.conflictState).toEqual({
+      stashSha: "stashsha",
+      stashLabel: "fusion-auto",
+      conflictedFiles: ["src/a.ts"],
+      autostashOutcome: "failed",
+    });
+  });
 });

@@ -288,11 +288,14 @@ export type GitMutationType =
    *   taskId?: string;
    *   worktreePath: string;
    *   integrationBranch: string;
+   *   remote?: string;
    *   fromSha: string;
    *   toSha: string;
    *   durationMs: number;
    *   succeeded: boolean;
    *   error?: string;
+   *   behind?: number;
+   *   ahead?: number;
    * }
    * ```
    */
@@ -324,7 +327,8 @@ export type GitMutationType =
    *   stashSha: string;
    *   stashLabel: string;
    *   conflictedFiles: string[];
-   *   advice: string;
+   *   autostashOutcome: "conflict-needs-manual" | "failed";
+   *   advice?: string;
    * }
    * ```
    */

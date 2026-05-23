@@ -1896,7 +1896,7 @@ function resetMergeWithWarn(rootDir: string, taskId: string, label: string): voi
  *  `rescueShas` lists any race-rescue stashes the autostash captured for
  *  late-dirty paths (concurrent dev edits during the merger run). They are
  *  surfaced separately so the caller can log them to the task feed. */
-interface AutostashHandle {
+export interface AutostashHandle {
   sha: string;
   label: string;
   rescueShas?: { sha: string; label: string }[];
@@ -2461,7 +2461,7 @@ export const __test__ = {
   notifyAutostashOrphans,
 };
 
-async function stashUnrelatedRootDirChanges(
+export async function stashUnrelatedRootDirChanges(
   rootDir: string,
   taskId: string,
 ): Promise<AutostashHandle | null> {
@@ -2688,7 +2688,7 @@ async function isAutostashLive(rootDir: string, sha: string): Promise<boolean> {
   }
 }
 
-async function dropAutostashHandle(
+export async function dropAutostashHandle(
   rootDir: string,
   taskId: string,
   handle: AutostashHandle,
@@ -3384,7 +3384,7 @@ async function restoreRescueAutostashes(
   return { unresolvedCount };
 }
 
-async function restoreUnrelatedRootDirChanges(
+export async function restoreUnrelatedRootDirChanges(
   rootDir: string,
   taskId: string,
   handle: AutostashHandle,
@@ -9926,7 +9926,7 @@ export async function aiMergeTask(
  *  NOTE: This is NOT FN-5350's integration-branch ref advance path. FN-5350
  *  advances refs/heads/<integration-branch> via compare-and-swap `git update-ref`.
  */
-async function tryFastForwardFromOrigin(
+export async function tryFastForwardFromOrigin(
   rootDir: string,
   taskId: string,
   integrationBranch: string,
