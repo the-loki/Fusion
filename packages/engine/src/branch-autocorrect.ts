@@ -96,14 +96,17 @@ export async function attemptBranchAutocorrect({
   // contamination pattern). Restrict the verify to refs/heads/ so a stray tag
   // or remote ref with the same name cannot satisfy the check and lead the
   // subsequent `git checkout` to a detached HEAD on the wrong object.
+  const expectedRefArg = quoteShellArg(`refs/heads/${expected}`);
   const verifyExpected = await runGit(
-    `git show-ref --verify --quiet refs/heads/${expectedArg}`,
+    `git show-ref --verify --quiet ${expectedRefArg}`,
     worktreePath,
   );
   if (!verifyExpected.ok) {
     return { status: "failed", reason: `expected branch ${expected} does not exist` };
   }
-  const checkout = await runGit(`git checkout ${expectedArg}`, worktreePath);
+  // `--` disambiguates against a same-named tracked path; we already proved
+  // the ref exists, so this can only resolve as the branch.
+  const checkout = await runGit(`git checkout ${expectedArg} --`, worktreePath);
   if (checkout.ok) {
     return { status: "checked-out" };
   }

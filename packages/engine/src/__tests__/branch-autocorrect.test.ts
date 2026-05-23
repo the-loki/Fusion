@@ -87,8 +87,8 @@ describe("attemptBranchAutocorrect", () => {
     expect(result).toEqual({ status: "checked-out" });
     expect(mockedExec.mock.calls.map((c: unknown[]) => c[0])).toEqual([
       "git rev-parse --abbrev-ref --symbolic-full-name 'lemon-sage'@{u}",
-      "git show-ref --verify --quiet refs/heads/'fusion/fn-2'",
-      "git checkout 'fusion/fn-2'",
+      "git show-ref --verify --quiet 'refs/heads/fusion/fn-2'",
+      "git checkout 'fusion/fn-2' --",
     ]);
   });
 
