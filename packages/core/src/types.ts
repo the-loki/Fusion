@@ -3084,6 +3084,10 @@ export interface ProjectSettings {
    *  than this duration, the task is considered stuck and will be terminated and retried.
    *  Default: 600000 (10 minutes). Set to 0 to disable. */
   taskStuckTimeoutMs?: number;
+  /** Maximum milliseconds InProcessRuntime.stop() waits for in-flight tasks to drain
+   *  AFTER aborting their AI sessions. Default: 2000. Set to 0 to skip drain waits
+   *  entirely (test/CI). Set to 30000 to preserve the historical 30s grace window. */
+  runtimeStopDrainMs?: number;
   /** Epoch ms when the in-process runtime last became active (startup or transition
    *  out of globalPause/enginePaused). Time-based stuck/stalled/stale detectors floor
    *  their activity anchor at this value so engine downtime is not counted as quiet time.

@@ -1662,6 +1662,43 @@ export class TaskExecutor {
     }
   }
 
+  async abortAllInFlight(reason: string): Promise<void> {
+    const taskIds = new Set<string>([
+      ...this.activeSessions.keys(),
+      ...this.activeStepExecutors.keys(),
+      ...this.activeWorkflowStepSessions.keys(),
+      ...this.activeSubagentSessions.keys(),
+    ]);
+
+    for (const taskId of taskIds) {
+      try {
+        await this.awaitAbortInFlightTaskWork(taskId, reason);
+      } catch (err) {
+        executorLog.warn(`abortAllInFlight: failed to abort task ${taskId} — ${reason}: ${err}`);
+      }
+    }
+
+    for (const [agentId, session] of this.childSessions) {
+      try {
+        const sessionWithAbort = session as AgentSession & { abort?: () => Promise<void> };
+        if (typeof sessionWithAbort.abort === "function") {
+          await sessionWithAbort.abort();
+        }
+      } catch (err) {
+        executorLog.warn(`abortAllInFlight: failed to abort child session ${agentId} — ${reason}: ${err}`);
+      }
+
+      try {
+        session.dispose();
+      } catch (err) {
+        executorLog.warn(`abortAllInFlight: failed to dispose child session ${agentId} — ${reason}: ${err}`);
+      }
+    }
+    this.childSessions.clear();
+
+    executorLog.log(`abortAllInFlight: aborted ${taskIds.size} task surface(s) — ${reason}`);
+  }
+
   abortAllSessionBash(): void {
     for (const [taskId, { session }] of this.activeSessions) {
       try {

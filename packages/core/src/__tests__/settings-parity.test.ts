@@ -166,6 +166,7 @@ describe("settings key parity", () => {
 
   it("keeps task stuck timeout active by default without coupling to workflow step timeout", () => {
     expect(DEFAULT_PROJECT_SETTINGS.taskStuckTimeoutMs).toBe(600_000);
+    expect(DEFAULT_PROJECT_SETTINGS.runtimeStopDrainMs).toBe(2_000);
     expect(DEFAULT_PROJECT_SETTINGS.workflowStepTimeoutMs).toBe(360_000);
   });
 

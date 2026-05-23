@@ -321,6 +321,7 @@ Default notes:
 | `specStalenessEnabled` | `boolean` | `false` | Enforce automatic re-planning for stale plans. |
 | `specStalenessMaxAgeMs` | `number` | `21600000` | Spec staleness threshold in ms (6 hours). |
 | `taskStuckTimeoutMs` | `number` | `undefined` | Inactivity timeout for stuck-task recovery. |
+| `runtimeStopDrainMs` | `number` | `2000` | Maximum milliseconds `InProcessRuntime.stop()` waits for in-flight tasks to drain after aborting AI sessions. Set `0` to skip drain polling entirely (useful for test/CI). |
 | `engineActiveSinceMs` | `number` | `undefined` | Epoch ms when the in-process runtime last became active (startup or unpause). Time-based stuck/stalled/stale surfaces floor their activity anchor at this timestamp so paused/stopped downtime is not counted as quiet age. Runtime-managed; typically not set manually. |
 | `engineActivationGraceMs` | `number` | `300000` | Extra grace window (ms) added after `engineActiveSinceMs` before time-based stuck/stalled/stale surfaces can fire. Set `0` to disable warmup. |
 | `inReviewStallDeadlockThreshold` | `number` | `3` | Minimum number of identical consecutive in-review stall log entries (same stall code + reason) before self-healing auto-disposes the task by pausing it with `pausedReason="in-review-stall-deadlock"` and marking status `failed`. Set to `0` to disable. |

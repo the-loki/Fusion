@@ -1287,6 +1287,8 @@ Implementations:
 - `ChildProcessRuntime`
 - `RemoteNodeRuntime`
 
+`InProcessRuntime.stop()` now performs a two-layer executor shutdown: it first aborts detached bash subprocess trees (`abortAllSessionBash()`), then immediately aborts/disposes in-flight AI task sessions (`abortAllInFlight("engine stop")`) before entering the drain wait. The post-abort drain window is intentionally short by default (`runtimeStopDrainMs`, default `2000` ms) and can be set to `0` to skip drain polling in test/CI paths.
+
 ### IPC protocol (child-process mode)
 In `packages/engine/src/ipc/ipc-protocol.ts`:
 - Host commands: `START_RUNTIME`, `STOP_RUNTIME`, `GET_STATUS`, `GET_METRICS`, `PING`
