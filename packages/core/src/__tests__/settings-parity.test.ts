@@ -157,6 +157,12 @@ describe("settings key parity", () => {
     expect(isGlobalSettingsKey("directMergeCommitStrategy")).toBe(false);
   });
 
+  it("defaults mergeAdvanceAutoSync to stash-and-ff and keeps it project-scoped", () => {
+    expect(DEFAULT_PROJECT_SETTINGS.mergeAdvanceAutoSync).toBe("stash-and-ff");
+    expect(isProjectSettingsKey("mergeAdvanceAutoSync")).toBe(true);
+    expect(isGlobalSettingsKey("mergeAdvanceAutoSync")).toBe(false);
+  });
+
   it("keeps integrationBranch project-scoped", () => {
     expect(DEFAULT_PROJECT_SETTINGS.integrationBranch).toBeUndefined();
     expect(isProjectSettingsKey("integrationBranch")).toBe(true);

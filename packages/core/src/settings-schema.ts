@@ -197,6 +197,7 @@ export const DEFAULT_PROJECT_SETTINGS = {
   mergeStrategy: "direct",
   directMergeCommitStrategy: "always-squash",
   mergeIntegrationWorktree: "reuse-task-worktree",
+  mergeAdvanceAutoSync: "stash-and-ff",
   integrationBranch: undefined,
   requirePrApproval: false,
   pushAfterMerge: false,

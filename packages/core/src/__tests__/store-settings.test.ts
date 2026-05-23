@@ -111,6 +111,15 @@ describe("TaskStore", () => {
       const settings = await harness.store().getSettings();
       expect(settings.directMergeCommitStrategy).toBe("always-rebase");
     });
+
+    it("defaults mergeAdvanceAutoSync to stash-and-ff and persists updates", async () => {
+      const defaults = await harness.store().getSettings();
+      expect(defaults.mergeAdvanceAutoSync).toBe("stash-and-ff");
+
+      await harness.store().updateSettings({ mergeAdvanceAutoSync: "off" });
+      const settings = await harness.store().getSettings();
+      expect(settings.mergeAdvanceAutoSync).toBe("off");
+    });
   });
 
   // ── Planning/Validator Model Settings ────────────────────────────
