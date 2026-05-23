@@ -179,11 +179,29 @@ export function useMergeAdvanceNotice({ projectId, apiBase = "/api" }: { project
     return () => unsubscribe();
   }, [apiBase, fetchEvents, fetchPushStatus, projectId]);
 
-  const notice = useMemo(() => events.find((event) => (
-    event.succeeded === true
-    && event.userCheckout !== null
-    && event.userCheckout.worktreePath.trim().length > 0
-  )), [events]);
+  const notice = useMemo(() => {
+    const dismissed = new Set(dismissedShas);
+    return events.find((event) => {
+      if (event.succeeded !== true) return false;
+      if (event.userCheckout === null) return false;
+      if (event.userCheckout.worktreePath.trim().length === 0) return false;
+      if (dismissed.has(event.toSha)) return false;
+      // Suppress the banner when the merger's auto-sync hook already brought
+      // this user's checkout forward — `clean-sync` and
+      // `synced-with-edits-restored` outcomes mean the worktree is already at
+      // the new tip and there is nothing for the user to pull. Outcomes like
+      // `synced-with-pop-conflict`, `skipped-dirty`, `skipped-*`, and
+      // `failed` (or no auto-sync at all when the setting is `off`) leave
+      // the worktree behind, so the banner must still surface.
+      const userWorktreePath = event.userCheckout.worktreePath;
+      const successOutcomes = new Set(["clean-sync", "synced-with-edits-restored"]);
+      const handledByAutoSync = (event.autoSync ?? []).some((entry) =>
+        entry.worktreePath === userWorktreePath && successOutcomes.has(entry.outcome),
+      );
+      if (handledByAutoSync) return false;
+      return true;
+    });
+  }, [dismissedShas, events]);
 
   const dismiss = useCallback(() => {
     if (!notice) return;

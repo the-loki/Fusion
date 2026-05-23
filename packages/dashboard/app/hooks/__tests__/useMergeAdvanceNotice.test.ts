@@ -139,6 +139,77 @@ describe("useMergeAdvanceNotice", () => {
     expect(result.current.conflictState).toBeNull();
   });
 
+  it("dismiss() actually removes the banner — dismissedShas filter is applied in the notice memo", async () => {
+    const { result } = renderHook(() => useMergeAdvanceNotice({ projectId: "p1-dismiss" }));
+    await waitFor(() => expect(result.current.notice).not.toBeNull());
+    expect(result.current.notice?.toSha).toBe("abcdef123456");
+    act(() => result.current.dismiss());
+    await waitFor(() => expect(result.current.notice).toBeUndefined());
+  });
+
+  it("auto-sync success (clean-sync) for this user's worktree suppresses the banner", async () => {
+    const handledPayload = {
+      events: [{
+        ...eventPayload.events[0],
+        toSha: "auto-handled-1",
+        autoSync: [{ worktreePath: "/repo", outcome: "clean-sync", mode: "stash-and-ff" }],
+      }],
+    };
+    mocked.api.mockImplementation(async (path: string) => {
+      if (String(path).includes("merge-advance-events")) return handledPayload;
+      if (String(path).includes("push-status")) return pushStatus;
+      return { ok: true };
+    });
+    const { result } = renderHook(() => useMergeAdvanceNotice({ projectId: "p1-auto-handled" }));
+    await waitFor(() => expect(result.current.pushStatus?.localSha).toBe("localsha"));
+    // Banner must NOT appear — auto-sync already brought the worktree forward.
+    expect(result.current.notice).toBeUndefined();
+  });
+
+  it("auto-sync conflict (synced-with-pop-conflict) still surfaces the banner so the user can recover", async () => {
+    const conflictPayload = {
+      events: [{
+        ...eventPayload.events[0],
+        toSha: "auto-conflict-1",
+        autoSync: [{
+          worktreePath: "/repo",
+          outcome: "synced-with-pop-conflict",
+          mode: "stash-and-ff",
+          patchPath: "/tmp/fusion-worktree-sync-abc/edits.patch",
+          conflictedFiles: ["src/a.ts"],
+        }],
+      }],
+    };
+    mocked.api.mockImplementation(async (path: string) => {
+      if (String(path).includes("merge-advance-events")) return conflictPayload;
+      if (String(path).includes("push-status")) return pushStatus;
+      return { ok: true };
+    });
+    const { result } = renderHook(() => useMergeAdvanceNotice({ projectId: "p1-auto-conflict" }));
+    await waitFor(() => expect(result.current.notice).not.toBeNull());
+    expect(result.current.notice?.toSha).toBe("auto-conflict-1");
+  });
+
+  it("auto-sync success on a DIFFERENT worktree path does not suppress the banner for this user", async () => {
+    // Two project-root checkouts on the same branch: auto-sync handled the
+    // other one (/other-repo) but the current user is on /repo and still has
+    // a stale checkout.
+    const mixedPayload = {
+      events: [{
+        ...eventPayload.events[0],
+        toSha: "mixed-1",
+        autoSync: [{ worktreePath: "/other-repo", outcome: "clean-sync", mode: "stash-and-ff" }],
+      }],
+    };
+    mocked.api.mockImplementation(async (path: string) => {
+      if (String(path).includes("merge-advance-events")) return mixedPayload;
+      if (String(path).includes("push-status")) return pushStatus;
+      return { ok: true };
+    });
+    const { result } = renderHook(() => useMergeAdvanceNotice({ projectId: "p1-mixed" }));
+    await waitFor(() => expect(result.current.notice).not.toBeNull());
+  });
+
   it("pull stash-conflict opens conflict state and preserves error visibility", async () => {
     const conflictEventPayload = { events: [{ ...eventPayload.events[0], toSha: "conflict12345" }] };
     let callIndex = 0;
