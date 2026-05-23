@@ -334,7 +334,7 @@ describe("acquireTaskWorktree foreign start-point warning", () => {
     const warn = vi.fn();
     const logEntry = vi.fn().mockResolvedValue(undefined);
 
-    const execMock: any = (command: string, _opts: any, cb: any) => cb(null, "", "");
+    const execMock: any = (_command: string, _opts: any, cb: any) => cb(null, "", "");
     execMock[promisify.custom] = (command: string) => {
       if (command.startsWith("git rev-parse --verify \"fusion/fn-4367^")) {
         return Promise.resolve({ stdout: "deadbeefdeadbeef\n", stderr: "" });
