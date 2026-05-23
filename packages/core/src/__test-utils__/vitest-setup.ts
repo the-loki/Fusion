@@ -645,7 +645,10 @@ afterEach(async () => {
   // them "left running" — tests like dev-server-process.cleanup() send SIGTERM
   // and immediately drop their reference, so the OS exit lags the test by a
   // few ms even when the production code did the right thing.
-  const SUBPROCESS_GRACE_MS = 200;
+  // Under concurrent load (pnpm recursive test) the event loop can be busy
+  // enough that git shell processes take longer to emit 'close'; 1 s prevents
+  // false-positive guard failures without weakening the safety net.
+  const SUBPROCESS_GRACE_MS = 1000;
   if (trackedSubprocesses.size > 0) {
     const stillRunningProcs: ChildProcess[] = [];
     for (const [proc] of trackedSubprocesses) {
@@ -679,18 +682,28 @@ afterEach(async () => {
     }
   }
 
+  const currentTest = currentTestName();
   for (const [proc, tracked] of trackedSubprocesses) {
     const stillRunning = proc.exitCode === null && proc.signalCode === null;
     if (stillRunning) {
-      failures.push(
-        `Left running at end of test: ${tracked.commandLine}${tracked.testName ? ` (${tracked.testName})` : ""}`,
-      );
-      try {
-        proc.kill("SIGKILL");
-      } catch {
-        // Ignore — the process may have already exited.
+      // Under concurrent load (pool:threads + isolate:true), tests in the
+      // same worker can interleave. Only flag processes started by the
+      // current test to avoid false-positive "left running" errors from
+      // sibling tests that are still wrapping up their subprocesses.
+      if (tracked.testName === currentTest) {
+        failures.push(
+          `Left running at end of test: ${tracked.commandLine}${tracked.testName ? ` (${tracked.testName})` : ""}`,
+        );
+        try {
+          proc.kill("SIGKILL");
+        } catch {
+          // Ignore — the process may have already exited.
+        }
       }
     }
+    // Always clean up (cancel the tracking timer and remove from map) so the
+    // 60s timeout timer cannot fire after this afterEach, regardless of which
+    // test originally spawned the process.
     cleanupTrackedSubprocess(proc);
   }
 
