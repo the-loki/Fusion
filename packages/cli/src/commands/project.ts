@@ -24,7 +24,7 @@ import {
   readProjectIdentity,
   writeProjectIdentity,
 } from "@fusion/core";
-import { resolve, isAbsolute, relative, basename } from "node:path";
+import { resolve, isAbsolute, relative, basename, join } from "node:path";
 import { existsSync, statSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { detectProjectFromCwd, setDefaultProject } from "../project-context.js";

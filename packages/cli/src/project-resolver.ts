@@ -9,7 +9,7 @@
  */
 
 import { existsSync, statSync } from "node:fs";
-import { basename, dirname, resolve, normalize } from "node:path";
+import { basename, dirname, join, normalize, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import {
   CentralCore,
