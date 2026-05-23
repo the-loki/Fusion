@@ -4005,6 +4005,8 @@ export class TaskExecutor {
             fallbackProvider: executorFallbackProvider,
             fallbackModelId: executorFallbackModelId,
             defaultThinkingLevel: executorThinkingLevel,
+            runAuditor: audit,
+            settings,
             sessionManager,
             taskEnv,
             // Skill selection: use assigned agent skills if available, otherwise role fallback
@@ -4421,6 +4423,8 @@ export class TaskExecutor {
                   fallbackProvider: executorFallbackProvider,
                   fallbackModelId: executorFallbackModelId,
                   defaultThinkingLevel: executorThinkingLevel,
+                  runAuditor: audit,
+                  settings,
                   sessionManager: SessionManager.create(worktreePath),
                   taskEnv,
                   // Skill selection: use assigned agent skills if available, otherwise role fallback
@@ -6872,6 +6876,8 @@ Do not refactor, rename broadly, or make opportunistic improvements.
         defaultProvider: executorProvider,
         defaultModelId: executorModelId,
         defaultThinkingLevel: settings.defaultThinkingLevel,
+        runAuditor: createRunAuditor(this.store, this.getRunContextFor(task.id)),
+        settings,
         taskEnv: extraEnv,
         ...(skillContext?.skillSelectionContext ? { skillSelection: skillContext.skillSelectionContext } : {}),
       });
@@ -7961,6 +7967,8 @@ Backward compat fallback: if JSON is unavailable, you may still begin output wit
         fallbackProvider: settings.fallbackProvider,
         fallbackModelId: settings.fallbackModelId,
         defaultThinkingLevel: settings.defaultThinkingLevel,
+        runAuditor: createRunAuditor(this.store, this.getRunContextFor(task.id)),
+        settings,
         taskEnv,
         // Skill selection: use assigned agent skills if available, otherwise role fallback
         ...(skillContext.skillSelectionContext ? { skillSelection: skillContext.skillSelectionContext } : {}),
@@ -10412,6 +10420,8 @@ Child agent: ${agent.id} (${name})`;
             defaultModelId: childExecutorModelId,
             fallbackProvider: settings.fallbackProvider,
             fallbackModelId: settings.fallbackModelId,
+            runAuditor: createRunAuditor(this.store, this.getRunContextFor(taskId)),
+            settings,
             taskEnv,
             // Skill selection: use assigned agent skills if available, otherwise role fallback
             ...(skillContext.skillSelectionContext ? { skillSelection: skillContext.skillSelectionContext } : {}),

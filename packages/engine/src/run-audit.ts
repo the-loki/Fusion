@@ -428,6 +428,26 @@ export type DatabaseMutationType =
   | "task:auto-board-stall-unrecovered"
   /** Metadata: { errors: string[], lastCheckedAt: string | null, notificationDispatched: boolean } */
   | "task:auto-db-corruption-detected"
+  /**
+   * Per-lane runtime/provider/model selection telemetry, emitted once per
+   * `createResolvedAgentSession` call. Target is the resolved runtime id
+   * (e.g., `"pi"`, `"mock"`, `"hermes"`).
+   *
+   * Metadata shape:
+   * ```ts
+   * {
+   *   sessionPurpose: SessionPurpose;        // canonical lane label
+   *   runtimeId: string;                     // resolved runtime id (same as target)
+   *   wasConfigured: boolean;                // runtime was explicitly configured (vs default fallback)
+   *   provider: string | null;               // resolved AI provider id (null when not yet set)
+   *   modelId: string | null;                // resolved model id (null when not yet set)
+   *   mockProviderActive: boolean;           // isMockProviderId(provider) — convenience flag for test-mode assertions
+   *   testModeActive: boolean;               // isTestModeActive(settings) at resolution time
+   *   runtimeHint?: string;                  // raw runtime hint when present
+   * }
+   * ```
+   */
+  | "session:runtime-resolved"
   | "task:in-review-stall-deadlock-disposed"
   | "task:finalize-unproven-blocked"
   | "task:integrity-reconcile-modified-files"

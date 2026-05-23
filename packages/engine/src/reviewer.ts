@@ -24,6 +24,7 @@ import {
 } from "./agent-instructions.js";
 import { buildPromptLayers, collapsePromptLayers } from "./prompt-layers.js";
 import { createFallbackModelObserver } from "./fallback-model-observer.js";
+import { createRunAuditor, generateSyntheticRunId } from "./run-audit.js";
 import { createMemoryGetTool, createMemorySearchTool, createWebFetchTool } from "./agent-tools.js";
 
 export const REVIEWER_SYSTEM_PROMPT = `You are an independent code and plan reviewer.
@@ -500,6 +501,15 @@ export async function reviewStep(
   const createReviewerSession = async (
     overrides?: { forceProvider?: string; forceModelId?: string },
   ): Promise<import("@mariozechner/pi-coding-agent").AgentSession> => {
+    const runAuditor = options.store
+      ? createRunAuditor(options.store, {
+        runId: generateSyntheticRunId("reviewer", options.taskId ?? "review"),
+        agentId: options.agentId ?? "reviewer",
+        taskId: options.taskId,
+        phase: "review",
+        source: "reviewer",
+      })
+      : undefined;
     const { session } = await createResolvedAgentSession({
       sessionPurpose: "reviewer",
       runtimeHint: extractRuntimeHint(memoryAgent?.runtimeConfig),
@@ -518,6 +528,8 @@ export async function reviewStep(
       fallbackProvider: validatorFallbackProvider,
       fallbackModelId: validatorFallbackModelId,
       defaultThinkingLevel: options.defaultThinkingLevel,
+      runAuditor,
+      settings: options.settings,
       ...(skillContext?.skillSelectionContext ? { skillSelection: skillContext.skillSelectionContext } : {}),
       taskId: options.taskId,
       taskTitle: options.taskTitle,
