@@ -427,11 +427,37 @@ interface LandedTaskCommit {
   rebaseBaseSha?: string;
 }
 
+/**
+ * Decide whether a git commit belongs to a given task.
+ *
+ * Ownership is line-anchored and subject-anchored: it is NOT sufficient for the
+ * task ID to appear in prose. FN-5441/FN-5446 regression — both were
+ * mis-attributed to e3dbfaae (an FN-5483 commit whose body merely *mentioned*
+ * them by name) because the previous `subject.includes(taskId)` check matched
+ * any substring anywhere in the subject.
+ *
+ * Accept (any of):
+ *  - `Fusion-Task-Lineage: <lineageId>` as a complete trailer line in the body
+ *  - `Fusion-Task-Id: <taskId>` as a complete trailer line in the body
+ *  - Subject anchored on the task ID in conventional-commit form:
+ *      `<type>(<taskId>): …` or `<taskId>: …` or `<type>(<taskId>/...): …`
+ */
 function commitOwnedByTask(taskId: string, lineageId: string | undefined, subject: string, body: string): boolean {
-  if (lineageId && body.includes(`Fusion-Task-Lineage: ${lineageId}`)) {
+  if (lineageId && new RegExp(`(?:^|\\n)Fusion-Task-Lineage: ${escapeRegex(lineageId)}\\s*(?:\\n|$)`).test(body)) {
     return true;
   }
-  return body.includes(`Fusion-Task-Id: ${taskId}`) || subject.includes(taskId);
+  if (new RegExp(`(?:^|\\n)Fusion-Task-Id: ${escapeRegex(taskId)}\\s*(?:\\n|$)`).test(body)) {
+    return true;
+  }
+  // Subject anchor: `<scope>(<taskId>...): …` or `<taskId>: …` at start.
+  const subjectAnchor = new RegExp(
+    `^(?:[A-Za-z]+(?:\\([^)]*\\b${escapeRegex(taskId)}\\b[^)]*\\))?:|${escapeRegex(taskId)}:)`,
+  );
+  return subjectAnchor.test(subject);
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function shellQuote(value: string): string {
@@ -1217,10 +1243,32 @@ export class SelfHealingManager {
       stdout = await search(shellQuote(task.id), true);
     }
 
-    const firstLine = stdout.trim().split("\n").find(Boolean);
-    if (!firstLine) return null;
-
-    const [sha, subject] = firstLine.split("\x1f");
+    // FN-5441/FN-5446 regression: `git log --grep=FN-XXXX` matches the entire
+    // commit message, including prose body mentions. The previous code blindly
+    // accepted the first match — which is how FN-5441/5446 got attributed to
+    // an unrelated FN-5483 commit that *mentioned* them by name. Walk the
+    // candidates and accept only the first one that actually owns the task
+    // (anchored lineage/id trailer or subject-anchored conventional commit).
+    const candidateLines = stdout.trim().split("\n").filter(Boolean);
+    let sha = "";
+    let subject = "";
+    for (const line of candidateLines) {
+      const [candidateSha, candidateSubject = ""] = line.split("\x1f");
+      if (!candidateSha) continue;
+      try {
+        const { stdout: bodyOut } = await execAsync(
+          `git log -1 --format=%b ${shellQuote(candidateSha)}`,
+          { cwd: this.options.rootDir, maxBuffer: 1024 * 1024 },
+        );
+        if (commitOwnedByTask(task.id, task.lineageId, candidateSubject, bodyOut)) {
+          sha = candidateSha;
+          subject = candidateSubject;
+          break;
+        }
+      } catch {
+        // If we can't read the body, conservatively skip this candidate.
+      }
+    }
     if (!sha) return null;
 
     const commit: LandedTaskCommit = { sha, subject, rebaseBaseSha };

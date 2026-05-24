@@ -7297,6 +7297,31 @@ export async function aiMergeTask(
   const mergeTarget = resolveTaskMergeTarget(task, {
     projectDefaultBranch: resolvedIntegrationBranch,
   });
+  if (mergeTarget.rejected) {
+    // FN-5233/FN-5530 regression: the task's baseBranch/inheritedBaseBranch
+    // pointed at a sibling fusion/fn-* branch. The resolver fell through to
+    // projectDefault, but we surface the steering miss in the audit timeline
+    // so the underlying baseBranch-propagation bug stays observable.
+    mergerLog.warn(
+      `${taskId}: merge target rejected (${mergeTarget.rejected.reason}): ${mergeTarget.rejected.source}=${mergeTarget.rejected.branch} → using ${mergeTarget.branch}`,
+    );
+    try {
+      await (store as any).recordRunAuditEvent?.({
+        domain: "git",
+        mutationType: "merge:merge-target-rejected-fusion-sibling",
+        target: taskId,
+        metadata: {
+          rejectedBranch: mergeTarget.rejected.branch,
+          rejectedSource: mergeTarget.rejected.source,
+          reason: mergeTarget.rejected.reason,
+          fallbackBranch: mergeTarget.branch,
+          fallbackSource: mergeTarget.source,
+        },
+      });
+    } catch {
+      // best-effort audit; never block the merge on telemetry
+    }
+  }
   const integrationBranch = resolvedIntegrationBranch;
   let branch = task.branch || canonicalFusionBranchName(taskId);
 
