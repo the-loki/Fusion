@@ -1237,6 +1237,14 @@ export interface PullGitBranchOptions {
     store: TaskStore;
     settings: Settings;
     runId: string;
+    /**
+     * When true, skip the `tryFastForwardFromOrigin` step entirely. Use this
+     * for "the merger advanced local `refs/heads/<branch>` and my worktree is
+     * stale relative to it" recovery — there's no need to fetch or merge from
+     * origin, just hard-reset the worktree to the local ref. Avoids silently
+     * pulling in unrelated remote work the operator didn't ask for.
+     */
+    skipOriginFetch?: boolean;
   };
 }
 
@@ -1299,7 +1307,9 @@ export async function pullGitBranch(cwd?: string, options?: PullGitBranchOptions
     }
 
     const pullStart = performance.now();
-    await tryFastForwardFromOrigin(rootDir, taskId, integration.integrationBranch, integration.integrationRemote ?? "origin");
+    if (!integration.skipOriginFetch) {
+      await tryFastForwardFromOrigin(rootDir, taskId, integration.integrationBranch, integration.integrationRemote ?? "origin");
+    }
 
     // Sync working tree + index to the local integration tip. The merger
     // advances `refs/heads/<integrationBranch>` via `git update-ref` without
@@ -2966,12 +2976,15 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
         throw badRequest("Not a git repository");
       }
       const requestCache = new Map<string, string[]>();
-      const { rebase, worktreePath, integrationBranch, taskId } = req.body ?? {};
+      const { rebase, worktreePath, integrationBranch, taskId, skipOriginFetch } = req.body ?? {};
       if (rebase !== undefined && typeof rebase !== "boolean") {
         throw badRequest("rebase must be a boolean");
       }
       if (taskId !== undefined && typeof taskId !== "string") {
         throw badRequest("taskId must be a string");
+      }
+      if (skipOriginFetch !== undefined && typeof skipOriginFetch !== "boolean") {
+        throw badRequest("skipOriginFetch must be a boolean");
       }
 
       if (worktreePath !== undefined) {
@@ -2999,6 +3012,7 @@ export function registerGitGitHubRoutes(ctx: ApiRoutesContext): void {
             store: scopedStore,
             settings,
             runId,
+            skipOriginFetch: skipOriginFetch === true,
           },
         });
         res.json(result);

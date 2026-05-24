@@ -10,7 +10,6 @@ import { useOverlayDismiss } from "../hooks/useOverlayDismiss";
 import { useMobileKeyboard } from "../hooks/useMobileKeyboard";
 import { useMobileScrollLock } from "../hooks/useMobileScrollLock";
 import { useViewportMode } from "../hooks/useViewportMode";
-import { subscribeSse } from "../sse-bus";
 import type {
   GitStatus,
   GitCommit,
@@ -96,15 +95,6 @@ import {
 
 type SectionId = "status" | "changes" | "commits" | "branches" | "worktrees" | "stashes" | "remotes";
 
-interface MergeAdvanceEvent {
-  taskId: string;
-  integrationBranch: string;
-  toSha: string;
-  fromSha: string | null;
-  advanceMode: "fast-forward" | "non-fast-forward" | "update-ref" | string;
-  succeeded: boolean;
-  advancedAt: string;
-}
 
 const SECTIONS: { id: SectionId; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
   { id: "status", label: "Status", icon: Radio },
@@ -230,8 +220,6 @@ export function GitManagerModal({ isOpen, onClose, tasks: _tasks, addToast, proj
   // ── Status state
   const [status, setStatus] = useState<GitStatus | null>(null);
 
-  // ── Integration advance events state
-  const [mergeAdvanceEvents, setMergeAdvanceEvents] = useState<MergeAdvanceEvent[]>([]);
   const [rootDir, setRootDir] = useState<string | null>(null);
 
   // ── Changes state
@@ -830,38 +818,11 @@ export function GitManagerModal({ isOpen, onClose, tasks: _tasks, addToast, proj
     }
   }, [addToast, projectId]);
 
-  // ── Integration advance events ──────────────────────────────────
-
-  const fetchMergeAdvanceEvents = useCallback(async () => {
-    try {
-      const query = new URLSearchParams({ limit: "5" });
-      if (projectId) query.set("projectId", projectId);
-      const response = await api<{ events: MergeAdvanceEvent[] }>(`/tasks/merge-advance-events?${query.toString()}`);
-      setMergeAdvanceEvents(Array.isArray(response.events) ? response.events.filter((e) => e.succeeded) : []);
-    } catch {
-      setMergeAdvanceEvents([]);
-    }
-  }, [projectId]);
-
-  // Fetch rootDir from config (used as worktreePath for sync button)
+  // Fetch rootDir from config (used as worktreePath for the per-task sync
+  // button surfaced from RemotesPanel below).
   useEffect(() => {
     fetchConfig(projectId).then((cfg) => setRootDir(cfg.rootDir)).catch(() => setRootDir(null));
   }, [projectId]);
-
-  // Fetch events on open and subscribe to SSE for live updates
-  useEffect(() => {
-    if (!isOpen) return;
-    void fetchMergeAdvanceEvents();
-    const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
-    const unsubscribe = subscribeSse(`/api/events${query}`, {
-      events: {
-        "task:merged": () => {
-          void fetchMergeAdvanceEvents();
-        },
-      },
-    });
-    return () => unsubscribe();
-  }, [isOpen, fetchMergeAdvanceEvents, projectId]);
 
   const handleSyncIntegrationTip = useCallback(async () => {
     if (!status?.integrationBranch || status.isOnIntegrationBranch === false) return;
@@ -879,18 +840,22 @@ export function GitManagerModal({ isOpen, onClose, tasks: _tasks, addToast, proj
           worktreePath,
           integrationBranch: status.integrationBranch,
           taskId: undefined,
+          // Pure-local catch-up: the merger advanced refs/heads/<integration>
+          // locally; the worktree just needs to hard-reset to that ref.
+          // No reason to fetch/merge from origin here — that would silently
+          // pull in unrelated remote work the operator didn't ask for.
+          skipOriginFetch: true,
         }),
       });
-      addToast("Synced worktree to integration tip", "success");
+      addToast("Synced worktree to local integration tip", "success");
       const statusData = await fetchGitStatus(projectId, { extended: true });
       setStatus(statusData);
-      await fetchMergeAdvanceEvents();
     } catch (err) {
       addToast(getErrorMessage(err) || "Sync failed", "error");
     } finally {
       setRemoteLoading(null);
     }
-  }, [addToast, fetchMergeAdvanceEvents, projectId, rootDir, status?.integrationBranch, status?.isOnIntegrationBranch]);
+  }, [addToast, projectId, rootDir, status?.integrationBranch, status?.isOnIntegrationBranch]);
 
   // ── Derived state ───────────────────────────────────────────────
 
@@ -970,16 +935,8 @@ export function GitManagerModal({ isOpen, onClose, tasks: _tasks, addToast, proj
               <StatusPanel
                 status={status}
                 copyToClipboard={copyToClipboard}
-                onSyncWorkingTree={() => handlePull({ rebase: false })}
-                syncing={remoteLoading === "pull"}
-                mergeAdvanceEvents={mergeAdvanceEvents}
-                onSyncIntegrationTip={handleSyncIntegrationTip}
-                syncingIntegration={remoteLoading === "sync-integration"}
-                syncIntegrationDisabled={
-                  !status.integrationBranch ||
-                  status.isOnIntegrationBranch === false ||
-                  remoteLoading !== null
-                }
+                onSyncWorkingTree={handleSyncIntegrationTip}
+                syncing={remoteLoading === "sync-integration"}
               />
             )}
 
@@ -1108,19 +1065,11 @@ function StatusPanel({
   copyToClipboard,
   onSyncWorkingTree,
   syncing,
-  mergeAdvanceEvents,
-  onSyncIntegrationTip,
-  syncingIntegration,
-  syncIntegrationDisabled,
 }: {
   status: GitStatus;
   copyToClipboard: (text: string, label?: string) => void;
   onSyncWorkingTree: () => void;
   syncing: boolean;
-  mergeAdvanceEvents: MergeAdvanceEvent[];
-  onSyncIntegrationTip: () => void;
-  syncingIntegration: boolean;
-  syncIntegrationDisabled: boolean;
 }) {
   const [advancesHelpOpen, setAdvancesHelpOpen] = useState(false);
   return (
@@ -1360,47 +1309,6 @@ function StatusPanel({
           )}
         </div>
       )}
-      {status.integrationBranch && (
-        <div className="gm-integration-actions" data-testid="integration-actions">
-          <button
-            className="btn btn-sm gm-sync-integration-btn"
-            onClick={onSyncIntegrationTip}
-            disabled={syncIntegrationDisabled}
-            title={
-              !status.integrationBranch
-                ? "No integration branch configured"
-                : status.isOnIntegrationBranch === false
-                ? `Not on integration branch (${status.integrationBranch})`
-                : "Sync working tree to local integration tip"
-            }
-            data-testid="sync-integration-tip-btn"
-          >
-            {syncingIntegration ? (
-              <Loader2 size={14} className="spin" />
-            ) : (
-              <GitMerge size={14} />
-            )}
-            Sync local tip
-          </button>
-        </div>
-      )}
-      {mergeAdvanceEvents.length > 0 && (
-        <div className="gm-recent-advances" data-testid="recent-advance-events">
-          <div className="gm-recent-advances-header">Recent integration advances</div>
-          <ul className="gm-recent-advances-list">
-            {mergeAdvanceEvents.map((event) => (
-              <li key={`${event.taskId}-${event.toSha}`} className="gm-recent-advance-item">
-                <code className="gm-hash">{event.toSha.slice(0, 8)}</code>
-                {" "}
-                <span className="gm-recent-advance-task">{event.taskId}</span>
-                <span className="gm-status-sub">
-                  {" · "}{relativeDate(event.advancedAt)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
       {status.indexStaleVsHead === true && (
         <div className="gm-status-warning" data-testid="index-stale-warning" role="alert">
           <AlertCircle size={14} />
@@ -1461,10 +1369,13 @@ function StatusPanel({
                 <li><code>stash-failed</code> / <code>would-conflict</code> / similar — auto-sync tried but couldn&apos;t reconcile (usually local edits collide with the new commit).</li>
               </ul>
               <p>
-                <strong>Fix:</strong> click <em>Sync working tree</em> to pull
-                now (uncommitted edits are auto-stashed and restored). To make
-                this automatic going forward, enable{" "}
-                <code>mergeAdvanceAutoSync</code> in Settings.
+                <strong>Fix:</strong> click <em>Sync working tree</em> to catch
+                up now. Pure-local — it auto-stashes any uncommitted edits,
+                hard-resets the worktree to match the local integration tip
+                (the sha the merger advanced <code>refs/heads/{status.integrationBranch ?? "main"}</code> to),
+                and restores your stash. Origin is not touched, so no unrelated
+                remote work gets pulled in. To make this automatic going
+                forward, enable <code>mergeAdvanceAutoSync</code> in Settings.
               </p>
             </div>
           )}
