@@ -122,6 +122,16 @@ describe("wrapAuthStorageWithApiKeyProviders", () => {
     expect(providerIds).toContain("opencode-go");
   });
 
+  it("always includes FunnyTech AI Proxy when registry has no funny-tech models", () => {
+    const fusionAuth = makeAuthStorage();
+    const modelRegistry = { getAll: vi.fn(() => []) } as any;
+
+    const wrapped = wrapAuthStorageWithApiKeyProviders(fusionAuth, modelRegistry);
+    const providers = wrapped.getApiKeyProviders();
+
+    expect(providers).toContainEqual({ id: "funny-tech", name: "FunnyTech AI Proxy" });
+  });
+
   it("filters opencode-go from API key providers when OAuth provider id collides", () => {
     const fusionAuth = makeAuthStorage();
     fusionAuth.getOAuthProviders = vi.fn(() => [{ id: "opencode-go", name: "Opencode Go OAuth" }]);

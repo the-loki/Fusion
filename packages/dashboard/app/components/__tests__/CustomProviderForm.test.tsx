@@ -14,14 +14,14 @@ describe("CustomProviderForm", () => {
     expect(screen.getByLabelText("API Key")).toBeInTheDocument();
   });
 
-  it("validates required fields and rejects built-in IDs", async () => {
+  it.each(["openai", "funny-tech"])("validates required fields and rejects built-in ID %s", async (providerId) => {
     const user = userEvent.setup();
     render(<CustomProviderForm onSave={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: "Save Provider" }));
     expect(screen.getByText("Provider ID is required.")).toBeInTheDocument();
 
-    await user.type(screen.getByLabelText("Provider ID"), "openai");
+    await user.type(screen.getByLabelText("Provider ID"), providerId);
     await user.type(screen.getByLabelText("Base URL"), "https://proxy.example.com/v1");
     await user.type(screen.getByLabelText("Model ID 1"), "gpt-4o-mini");
     await user.click(screen.getByRole("button", { name: "Save Provider" }));

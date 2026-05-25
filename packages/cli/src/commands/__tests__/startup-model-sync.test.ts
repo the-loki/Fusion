@@ -9,7 +9,12 @@ vi.mock("node:child_process", () => ({
   spawn: mockSpawn,
 }));
 
-import { parseOpencodeModelsOutput, refreshOpencodeGoModels, syncStartupModels } from "../startup-model-sync.js";
+import {
+  normalizeOpenAiCompatibleBaseUrl,
+  parseOpencodeModelsOutput,
+  refreshOpencodeGoModels,
+  syncStartupModels,
+} from "../startup-model-sync.js";
 
 type MockProcess = EventEmitter & {
   stdout: EventEmitter;
@@ -44,6 +49,18 @@ describe("startup-model-sync", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("adds v1 to root OpenAI-compatible provider endpoints", () => {
+    expect(normalizeOpenAiCompatibleBaseUrl("https://aiproxy.funny-tech.site")).toBe(
+      "https://aiproxy.funny-tech.site/v1",
+    );
+    expect(normalizeOpenAiCompatibleBaseUrl("https://aiproxy.funny-tech.site/")).toBe(
+      "https://aiproxy.funny-tech.site/v1",
+    );
+    expect(normalizeOpenAiCompatibleBaseUrl("https://aiproxy.funny-tech.site/v1")).toBe(
+      "https://aiproxy.funny-tech.site/v1",
+    );
   });
 
   it("syncs OpenRouter and opencode-go models", async () => {
@@ -83,6 +100,35 @@ describe("startup-model-sync", () => {
     expect(log).toHaveBeenCalledWith("opencode-go", expect.stringContaining("Synced"));
   });
 
+  it("registers FunnyTech as an OpenAI-compatible provider using the OpenAI model surface", async () => {
+    mockOpenRouterFetchSequence({ ok: true, body: { data: [] } });
+
+    const registerProvider = vi.fn();
+    await syncStartupModels({
+      getSettings: vi.fn().mockResolvedValue({ openrouterModelSync: true, opencodeGoModelSync: false }),
+      authStorage: { getApiKey: vi.fn().mockResolvedValue(undefined) },
+      modelRegistry: { registerProvider },
+      log: vi.fn(),
+    });
+
+    expect(registerProvider).toHaveBeenCalledWith(
+      "funny-tech",
+      expect.objectContaining({
+        name: "FunnyTech AI Proxy",
+        baseUrl: "https://aiproxy.funny-tech.site/v1",
+        apiKey: "FUNNYTECH_API_KEY",
+        api: "openai-completions",
+        models: expect.arrayContaining([
+          expect.objectContaining({
+            id: "gpt-4o",
+            name: "GPT-4o",
+            reasoning: false,
+          }),
+        ]),
+      }),
+    );
+  });
+
   it("respects disabled settings", async () => {
     vi.stubGlobal("fetch", vi.fn());
     const registerProvider = vi.fn();
@@ -96,7 +142,8 @@ describe("startup-model-sync", () => {
 
     expect(globalThis.fetch).not.toHaveBeenCalled();
     expect(mockSpawn).not.toHaveBeenCalled();
-    expect(registerProvider).not.toHaveBeenCalled();
+    expect(registerProvider).toHaveBeenCalledTimes(1);
+    expect(registerProvider).toHaveBeenCalledWith("funny-tech", expect.any(Object));
   });
 
   it("sends default OpenRouter attribution headers", async () => {

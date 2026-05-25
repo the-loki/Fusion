@@ -727,6 +727,7 @@ const providerConfig: Record<
 
   openai: { component: OpenAIIcon, color: "var(--provider-openai)" },
   "openai-codex": { component: OpenAIIcon, color: "var(--provider-openai)", label: "OpenAI Codex" }, // OpenAI alias
+  "funny-tech": { component: OpenAIIcon, color: "var(--provider-openai)", label: "FunnyTech AI Proxy" },
 
   google: { component: GeminiIcon, color: "var(--provider-gemini)" },
   gemini: { component: GeminiIcon, color: "var(--provider-gemini)" }, // Gemini alias family

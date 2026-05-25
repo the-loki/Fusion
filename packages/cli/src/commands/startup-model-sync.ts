@@ -1,4 +1,7 @@
 import { spawn } from "node:child_process";
+import { FUNNY_TECH_PROVIDER_ID, getFunnyTechProviderConfig } from "./funny-tech-provider.js";
+
+export { normalizeOpenAiCompatibleBaseUrl } from "./funny-tech-provider.js";
 
 const OPENROUTER_PUBLIC_MODELS_URL = "https://openrouter.ai/api/v1/models";
 const OPENROUTER_USER_MODELS_URL = "https://openrouter.ai/api/v1/models/user";
@@ -299,6 +302,9 @@ export async function refreshOpencodeGoModels(options: {
 
 export async function syncStartupModels(options: StartupSyncOptions): Promise<void> {
   const settings = await options.getSettings();
+
+  options.modelRegistry.registerProvider(FUNNY_TECH_PROVIDER_ID, getFunnyTechProviderConfig());
+  options.log("funny-tech", "Registered FunnyTech AI Proxy provider");
 
   if (settings.openrouterModelSync !== false) {
     try {

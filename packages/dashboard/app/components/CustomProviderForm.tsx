@@ -6,7 +6,7 @@ import "./CustomProviderForm.css";
 
 // Reserved built-in IDs (including hidden/deprecated aliases) to prevent custom-provider collisions.
 export const BUILT_IN_PROVIDER_IDS = new Set<string>([
-  "anthropic", "claude-cli", "pi-claude-cli", "openai", "openai-codex", "google", "gemini", "google-antigravity",
+  "anthropic", "claude-cli", "pi-claude-cli", "openai", "openai-codex", "funny-tech", "google", "gemini", "google-antigravity",
   "antigravity", "google-vertex", "vertex", "google-cloud-code", "cloud-code", "google-gemini-cli", "google-generative-ai",
   "ollama", "github", "github-copilot", "openrouter", "minimax", "minimax-cn", "zai", "kimi", "moonshot", "kimi-coding",
   "bedrock", "amazon-bedrock", "xai", "grok", "opencode", "opencode-go", "qwen", "qwen-ai", "qwen-coder", "alibaba", "tongyi",

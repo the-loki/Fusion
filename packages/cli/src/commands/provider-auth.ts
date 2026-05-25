@@ -11,6 +11,7 @@ import {
 } from "@fusion/core";
 import { getOAuthProvider } from "@mariozechner/pi-ai/oauth";
 import type { OAuthCredentials } from "@mariozechner/pi-ai/oauth";
+import { FUNNY_TECH_PROVIDER_ID, FUNNY_TECH_PROVIDER_NAME } from "./funny-tech-provider.js";
 
 export type LoginCallbacks = Parameters<AuthStorage["login"]>[1] & {
   onManualCodeInput?: () => Promise<string>;
@@ -43,6 +44,7 @@ type StoredCredential = StoredAuthCredential;
 
 const BUILT_IN_API_KEY_PROVIDERS: Array<{ id: string; name: string }> = [
   { id: "brave", name: "Brave Search" },
+  { id: FUNNY_TECH_PROVIDER_ID, name: FUNNY_TECH_PROVIDER_NAME },
   { id: "kimi-coding", name: "Kimi" },
   { id: "minimax", name: "Minimax" },
   { id: "openrouter", name: "OpenRouter" },

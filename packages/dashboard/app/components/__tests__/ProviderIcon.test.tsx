@@ -3,6 +3,12 @@ import { render, screen } from "@testing-library/react";
 import { ProviderIcon } from "../ProviderIcon";
 
 describe("ProviderIcon", () => {
+  it("renders OpenAI brand icon for funny-tech provider", () => {
+    render(<ProviderIcon provider="funny-tech" />);
+    expect(screen.getByTestId("openai-icon")).toBeInTheDocument();
+    expect(screen.getByLabelText("FunnyTech AI Proxy")).toBeInTheDocument();
+  });
+
   it("renders OpenAI brand icon for openai-codex provider", () => {
     render(<ProviderIcon provider="openai-codex" />);
     expect(screen.getByTestId("openai-icon")).toBeInTheDocument();
