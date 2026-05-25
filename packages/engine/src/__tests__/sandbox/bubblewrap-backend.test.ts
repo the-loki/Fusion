@@ -86,6 +86,7 @@ describe("BubblewrapBackend", () => {
   );
 
   it.skipIf(process.platform !== "linux" || !hasBwrap)("runs real bubblewrap hello integration", async () => {
+    vi.resetModules();
     vi.doUnmock("../../sandbox/bubblewrap-detect.js");
     const { BubblewrapBackend: RealBackend } = await import("../../sandbox/bubblewrap-backend.js");
     const backend = new RealBackend();
@@ -98,7 +99,7 @@ describe("BubblewrapBackend", () => {
       encoding: "utf-8",
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.exitCode, result.stderr).toBe(0);
     expect(result.stdout.trim()).toBe("hello");
   });
 });

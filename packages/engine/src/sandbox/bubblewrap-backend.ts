@@ -1,4 +1,5 @@
 import { exec, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { promisify } from "node:util";
 
 import { detectBwrap } from "./bubblewrap-detect.js";
@@ -84,6 +85,7 @@ export class BubblewrapBackend implements SandboxBackend {
       nodeBinPath: process.execPath,
       homeDir: process.env.HOME ?? "",
       envSource: options.env ?? process.env,
+      pathExists: existsSync,
     });
 
     const bwrapPath = detect.path ?? "bwrap";

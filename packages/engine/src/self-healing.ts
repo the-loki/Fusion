@@ -2980,15 +2980,10 @@ export class SelfHealingManager {
             timeout: 30_000,
           });
           const aheadCount = Number.parseInt(aheadCountRaw.stdout.trim(), 10);
-          const normalizedBranchRef = branch.toLowerCase();
-          const existingCandidate = existingCandidatesByRef.get(normalizedBranchRef);
-          const normalizedCandidate = canonicalFusionBranchName(task.id);
-          if (!existingCandidate || branch === normalizedCandidate) {
-            existingCandidatesByRef.set(normalizedBranchRef, {
-              branch,
-              aheadCount: Number.isFinite(aheadCount) ? aheadCount : 0,
-            });
-          }
+          existingCandidatesByRef.set(branch, {
+            branch,
+            aheadCount: Number.isFinite(aheadCount) ? aheadCount : 0,
+          });
         }
 
         const existingCandidates = [...existingCandidatesByRef.values()];

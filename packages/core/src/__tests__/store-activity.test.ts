@@ -812,7 +812,8 @@ describe("TaskStore", () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const storeAny = store as any;
       const originalTasksDir = storeAny.tasksDir;
-      storeAny.tasksDir = join(rootDir, ".fusion", "missing-tasks-dir");
+      const invalidTasksDir = `${join(rootDir, ".fusion", "missing-tasks-dir")}\0`;
+      storeAny.tasksDir = invalidTasksDir;
 
       try {
         await store.watch();
@@ -825,7 +826,7 @@ describe("TaskStore", () => {
         const [, context] = warningCall as [string, Record<string, unknown>];
         expect(context).toMatchObject({
           phase: "watch:fs-watch-setup",
-          tasksDir: join(rootDir, ".fusion", "missing-tasks-dir"),
+          tasksDir: invalidTasksDir,
         });
         expect(typeof context.error).toBe("string");
         expect(storeAny.pollInterval).not.toBeNull();
